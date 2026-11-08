@@ -205,10 +205,35 @@ def find_gateway(timeout=2.0):
     return None
 
 
+def _port_mapping(control, service, protocol, port):
+    """The router's existing mapping, or None for UPnP's NoSuchEntry (714).
+
+    Unknown failures are *not* treated as an empty mapping: guessing could replace another
+    application's forward. Fail closed instead.
+    """
+    try:
+        return soap(control, service, 'GetSpecificPortMappingEntry', (
+            ('NewRemoteHost', ''), ('NewExternalPort', port), ('NewProtocol', protocol)))
+    except UpnpError as error:
+        if str(error) == 'GetSpecificPortMappingEntry refused (714)':
+            return None
+        raise
+
+
+def _our_mapping(entry, local, port):
+    """A mapping installed by this application, not just one pointing to the same PC."""
+    return (entry is not None and entry.get('NewInternalClient') == local
+            and entry.get('NewInternalPort') == str(port)
+            and entry.get('NewPortMappingDescription') == DESCRIPTION)
+
+
 def open_ports(ports=HOST_PORTS, found=None):
-    """Forwards the host's ports to this PC. Returns {'state': 'open' | 'cgnat' | 'refused' | 'none',
-    'public': the router's internet address or '', 'local': this PC's LAN address or '', 'failed':
-    the ports the router refused}. 'open' means every port is forwarded and the address is public."""
+    """Forward all ports or undo the forwards created by this attempt on partial failure.
+
+    Never replace another program's forward, including a forward to this same PC, and never
+    roll back a mapping this app already owned before this call. A successful response means
+    the router reports the mappings; reachability through other routers is not proved by UPnP.
+    """
     found = found or find_gateway()
     if not found:
         return {'state': 'none', 'public': '', 'local': '', 'failed': []}
@@ -221,20 +246,32 @@ def open_ports(ports=HOST_PORTS, found=None):
     if public and not is_public(public):
         return {'state': 'cgnat', 'public': public, 'local': local, 'failed': []}
     failed = []
+    created = []
     for protocol, port in ports:
+        name = f'{protocol} {port}'
         try:
+            existing = _port_mapping(control, service, protocol, port)
+            if existing is not None:
+                if not _our_mapping(existing, local, port):
+                    failed.append(name)  # Never overwrite a mapping owned by something else.
+                continue  # Our previous mapping is already in place, so leave it alone.
             soap(control, service, 'AddPortMapping', (
                 ('NewRemoteHost', ''), ('NewExternalPort', port), ('NewProtocol', protocol),
                 ('NewInternalPort', port), ('NewInternalClient', local), ('NewEnabled', 1),
                 ('NewPortMappingDescription', DESCRIPTION), ('NewLeaseDuration', 0)))
+            created.append((protocol, port))
         except (UpnpError, ElementTree.ParseError):
-            failed.append(f'{protocol} {port}')
+            failed.append(name)
+    if failed:
+        # A partial success is not a working co-op setup. Return newly opened ports to their
+        # previous state, without touching other applications' mappings or our older ones.
+        close_ports(ports=created, found=found)
     state = 'refused' if failed or not public else 'open'
     return {'state': state, 'public': public, 'local': local, 'failed': failed}
 
 
 def close_ports(ports=HOST_PORTS, found=None):
-    """Takes the forwards away again; returns how many the router removed."""
+    """Remove only this app's forwards. Never remove other programs' forwards on this PC."""
     found = found or find_gateway(timeout=1.5)
     if not found:
         return 0
@@ -243,10 +280,9 @@ def close_ports(ports=HOST_PORTS, found=None):
     removed = 0
     for protocol, port in ports:
         try:
-            entry = soap(control, service, 'GetSpecificPortMappingEntry', (
-                ('NewRemoteHost', ''), ('NewExternalPort', port), ('NewProtocol', protocol)))
-            if entry.get('NewInternalClient') != local:
-                continue  # another PC's forward: not ours to take away
+            entry = _port_mapping(control, service, protocol, port)
+            if not _our_mapping(entry, local, port):
+                continue
             soap(control, service, 'DeletePortMapping', (
                 ('NewRemoteHost', ''), ('NewExternalPort', port), ('NewProtocol', protocol)))
             removed += 1

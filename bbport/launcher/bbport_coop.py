@@ -1271,17 +1271,13 @@ def prune_launcher_backups(install, kept=KEPT_LAUNCHER_BACKUPS):
     return removed
 
 
-def restore_saves(install, name):
-    """Puts backup `name` back as the saves (the game must not run). The saves as they were are kept
-    first as a launcher backup, so a restore can be undone. Returns that backup's path, or None when
-    the saves were already in a backup. Raises ValueError for a backup that is missing or holds no saves."""
-    if not BACKUP_NAME.match(name):
-        raise ValueError(f'no backup {name}')
-    user = Path(install) / 'user'
-    files = save_files(user / SAVE_BACKUPS / name)
-    if not files:
-        raise ValueError(f'backup {name} holds no saves')
-    safety = back_up_saves(install, f'before restoring {name}', prune=False)
+def _apply_save_set(user, files):
+    """Replace the exact game saves and party files (not the rest of user/, logs or settings).
+
+    Keep this in one place for restore *and its automatic rollback*. It is not atomic on its
+    own; restore_saves first preflights the new data and keeps the old set available.
+    """
+    user = Path(user)
     for folder in [user / 'savedata'] + sorted((user / 'home').glob('*/savedata')):
         shutil.rmtree(folder, ignore_errors=True)
     for party in user.glob('bloodborne_party_*.txt'):
@@ -1290,11 +1286,60 @@ def restore_saves(install, name):
         target = user / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-    if save_files(user) != files:
-        raise OSError(f'the saves did not come back whole from {name}')
+
+
+def restore_saves(install, name):
+    """Restore a named snapshot without leaving a half-written save on ordinary failures.
+
+    Prepare and verify every backup file in a temporary folder on the same drive BEFORE deleting
+    the current saves. Keep the normal 'before restoring' backup. If applying the new set fails,
+    restore the previous bytes immediately; if even that fails, retain the safety backup and
+    report the failure clearly instead of claiming success. Never touch game files, logs,
+    account secrets or an active game (the caller prevents restoring while the game runs).
+    """
+    import tempfile
+
+    if not BACKUP_NAME.match(name):
+        raise ValueError(f'no backup {name}')
+    user = Path(install) / 'user'
+    files = save_files(user / SAVE_BACKUPS / name)
+    if not files:
+        raise ValueError(f'backup {name} holds no saves')
+    previous = save_files(user)
+
+    # A disk-full or unreadable backup fails before any savedata/party file is removed.
+    # The stage is intentionally outside savedata/ and the game's save-backups/ directory.
+    with tempfile.TemporaryDirectory(prefix='.bbsc-restore-stage-', dir=user) as temporary:
+        stage = Path(temporary)
+        for relative, data in files.items():
+            target = stage / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        if save_files(stage) != files:
+            raise OSError(f'backup {name} could not be staged completely')
+
+        safety = back_up_saves(install, f'before restoring {name}', prune=False)
+        try:
+            _apply_save_set(user, files)
+            if save_files(user) != files:
+                raise OSError(f'the saves did not come back whole from {name}')
+        except Exception as error:
+            try:
+                _apply_save_set(user, previous)
+                if save_files(user) != previous:
+                    raise OSError('the previous save set did not come back whole')
+            except Exception as rollback_error:
+                raise OSError(
+                    f'restoring {name} failed, and automatic rollback failed; '
+                    f'keep the safety backup at {safety or (user / SAVE_BACKUPS)}'
+                ) from rollback_error
+            raise OSError(
+                f'restoring {name} failed; previous saves were restored, '
+                f'and safety backup kept at {safety or (user / SAVE_BACKUPS)}'
+            ) from error
+
     prune_launcher_backups(install)
     return safety
-
 
 # --- playing ------------------------------------------------------------------------------------
 

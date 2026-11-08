@@ -11,6 +11,11 @@ on:
       - 'bbport/tests/test_ultimate_edition.py'
       - 'bbport/tests/test_launcher_look.py'
       - 'bbport/tests/test_launcher_game_map_sync.py'
+      - 'bbport/tests/test_launcher_upnp.py'
+      - 'bbport/tests/test_save_restore_atomicity.py'
+      - 'emulator/src/core/bloodborne_host_rules_game.cpp'
+      - 'tools/re/tests/test_team_travel_locking.py'
+      - 'tools/re/tests/fixtures/team_travel.cpp.in'
       - 'bbport/packaging/windows/version_info.py'
       - 'tools/release/check_release.py'
       - 'tools/make-release.ps1'
@@ -37,7 +42,7 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
           git diff --name-only origin/main HEAD | tee /tmp/changed_paths.txt
-          if grep -vE '^(bbport/launcher/bbport_auth\.py|bbport/launcher/bbport_lang_auth\.py|bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_launcher_auth\.py|bbport/tests/test_launcher_look\.py|bbport/tests/test_launcher_game_map_sync\.py|bbport/tests/test_ultimate_edition\.py|bbport/packaging/windows/version_info\.py|tools/release/check_release\.py|tools/make-release\.ps1|tools/release/setup\.iss|tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|docs/ULTIMATE_SOURCE_AUDIT\.md|docs/ULTIMATE_PLAYABLE_EDITION\.md|\.github/workflows/ultimate-windows-test\.yml)$' /tmp/changed_paths.txt; then
+          if grep -vE '^(bbport/launcher/bbport_auth\.py|bbport/launcher/bbport_lang_auth\.py|bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_upnp\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_launcher_auth\.py|bbport/tests/test_launcher_look\.py|bbport/tests/test_launcher_game_map_sync\.py|bbport/tests/test_launcher_upnp\.py|bbport/tests/test_save_restore_atomicity\.py|bbport/tests/test_ultimate_edition\.py|bbport/packaging/windows/version_info\.py|tools/release/check_release\.py|tools/make-release\.ps1|tools/release/setup\.iss|tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|tools/re/tests/test_team_travel_locking\.py|tools/re/tests/fixtures/team_travel\.cpp\.in|emulator/src/core/bloodborne_host_rules_game\.cpp|tools/ultimate/source_sweep\.py|tools/ultimate/test_source_sweep\.py|\.github/workflows/ultimate-source-sweep\.yml|docs/ULTIMATE_SOURCE_AUDIT\.md|docs/ULTIMATE_PLAYABLE_EDITION\.md|\.github/workflows/ultimate-windows-test\.yml)$' /tmp/changed_paths.txt; then
             echo 'UNEXPECTED_RUNTIME_OR_SERVER_EDIT' >&2
             exit 1
           fi
@@ -46,14 +51,25 @@ jobs:
           set -euo pipefail
           python3 -m py_compile bbport/tests/test_launcher_look.py bbport/tests/test_launcher_game_map_sync.py \
             bbport/launcher/bbport_auth.py bbport/launcher/bbport_lang_auth.py \
-            bbport/launcher/bbport_coop.py \
+            bbport/launcher/bbport_coop.py bbport/launcher/bbport_upnp.py \
+            bbport/tests/test_launcher_upnp.py bbport/tests/test_save_restore_atomicity.py \
             bbport/launcher/bbport_launcher_win.py \
             bbport/tests/test_ultimate_edition.py
           python3 -m unittest discover -s bbport/tests -p 'test_ultimate_edition.py' -v
           python3 -m unittest discover -s bbport/tests -p 'test_launcher_auth.py' -v
           python3 -m unittest discover -s bbport/tests -p 'test_launcher_game_map_sync.py' -v
+          python3 -m unittest discover -s bbport/tests -p 'test_launcher_upnp.py' -v
+          python3 -m unittest discover -s bbport/tests -p 'test_save_restore_atomicity.py' -v
+          PYTHONPATH=bbport/tests python3 -m unittest test_coop_launcher.SaveBackupTests -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_source_sweep.py' -v
           python3 -m unittest discover -s bbport/tests -p 'test_launcher_version_info.py' -v
           python3 -m unittest discover -s tools/re/tests -p 'test_event_patch_validation.py' -v
+      - name: Compile and run native Travel Together deadlock regression
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libfmt-dev
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_travel_locking.py' -v
       - name: PowerShell release-script syntax (no release)
         shell: pwsh
         run: |
