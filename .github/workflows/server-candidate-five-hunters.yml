@@ -36,11 +36,11 @@ jobs:
           if grep -vE '^(server/|docs/HOSTED_SERVER\.md$|docs/SERVER_HARDENING\.md$|\.github/workflows/server-hardening\.yml$|\.github/workflows/server-candidate-five-hunters\.yml$)' /tmp/changed_paths.txt; then
             echo 'UNEXPECTED_CLIENT_OR_PROTOCOL_EDIT' >&2
             exit 1
+          fi
           # No network protocol, data schema, client, launcher or game hooks.
           if grep -E '^(server/coop/|server/proto/|server/src/server_link\\.|server/src/config\\.|server/src/database\\.|bbport/|emulator/|launcher/)' /tmp/changed_paths.txt; then
             echo 'UNEXPECTED_PROTOCOL_OR_CLIENT_SOURCE_EDIT' >&2
             exit 1
-          fi
           fi
       - name: Check five-hunter and multi-owner boundaries
         run: |
