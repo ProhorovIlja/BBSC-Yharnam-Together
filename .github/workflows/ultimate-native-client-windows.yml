@@ -108,8 +108,34 @@ jobs:
             echo 'WINDOWS_NATIVE_CLIENT_BUILD_FAILED (bounded last 65 lines):'
             tail -n 65 out/ultimate-native-build.log || true
             if test -f out/gpu-build.log; then
-              echo 'GPU_COMPILER_ERRORS (bounded last 55 lines):'
-              tail -n 55 out/gpu-build.log || true
+              echo 'GPU_FIRST_LINK_OR_COMPILER_FAILURES (at most 5 errors, bounded context):'
+              # Ninja's failing target/first linker diagnostic can occur long
+              # before the 55-line tail. Read only local CI log and emit short
+              # fragments, not full compiler output, paths, credentials or dumps.
+              awk '
+                BEGIN { matches=0; after=0; have=0 }
+                /(^FAILED:|ld\\.lld: error:|lld-link: error:|clang: error:|undefined reference|undefined symbol:|collect2: error:|fatal error:|error:|ninja: build stopped|CMake Error)/ {
+                  if (matches < 5) {
+                    matches++
+                    printf "DIAGNOSTIC %d at build-log line %d\\n", matches, NR
+                    if (have) print "PREVIOUS: " substr(previous, 1, 350)
+                    print substr($0, 1, 600)
+                    after=5
+                    next
+                  }
+                }
+                {
+                  if (after > 0 && matches <= 5) {
+                    print substr($0, 1, 600)
+                    after--
+                  }
+                  previous=$0
+                  have=1
+                }
+                END { if (matches == 0) print "NO_MATCHING_ERROR_LINE_IN_GPU_LOG" }
+              ' out/gpu-build.log | head -n 80
+              echo 'GPU_BUILD_TAIL (last 15 non-sensitive lines):'
+              tail -n 15 out/gpu-build.log | cut -c 1-600
             fi
             exit 1
           fi
