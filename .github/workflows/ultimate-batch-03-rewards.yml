@@ -1,0 +1,73 @@
+name: Ultimate B03 deferred game rewards source regression (no release)
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_flags_store.cpp'
+      - 'tools/re/tests/test_deferred_rewards_retries.py'
+      - 'tools/ultimate/batch_03_manifest.json'
+      - 'docs/ULTIMATE_BATCH_03.md'
+      - '.github/workflows/ultimate-batch-03-rewards.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b03-rewards-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-without-full-game-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Source-only isolation from server, player saves and Windows release
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-02-reconnect-world-regressions-20261108:refs/remotes/origin/b02
+          git diff --name-only origin/b02 HEAD > /tmp/b03-paths.txt
+          cat /tmp/b03-paths.txt
+          if grep -vE '^(emulator/src/core/bloodborne_flags_store\.cpp|tools/re/tests/test_deferred_rewards_retries\.py|tools/ultimate/batch_03_manifest\.json|docs/ULTIMATE_BATCH_03\.md|\.github/workflows/ultimate-batch-03-rewards\.yml)$' /tmp/b03-paths.txt; then
+            echo 'Unexpected server, network protocol, deployment or game asset source modification' >&2
+            exit 1
+          fi
+          test "$(wc -l < /tmp/b03-paths.txt)" -eq 5
+      - name: Verify exact game source provenance and manifest invariants
+        run: |
+          set -euo pipefail
+          python3 -m json.tool tools/ultimate/batch_03_manifest.json >/dev/null
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          m = json.loads(pathlib.Path("tools/ultimate/batch_03_manifest.json").read_text())
+          assert m["batch_id"] == "B03-2026-11-08"
+          assert m["previous_pr"] == 33
+          assert m["no_deploy"] and m["no_player_saves"] and m["no_game_assets"]
+          for file, sha in ((m["fix"]["file"], m["fix"]["source_blob"]),
+                            (m["fix"]["test_path"], m["fix"]["test_blob"])):
+              data = pathlib.Path(file).read_bytes()
+              actual = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              assert actual == sha, f"Pinned blob mismatch: {file}: {actual} vs {sha}"
+          print("B03_SOURCE_PIN_AND_NO_DEPLOY_GATES_PASS")
+          PY
+      - name: Compile actual production deferred-reward queue helper and execute five-item tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+          echo 'REAL_CPP_DEFERRED_BOSS_AND_NPC_RETRY_TEST_PASS'
+      - name: Keep B01/B02 source compatibility and prior team-world tests intact
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_02.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_world_lamps_regression.py' -v
+          echo 'B01_B02_EXISTING_SOURCE_REGRESSIONS_PASS'
+      - name: No release or production side effects
+        run: |
+          echo 'B03_ONLY_SOURCE_TESTED. NO GAME/SAVES/CLIENT BUILD/SERVER BUILD/DEPLOY.'
+          echo 'Real Windows five-hunter game rewards, save-slot isolation and map load testing required.'
