@@ -279,6 +279,8 @@ Answer Stats(Context& context) {
                         {"link_key", Key(context)},
                         {"bad_hellos", static_cast<qint64>(context.hub.BadHellos())},
                         {"bad_tags", static_cast<qint64>(context.hub.BadTags())},
+                        {"world_sync_failures",
+                         static_cast<qint64>(context.world.WorldSyncFailures())},
                         {"hellos_refused", static_cast<qint64>(count.hellos_refused)},
                         {"datagrams_dropped", static_cast<qint64>(count.datagrams_dropped)},
                         {"accounts_refused", static_cast<qint64>(count.accounts_refused)},
