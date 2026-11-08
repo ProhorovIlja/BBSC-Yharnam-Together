@@ -46,7 +46,8 @@ jobs:
           base = Path("server/hosting/Dockerfile").read_text()
           anchor = "FROM build AS loadtest-build"
           assert base.count(anchor) == 1, "Unexpected upstream Dockerfile"
-          stage = """# Isolated CI-only stage. Not committed to the server runtime.
+          stage = """
+          # Isolated CI-only stage. Not committed to the server runtime.
           FROM build AS online-admin-tests
           ARG BUILD_JOBS=2
           RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \\
@@ -57,10 +58,13 @@ jobs:
           # Remove indentation introduced by YAML block while keeping Docker RUN continuation.
           import textwrap
           stage = textwrap.dedent(stage)
-          Path("Dockerfile.online-admin-ci").write_text(
+          Path("server/hosting/Dockerfile.online-admin-ci").write_text(
               base.replace(anchor, stage + anchor)
           )
-          assert "FROM build AS online-admin-tests" in stage
+          from shutil import copyfile
+          copyfile("server/hosting/Dockerfile.dockerignore",
+                   "server/hosting/Dockerfile.online-admin-ci.dockerignore")
+          assert stage.splitlines()[2] == "FROM build AS online-admin-tests"
           print("ADMIN_CI_DOCKERFILE_SOURCE_PASS")
           PY
       - name: Fetch protobuf for build
@@ -70,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           DOCKER_BUILDKIT=1 docker build \
-            -f Dockerfile.online-admin-ci --target online-admin-tests \
+            -f server/hosting/Dockerfile.online-admin-ci --target online-admin-tests \
             --build-arg BUILD_JOBS=2 \
             -t yharnam-private-online-tests:ci .
           echo 'ADMIN_SUMMARY_TESTS_PASS no deployment, no game traffic'
