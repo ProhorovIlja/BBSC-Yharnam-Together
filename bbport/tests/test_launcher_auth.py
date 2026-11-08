@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 import bbport_auth as auth  # noqa: E402
 import bbport_coop as coop  # noqa: E402
 
-OPENSSL = r'C:\Program Files\Git\mingw64\bin\openssl.exe'
+OPENSSL = os.environ.get('BBSC_TEST_OPENSSL', r'C:\Program Files\Git\mingw64\bin\openssl.exe')
 PASSWORD = 'a long and fine password'
 SECRET = format(int(time.time()), '08x') + 'b' * 24
 
