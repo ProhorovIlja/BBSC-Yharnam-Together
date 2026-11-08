@@ -39,6 +39,8 @@
 #include "lobby_friends.h"
 #include "server_link.h"
 
+class QFile;
+
 namespace BloodborneWorld {
 
 // One party's world on disk, in its folder: world.pb (the world as of its journal_from), the
@@ -81,7 +83,11 @@ private:
 // yet (a tail: the order holds); the journal still reads (WorldStore::Load stops at a cut record).
 class WorldWriter {
 public:
-    explicit WorldWriter(qint64 commit_ms = 100, int commit_records = 256);
+    // Injection is only needed for a deterministic fsync-failure regression test.
+    // Production callers use the default platform sync implementation.
+    using DiskSync = bool (*)(QFile&);
+    explicit WorldWriter(qint64 commit_ms = 100, int commit_records = 256,
+                         DiskSync disk_sync = nullptr);
     // Drains: everything queued is on disk.
     ~WorldWriter();
     WorldWriter(const WorldWriter&) = delete;
@@ -110,6 +116,9 @@ public:
     QStringList TakeLog();
     // Records fsynced, and fsync rounds, so far (the tests).
     quint64 Synced() const;
+    // Number of journal file syncs which failed. A failed batch must never be
+    // reported as durable in Synced() or Commits().
+    quint64 SyncFailures() const;
     quint64 Commits() const;
 
 private:
