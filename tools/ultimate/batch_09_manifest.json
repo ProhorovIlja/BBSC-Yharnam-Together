@@ -1,0 +1,55 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B09-2026-11-08",
+  "parent_batch": "B08-2026-11-08",
+  "parent_pr": 40,
+  "status": "WINDOWS_AND_LINUX_SYNTHETIC_PRODUCTION_CPP_SAVE_METADATA_REGRESSION_NO_GAMEPLAY",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_full_build": true,
+  "source_pin": {
+    "path": "emulator/src/core/bloodborne_flags_store.cpp",
+    "blob_sha1": "fc6647e8b8fdd1a5bf1f604442e431f881b3465e",
+    "origin_batch": "B08"
+  },
+  "regressions": [
+    {
+      "path": "tools/re/tests/test_guest_metadata_atomic_replace.py",
+      "blob_sha1": "45a6ee5a7e08f8c37ba45321613e071cacc7fc1a"
+    },
+    {
+      "path": "tools/re/tests/test_guest_world_write_order.py",
+      "blob_sha1": "748c62d4bdb4810cfffa10e2ccfa94b28c87ac47"
+    },
+    {
+      "path": "tools/re/tests/test_guest_world_write_retry.py",
+      "blob_sha1": "6b24bed327490e179337242fd593885d81e81a7a"
+    }
+  ],
+  "changed_files": [
+    ".github/workflows/ultimate-batch-08-world-write-retry.yml",
+    ".github/workflows/ultimate-batch-09-windows-savedata-faults.yml",
+    "docs/ULTIMATE_BATCH_09.md",
+    "tools/re/tests/test_guest_metadata_atomic_replace.py",
+    "tools/re/tests/test_guest_world_write_order.py",
+    "tools/re/tests/test_guest_world_write_retry.py",
+    "tools/ultimate/batch_09_manifest.json"
+  ],
+  "scope": [
+    "real production C++ guest metadata atomic replace / revision fence / idle-retry helpers compiled into synthetic native fixture under Windows 2022 CLANG64 and Ubuntu 24.04",
+    "blocked destination, old-data survival, newer-over-older ordering, per-slot independence, failed-write retry/backoff and recovery"
+  ],
+  "implementation": [
+    "Windows-native process header process.h instead of Unix unistd.h for exact production _getpid branch",
+    "compiler discovery also tries clang++",
+    "explicit platform .exe file suffix prevents invoking a path without Windows executable extension",
+    "no engine source logic changes; B08 source blob pinned"
+  ],
+  "untested": [
+    "actual Windows NTFS/game save files, concurrent antivirus access, disk power loss, fsync, abrupt TerminateProcess",
+    "real five-player Bloodborne 1.09, GPU, DBNO, native engine full Windows compile #31",
+    "Supermedo GPL zip personal world isolation source not accessed",
+    "no release build or Fornex actions"
+  ]
+}
