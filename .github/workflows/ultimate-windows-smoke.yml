@@ -41,11 +41,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not verify changed files' }
           foreach ($path in $paths) {
             Write-Host "AUDIT_PATH $path"
-            if ($path -notin @('.github/workflows/ultimate-windows-smoke.yml', 'bbport/tests/test_launcher_auth.py', 'bbport/tests/test_launcher_look.py')) {
+            if ($path -notin @('.github/workflows/ultimate-windows-smoke.yml', '.github/workflows/ultimate-windows-test.yml', 'bbport/tests/test_launcher_auth.py', 'bbport/tests/test_launcher_look.py')) {
               throw "Unexpected production, server, game or launcher source change: $path"
             }
           }
-          if ($paths.Count -ne 3) { throw 'Expected only the smoke workflow and two test adapters' }
+          if ($paths.Count -ne 4) { throw 'Expected only two TEST workflows and two test adapters' }
       - name: Install pinned test image support and discover OpenSSL fixture
         shell: pwsh
         run: |
