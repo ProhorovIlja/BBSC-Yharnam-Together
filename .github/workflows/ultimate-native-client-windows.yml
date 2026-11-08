@@ -100,6 +100,12 @@ jobs:
           export BB_PRODUCTION=1
           export BB_LTO=OFF
           export CMAKE_BUILD_PARALLEL_LEVEL=2
+          # build.sh invokes Ninja directly; CMAKE_BUILD_PARALLEL_LEVEL does
+          # not constrain that call. Limit its actual parallel C/C++ links
+          # without modifying any production sources or game data.
+          ninja() { command ninja -j 2 "$@"; }
+          export -f ninja
+          bash -c 'type ninja' | grep -q 'function'
           cd bbport
           mkdir -p out
           # Full CMake + clang build is deliberately bounded to diagnostics only:
@@ -136,6 +142,27 @@ jobs:
               ' out/gpu-build.log | head -n 80
               echo 'GPU_BUILD_TAIL (last 15 non-sensitive lines):'
               tail -n 15 out/gpu-build.log | cut -c 1-600
+              # The previous 2 Windows attempts ended near [432/433] with
+              # no FAILED/error line in the captured GPU log. Retry *only*
+              # the unfinished Ninja targets once on the same runner so we
+              # can distinguish missing final targets from lost error output.
+              # Never treat a failed first build as a passing release.
+              echo 'GPU_BOUNDED_INCREMENTAL_DIAGNOSTIC_RETRY_JOBS_2'
+              if timeout 180s ninja -C out/gpu -v bb-probe bb-gpu-capabilities bb-play >out/gpu-retry.log 2>&1; then
+                echo 'GPU_INCREMENTAL_RETRY_PASSED_BUT_INITIAL_BUILD_FAILED'
+              else
+                echo 'GPU_INCREMENTAL_RETRY_NONZERO'
+                grep -nEm 8 'FAILED:|error:|undefined|ninja:|killed|cannot allocate|out of memory|signal' out/gpu-retry.log | cut -c 1-550 || true
+              fi
+              echo 'GPU_RETRY_LOG_TAIL_MAX_12'
+              tail -n 12 out/gpu-retry.log | cut -c 1-550 || true
+              for exe in out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe out/gpu/bb-play.exe; do
+                if test -s "$exe"; then
+                  echo "AFTER_RETRY_EXISTS: $(basename "$exe")"
+                else
+                  echo "AFTER_RETRY_MISSING: $(basename "$exe")"
+                fi
+              done
             fi
             exit 1
           fi
