@@ -295,7 +295,7 @@ Answer Stats(Context& context) {
 Answer Online(Context& context) {
     return {QJsonObject{{"ok", true},
                         {"connected_games", context.hub.Members()},
-                        {"active_parties", context.world.Parties()},
+                        {"parties_in_memory", context.world.Parties()},
                         {"saved_worlds",
                          static_cast<int>(context.world.Lobby().Worlds().size())}},
             {},

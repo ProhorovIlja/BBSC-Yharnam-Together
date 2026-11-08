@@ -357,7 +357,7 @@ int OnlineSummaryExcludesIdentityAndLinkKey() {
   online = rig.Run("online").json;
   CHECK(online["ok"].toBool());
   CHECK(online["connected_games"].toInt() == 1);
-  CHECK(online["active_parties"].toInt() == rig.world.Parties());
+  CHECK(online["parties_in_memory"].toInt() == rig.world.Parties());
   CHECK(online["saved_worlds"].toInt() == 1);
   CHECK(online.size() == 4);
   CHECK(!online.contains("link_key") && !online.contains("players"));
