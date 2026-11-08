@@ -207,6 +207,27 @@ int AWorldThatDoesNotWriteKeepsItsJournal() {
 
 // The main thread's time per record: fsynced on it (the old way) and handed to
 // the writer.
+// Simulate a failed fsync deterministically, without touching a real disk or
+// weakening the production SyncToDisk implementation.
+bool RejectSync(QFile&) { return false; }
+
+int AFailedFsyncMustNotBeCountedAsDurable() {
+  QTemporaryDir dir;
+  CHECK(dir.isValid());
+  const QString folder = QDir{dir.path()}.filePath("fail-sync");
+  WorldWriter writer{5, 1, RejectSync};
+  writer.Compact(folder, World(0));
+  writer.Append(folder, Record(0));
+  writer.Drain();
+  CHECK(writer.Synced() == 0);
+  CHECK(writer.Commits() == 0);
+  CHECK(writer.SyncFailures() == 1);
+  CHECK(writer.TakeLog().join(' ').contains("journal could not be synced"));
+  // A readable page-cache copy does not prove an fsync succeeded. Even if the
+  // journal reads now, the writer must conservatively report zero durable ops.
+  return 0;
+}
+
 int TheLinkThreadNoLongerWaitsForTheDisk() {
   QTemporaryDir dir{QDir::currentPath() +
                     "/world-writer-XXXXXX"}; // a real disk
@@ -256,6 +277,8 @@ int main() {
        AWorldThatDoesNotWriteKeepsItsJournal},
       {"TheLinkThreadNoLongerWaitsForTheDisk",
        TheLinkThreadNoLongerWaitsForTheDisk},
+      {"AFailedFsyncMustNotBeCountedAsDurable",
+       AFailedFsyncMustNotBeCountedAsDurable},
   };
   int failed = 0;
   for (const auto &[name, test] : tests) {
