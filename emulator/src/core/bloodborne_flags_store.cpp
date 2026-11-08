@@ -1432,6 +1432,25 @@ struct HeldNpcGift {
 };
 std::vector<HeldNpcGift> held_npc_gifts; // under deferred_item_lots_mutex
 
+// Never remove a pending boss lot or NPC gift before the item's game object is ready.
+// The queue is only drained on the game thread, with deferred_item_lots_mutex held.
+template <typename Item, typename IsDue>
+std::vector<Item> TakeDueDeferredItems(std::vector<Item>& pending, bool item_manager_ready,
+                                       IsDue is_due) {
+    std::vector<Item> due;
+    if (!item_manager_ready) {
+        return due;
+    }
+    std::erase_if(pending, [&](Item& item) {
+        if (!is_due(item)) {
+            return false;
+        }
+        due.push_back(std::move(item));
+        return true;
+    });
+    return due;
+}
+
 } // namespace
 
 namespace Coop {
@@ -1512,26 +1531,37 @@ void QueueGuestNpcGift(const NpcGift& gift) {
 // The held NPC gifts that are due: each given once, then what its event does once it has given it
 // (else the guest's own world's event would give it again at home).
 void GiveDueNpcGifts(std::chrono::steady_clock::time_point now) {
+    {
+        std::scoped_lock lock{deferred_item_lots_mutex};
+        if (std::ranges::none_of(held_npc_gifts, [&](const HeldNpcGift& held) {
+                return now >= held.due;
+            })) {
+            return;
+        }
+    }
+    // MapItemMan is absent during some loads. Keep the queued gift (and its
+    // post-award event flags) until it is ready; don't consume it on failure.
+    static std::chrono::steady_clock::time_point last_attempt{};
+    if (now - last_attempt < std::chrono::milliseconds{250}) {
+        return;
+    }
+    last_attempt = now;
+    const u64 item_man = ReadValue<u64>(image_base + MapItemManPointerOffset, 0);
+    if (!HasVtable(item_man, MapItemManVtable, "NPC gift item lot")) {
+        return;
+    }
     std::vector<HeldNpcGift> due;
     {
         std::scoped_lock lock{deferred_item_lots_mutex};
-        std::erase_if(held_npc_gifts, [&](const HeldNpcGift& held) {
-            if (now < held.due) {
-                return false;
-            }
-            due.push_back(held);
-            return true;
+        due = TakeDueDeferredItems(held_npc_gifts, true, [&](const HeldNpcGift& held) {
+            return now >= held.due;
         });
     }
     using AwardItemLot = void PS4_SYSV_ABI (*)(u64, s32, u32);
     using SetFlag = void PS4_SYSV_ABI (*)(u64, s32, bool);
     const auto set_flag = reinterpret_cast<SetFlag>(image_base + PartyGhostSetEventFlagOffset);
     for (const auto& [gift, _] : due) {
-        const u64 item_man = ReadValue<u64>(image_base + MapItemManPointerOffset, 0);
-        if (!HasVtable(item_man, MapItemManVtable, "NPC gift item lot")) {
-            LOG_ERROR(Debug, "Bloodborne party: no item man for NPC gift item lot {}", gift.lot);
-            continue;
-        }
+        // The manager was verified before draining the queue on this game-thread tick.
         // The lot gives nothing while its flag is on: the host's, from the team world (Valtr's
         // rune, Kaniel's playtest 2026-10-25), is not this guest's.
         const s32 lot_flag = ItemLotFlag(gift.lot);
@@ -1615,26 +1645,36 @@ void GiveNpcDeathDrops(bool in_session, u32 map) {
 }
 
 void GiveDeferredBossItems() {
-    std::vector<s32> due;
+    const auto now = std::chrono::steady_clock::now();
+    GiveDueNpcGifts(now);
     {
         std::scoped_lock lock{deferred_item_lots_mutex};
-        const auto now = std::chrono::steady_clock::now();
-        std::erase_if(deferred_item_lots, [&](const auto& held) {
-            if (now < held.second) {
-                return false;
-            }
-            due.push_back(held.first);
-            return true;
+        if (std::ranges::none_of(deferred_item_lots, [&](const auto& held) {
+                return now >= held.second;
+            })) {
+            return;
+        }
+    }
+    // A boss-clear reward must survive a map transition, unlike the previous
+    // implementation which discarded it before checking MapItemMan.
+    static std::chrono::steady_clock::time_point last_attempt{};
+    if (now - last_attempt < std::chrono::milliseconds{250}) {
+        return;
+    }
+    last_attempt = now;
+    const u64 item_man = ReadValue<u64>(image_base + MapItemManPointerOffset, 0);
+    if (!HasVtable(item_man, MapItemManVtable, "held boss item lot")) {
+        return;
+    }
+    std::vector<std::pair<s32, std::chrono::steady_clock::time_point>> due;
+    {
+        std::scoped_lock lock{deferred_item_lots_mutex};
+        due = TakeDueDeferredItems(deferred_item_lots, true, [&](const auto& held) {
+            return now >= held.second;
         });
     }
-    GiveDueNpcGifts(std::chrono::steady_clock::now());
     using AwardItemLot = void PS4_SYSV_ABI (*)(u64, s32, u32);
-    for (const s32 lot : due) {
-        const u64 item_man = ReadValue<u64>(image_base + MapItemManPointerOffset, 0);
-        if (!HasVtable(item_man, MapItemManVtable, "held boss item lot")) {
-            LOG_ERROR(Debug, "Bloodborne party: no item man for held boss item lot {}", lot);
-            continue;
-        }
+    for (const auto& [lot, _] : due) {
         giving_deferred_item_lot = true;
         reinterpret_cast<AwardItemLot>(image_base + AwardItemLotOffset)(item_man, lot, 0);
         giving_deferred_item_lot = false;
