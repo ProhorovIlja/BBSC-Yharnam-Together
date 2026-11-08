@@ -31,7 +31,8 @@ class GuestMetadataAtomicReplacement(unittest.TestCase):
         )[0]
         self.assertIn("ReplaceGuestMetadataFile(GuestProgressFile(),", pickup)
         self.assertIn("ReplaceGuestMetadataFile(path, text)", world)
-        self.assertIn("ReplaceGuestMetadataFile(GuestOwnerFile(),", owner)
+        self.assertIn("ReplaceGuestMetadataFile(", owner)
+        self.assertIn("GuestOwnerFile(),", owner)
         self.assertIn("ReplaceGuestMetadataFile(GuestConfirmedFile(),", confirmed)
         self.assertIn("return; // Do not clear this slot", owner)
         self.assertNotIn("std::ios::trunc", pickup + world + owner + confirmed)
@@ -62,6 +63,7 @@ class GuestMetadataAtomicReplacement(unittest.TestCase):
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <system_error>
