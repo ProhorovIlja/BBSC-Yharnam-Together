@@ -1,4 +1,4 @@
-name: Candidate v2: five-hunter shadNet integration (no deployment)
+name: "Candidate v2: five-hunter shadNet integration (no deployment)"
 
 on:
   push:
