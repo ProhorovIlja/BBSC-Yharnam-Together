@@ -190,6 +190,39 @@ TEST(GameLink, WhatGreetedTheMembersNewGameGoesToItAfterTheRestart) {
     EXPECT_EQ(host.Unacked(), 3u);
 }
 
+// Synthetic 2/3/5-hunter party: each member's independent game-link peer has its own
+// instance, reliable stream, join hello and world head. A member's crash/rejoin may
+// never poison another member's stream or deliver pre-crash packets.
+TEST(GameLink, AThreeOrFiveHunterPartyKeepsEachRejoinStreamSeparate) {
+    for (const u8 team_size : {u8{2}, u8{3}, u8{5}}) {
+        for (u8 member = 1; member < team_size; ++member) {
+            const std::string id = "rig_guest_" + std::to_string(member);
+            GameLinkPeer host_to_guest{"rig_host", 1};
+            GameLinkPeer old_guest{id, static_cast<u32>(member + 10)};
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x31, 1), 0);
+            Carry(host_to_guest, old_guest, 0);
+            Carry(old_guest, host_to_guest, 10);
+            // Old host state is never delivered after the guest's game restarted.
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x31, 2), 50);
+            host_to_guest.Flush(50);
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x42, u8{30 + member}), 60'000);
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x29, u8{40 + member}), 60'010);
+
+            GameLinkPeer new_guest{id, static_cast<u32>(member + 20)};
+            EXPECT_TRUE(Carry(host_to_guest, new_guest, 60'010).empty())
+                << "old instance packet accepted in a " << int(team_size) << "-hunter party";
+            new_guest.Send(PacketClass::Reliable, Packet(0x42, u8{50 + member}), 60'020);
+            EXPECT_EQ(Marks(Carry(new_guest, host_to_guest, 60'020)),
+                      (std::vector<u8>{u8{50 + member}}));
+            EXPECT_EQ(Marks(Carry(host_to_guest, new_guest, 60'030)),
+                      (std::vector<u8>{u8{30 + member}, u8{40 + member}}))
+                << "member " << int(member) << " of party " << int(team_size);
+            Carry(new_guest, host_to_guest, 60'040); // ack the new stream
+            EXPECT_EQ(host_to_guest.Unacked(), 0u) << "stuck reliable resend";
+        }
+    }
+}
+
 // An idle member still hears from this game once a second: its silence means a dead link, and a
 // restarted game learns of the other's instance without waiting for a packet.
 TEST(GameLink, AnIdleLinkSaysItIsThereOnceASecond) {
