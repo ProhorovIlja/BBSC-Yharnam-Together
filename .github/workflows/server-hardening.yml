@@ -1,0 +1,114 @@
+name: SH server 1.4.0 hardening (no deployment)
+
+on:
+  push:
+    branches:
+      - feature/server-1.4.0-hardening-pr540-v1
+    paths:
+      - 'server/**'
+      - 'docs/SERVER_HARDENING.md'
+      - '.github/workflows/server-hardening.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'docs/SERVER_HARDENING.md'
+      - '.github/workflows/server-hardening.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yharnam-server-hardening-v1
+  cancel-in-progress: true
+
+jobs:
+  server-only-regressions:
+    name: Admission / shared NAT / encrypted link / watchdog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact client-and-launcher exclusion
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          git diff --name-only origin/main HEAD > /tmp/changed_paths.txt
+          cat /tmp/changed_paths.txt
+          if grep -vE '^(server/|docs/HOSTED_SERVER.md$|docs/SERVER_HARDENING.md$|\.github/workflows/server-hardening.yml$)' /tmp/changed_paths.txt; then
+            echo 'ERROR: unexpected non-server change' >&2
+            exit 1
+          fi
+          if grep -Eq '^(server/coop/|server/proto/|server/src/server_link\.|server/src/config\.|server/src/database\.)' /tmp/changed_paths.txt; then
+            echo 'ERROR: networking protocol, game-link or storage contract change' >&2
+            exit 1
+          fi
+      - name: Install native test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ pkg-config qt6-base-dev
+      - name: Compile and run limiter / shared NAT tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src \
+            server/tests/test_admission.cpp server/src/admission.cpp \
+            $(pkg-config --cflags --libs Qt6Core Qt6Network) -o /tmp/test_admission
+          timeout 30s /tmp/test_admission
+      - name: Compile and run encrypted protocol tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src -Iserver \
+            -DBLOODBORNE_SERVER_LINK_CONTRACTS="\"$PWD/server/tests/contracts/server_link_frames.txt\"" \
+            server/tests/test_server_link.cpp server/src/server_link.cpp \
+            server/coop/link_crypto.cpp \
+            $(pkg-config --cflags --libs Qt6Core Qt6Network) -o /tmp/test_server_link
+          timeout 30s /tmp/test_server_link
+      - name: Compile and run watchdog unit tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src \
+            server/tests/test_watchdog.cpp server/src/watchdog.cpp \
+            $(pkg-config --cflags --libs Qt6Core) -o /tmp/test_watchdog
+          timeout 30s /tmp/test_watchdog
+
+  full-server-build:
+    name: Full Docker build + 12 integration tests + image
+    needs: server-only-regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch only required protobuf submodule
+        run: git submodule update --init --depth=1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and run 12 server suites in isolated Docker builder
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build \
+            --build-arg BUILD_JOBS=2 \
+            -f server/hosting/Dockerfile \
+            --target verification-tests \
+            -t yharnam-shadnet:hardening-test .
+      - name: Build candidate runtime without deploying
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build \
+            --build-arg BUILD_JOBS=2 \
+            -f server/hosting/Dockerfile \
+            --target runtime \
+            -t yharnam-shadnet:hardening-candidate .
+          docker image inspect yharnam-shadnet:hardening-candidate \
+            --format 'IMAGE_CANDIDATE id={{.Id}} user={{.Config.User}}'
+      - name: Package only candidate runtime image
+        run: |
+          set -euo pipefail
+          mkdir -p server-build-output
+          docker save yharnam-shadnet:hardening-candidate | gzip -1 \
+            > server-build-output/yharnam-shadnet-1.4.0-hardening.tar.gz
+          (cd server-build-output && sha256sum *.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yharnam-shadnet-server-hardening-candidate
+          path: server-build-output/
+          retention-days: 5
+          compression-level: 0
