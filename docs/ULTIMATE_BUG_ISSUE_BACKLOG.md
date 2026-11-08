@@ -87,24 +87,36 @@
 
 ## 2026-11-08 original screenshot archive and sanitized public issues
 
-Six original image files were archived in the non-shared Drive account
+Seven original image files were archived in the non-shared Drive account
 `gungrain@gmail.com`:
 `Bloodborne — Seamless Hunt — HANDOFF / 05-TESTS-LOGS /
 2026-11-08 — PRIVATE Discord Bug Screenshots`.
 They remain private and **are not mirrored into public GitHub**. The private
-index `00-PRIVATE-README-and-SHA256.md` records each file's SHA-256 and
-technical categories. These are historical version-dependent bug reports,
+index `00-PRIVATE-README-and-SHA256.md` records the first six files' SHA-256 and
+technical categories; `07-private-technical-intake.md` records image 07 with
+SHA-256 `6d699a608fbf643d3a992f75696117052e0b9df40ce72ff2c8f4f21c9d11695a`. These are historical version-dependent bug reports,
 **not** reproducible evidence that current 1.4.0 has them.
 
 The source-aware, release-gated acceptance criteria are tracked in:
 
 | Public sanitized issue | Category | Screenshot evidence, privately stored |
 | --- | --- | --- |
-| [#22](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/22) | P0 world progression, lamp, door, quest and persistent save | 01, 02 |
+| [#22](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/22) | P0 world progression, lamp, door, quest and persistent save | 01, 02, 07 |
 | [#23](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/23) | P0 enemy/actor, NPC, loot, party/boss state synchronization | 01, 02 |
 | [#24](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/24) | P0 account sign-in and certificate trust diagnostics | 03, 04 |
-| [#25](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/25) | P1 missing floor/geometry, VRAM and FPS decay, UI latency | 01, 02, 04, 06 |
+| [#25](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/25) | P1 missing floor/geometry, VRAM and FPS decay, UI latency | 01, 02, 04, 06, 07 |
 | [#26](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/26) | P1 leave-lobby UX, offline developer tooling, anti-cheat/mod false positives | 01, 02, 05 |
+
+**Screenshot 07, operational release rule:** the new screenshot is a unique
+private **file**, but duplicates the core gameplay/performance complaints
+already in #22/#25. Its additional concern is unauthorized or prematurely
+approved server releases. The neutral engineering control is recorded in
+[server roadmap #3](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/3)
+and [runtime evaluation #9](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/9):
+explicit owner-approved deployment, protected production credentials, isolated
+staging, immutable client/server protocol manifest, five-hunter sign-off and
+rollback. The screenshot is **not** evidence of personal wrongdoing, and no
+names or private discussion excerpts belong in GitHub.
 
 **TLS wording correction:** the historical launcher message `certificate:
 not sent` means the **account request was not sent** because certificate
