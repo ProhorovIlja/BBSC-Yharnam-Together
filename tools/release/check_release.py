@@ -18,12 +18,6 @@ import sys
 REQUIRED = (
     "BLauncher.exe",
     "bin/bb-probe.exe",
-    # DLSS: the bridge and NVIDIA's runtime next to bb-probe.exe. Without them the launcher's DLSS
-    # option is disabled on every PC (the 0.2.x local releases).
-    "bin/bbport_dlss.dll",
-    "bin/nvngx_dlss.dll",
-    # DLSS Frame Generation: the launcher's Frame generation note checks for it too.
-    "bin/nvngx_dlssg.dll",
     "READ ME FIRST.txt",
     "VERSION.txt",
     "tools/party_boss_events.py",
@@ -39,6 +33,10 @@ REQUIRED = (
     # package.sh marks it for patches.py and the launcher.
     "scripts/build_info.json",
 )
+
+# DLSS is mandatory unless the user explicitly requested -NoDlss while
+# packaging. Never silently ship a partially populated vendor runtime.
+DLSS_FILES = ("bin/bbport_dlss.dll", "bin/nvngx_dlss.dll", "bin/nvngx_dlssg.dll")
 
 # Game data, by file name or suffix (lower case).
 GAME_NAMES = {"eboot.bin", "param.sfo", "icon0.png", "pic0.png", "pic1.png", "snd0.at9"}
@@ -66,10 +64,15 @@ def launcher_problems(launcher: pathlib.Path) -> list[str]:
     return problems
 
 
-def check(root: pathlib.Path) -> list[str]:
+def check(root: pathlib.Path, without_dlss: bool = False) -> list[str]:
     """The problems in the release folder ROOT (empty when it may be published)."""
     root = pathlib.Path(root)
-    problems = [f"missing {relative}" for relative in REQUIRED if not (root / relative).is_file()]
+    required = REQUIRED + (() if without_dlss else DLSS_FILES)
+    problems = [f"missing {relative}" for relative in required if not (root / relative).is_file()]
+    if without_dlss:
+        present = [name for name in DLSS_FILES if (root / name).is_file()]
+        if present and len(present) != len(DLSS_FILES):
+            problems.append("partial DLSS runtime: supply all three DLLs or remove all in -NoDlss mode")
     build_info = root / "scripts/build_info.json"
     if build_info.is_file() and '"production": true' not in build_info.read_text(encoding="utf-8"):
         problems.append("scripts/build_info.json does not say production: a dev build (BB_PRODUCTION=1)")
@@ -100,10 +103,11 @@ def check(root: pathlib.Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 1:
-        print(__doc__.strip().splitlines()[-1], file=sys.stderr)
+    without_dlss = len(argv) == 2 and argv[0] == "--without-dlss"
+    if (not without_dlss and len(argv) != 1) or (without_dlss and len(argv) != 2):
+        print("Usage: check_release.py [--without-dlss] <release folder>", file=sys.stderr)
         return 2
-    problems = check(pathlib.Path(argv[0]))
+    problems = check(pathlib.Path(argv[-1]), without_dlss=without_dlss)
     for problem in problems:
         print(problem)
     print("release check: " + ("ok" if not problems else f"{len(problems)} problem(s)"))

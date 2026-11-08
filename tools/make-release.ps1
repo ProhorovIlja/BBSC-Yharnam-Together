@@ -316,7 +316,9 @@ Write-Host "  BLauncher.exe --script: hud_patch from scripts\, icon strip found,
 
 Step "Check"
 $checkPython = (& (Join-Path $msys "usr\bin\cygpath.exe") -w $env:WINPYTHON).Trim()
-& $checkPython -I (Join-Path $PSScriptRoot "release\check_release.py") $release
+$releaseCheckArgs = @()
+if ($NoDlss) { $releaseCheckArgs += "--without-dlss" }
+& $checkPython -I (Join-Path $PSScriptRoot "release\check_release.py") @releaseCheckArgs $release
 if ($LASTEXITCODE -ne 0) { throw "the release check failed" }
 
 Step "Setup"

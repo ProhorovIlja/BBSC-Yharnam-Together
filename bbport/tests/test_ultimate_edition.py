@@ -87,6 +87,26 @@ class TestEdition(unittest.TestCase):
             file.write_bytes(file.read_bytes() + b"UPX0\x00")
             self.assertTrue(check_release.launcher_problems(file))
 
+    def test_dlss_free_release_is_explicit_and_never_partial(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "tools" / "release"))
+        import check_release
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            normal = check_release.check(root)
+            self.assertTrue(any("bin/bbport_dlss.dll" in p for p in normal))
+            self.assertTrue(any("bin/nvngx_dlss.dll" in p for p in normal))
+            optional = check_release.check(root, without_dlss=True)
+            self.assertFalse(any("DLSS" in p or "dlss" in p for p in optional))
+            (root / "bin").mkdir()
+            (root / "bin" / "nvngx_dlss.dll").write_bytes(b"synthetic dll placeholder")
+            partial = check_release.check(root, without_dlss=True)
+            self.assertTrue(any("partial DLSS runtime" in p for p in partial))
+            for dll in ("bbport_dlss.dll", "nvngx_dlssg.dll"):
+                (root / "bin" / dll).write_bytes(b"synthetic dll placeholder")
+            full = check_release.check(root, without_dlss=True)
+            self.assertFalse(any("partial DLSS runtime" in p for p in full))
+
 
 if __name__ == "__main__":
     unittest.main()
