@@ -19,6 +19,9 @@ concurrency:
 
 jobs:
   verify-without-full-game-build:
+    # This fixed source-boundary test validates B03 against its B02 parent only.
+    # Later integration batches have their own gates and inherit B03's unit fixtures.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-02-reconnect-world-regressions-20261108')
     runs-on: ubuntu-24.04
     timeout-minutes: 13
     steps:
