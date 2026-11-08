@@ -340,6 +340,32 @@ int ServerStats() {
   return 0;
 }
 
+// The future website should not need "stats", whose response includes the
+// public link key and detailed diagnostics. The online response has no such keys.
+int OnlineSummaryExcludesIdentityAndLinkKey() {
+  QTemporaryDir dir;
+  Rig rig{dir.path()};
+  SeedWorlds(QDir{dir.path()}.filePath("worlds"), {{"w1", Now - Day}});
+  rig.world.Load(Now);
+  QJsonObject online = rig.Run("online").json;
+  CHECK(online["ok"].toBool());
+  CHECK(online["connected_games"].toInt() == 0);
+  CHECK(online["saved_worlds"].toInt() == 1);
+  CHECK(online.size() == 4);
+  rig.Link(Alice, "Alice");
+  online = rig.Run("online").json;
+  CHECK(online["ok"].toBool());
+  CHECK(online["connected_games"].toInt() == 1);
+  CHECK(online["active_parties"].toInt() == rig.world.Parties());
+  CHECK(online["saved_worlds"].toInt() == 1);
+  CHECK(online.size() == 4);
+  CHECK(!online.contains("link_key") && !online.contains("players"));
+  CHECK(!online.contains("bad_tags") && !online.contains("bans"));
+  CHECK(!online.contains("suspects") && !online.contains("addresses"));
+  CHECK(!rig.Run("online extra").json["ok"].toBool());
+  return 0;
+}
+
 int Durations() {
   CHECK(Admin::ParseDuration("90s") == 90);
   CHECK(Admin::ParseDuration("30m") == 1800);
@@ -489,6 +515,7 @@ int main(int argc, char **argv) {
   failed |= WorldsAreListedWithTheirSize();
   failed |= IdleWorldsRetireAndComeBack();
   failed |= ServerStats();
+  failed |= OnlineSummaryExcludesIdentityAndLinkKey();
   failed |= Durations();
   failed |= ABanListReadAgainUnlinksTheBanned();
   failed |= WorldSizesAreReadOffTheLinkThread();
