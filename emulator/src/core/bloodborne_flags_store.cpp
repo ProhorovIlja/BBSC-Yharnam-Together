@@ -1066,6 +1066,9 @@ std::filesystem::path GuestWorldFile() {
 
 std::map<s32, bool>& GuestWorldChanges() {
     if (!guest_world || guest_world_slot != character_slot.load()) {
+        // A timestamp from another hunter must not decide which team's world wins.
+        // This cache has the same slot ownership as guest_world, under guest_world_mutex.
+        guest_world_kept_ms.clear();
         guest_world_slot = character_slot.load();
         std::ifstream file{GuestWorldFile()};
         const std::string text{std::istreambuf_iterator<char>{file}, {}};
@@ -1088,6 +1091,8 @@ void SaveGuestWorldChanges() {
 void ForgetGuestWorldChanges() {
     std::scoped_lock lock{guest_world_mutex};
     GuestWorldChanges().clear();
+    // Reusing the same slot for a new hunter must clear transient flag timestamps too.
+    guest_world_kept_ms.clear();
     SaveGuestWorldChanges();
 }
 
@@ -2011,6 +2016,24 @@ void LogFlagChangesInSession(bool sharing) {
     });
 }
 
+// A slot switch (or a newly detected hunter in that same slot) requires a new
+// pickup baseline. Otherwise seen_on from the previous hunter can hide new
+// pickups and/or cause the next team's initial flags to count as this hunter's.
+void ResetGuestPickupObservationIfOwnerChanged(
+    int current_slot, u64 current_generation, int& observed_slot, u64& observed_generation,
+    bool& have_baseline, std::unordered_set<s32>& seen_on, bool& set_at_home,
+    std::chrono::steady_clock::time_point& home_since) {
+    if (current_slot == observed_slot && current_generation == observed_generation) {
+        return;
+    }
+    observed_slot = current_slot;
+    observed_generation = current_generation;
+    have_baseline = false;
+    seen_on.clear();
+    set_at_home = false;
+    home_since = {};
+}
+
 void KeepGuestProgress(bool in_session) {
     static std::chrono::steady_clock::time_point last{};
     static std::chrono::steady_clock::time_point home_since{};
@@ -2019,16 +2042,15 @@ void KeepGuestProgress(bool in_session) {
     static bool have_baseline = false;
     static bool set_at_home = false;
     static int slot = -1;
+    static u64 generation = 0;
     const auto now = std::chrono::steady_clock::now();
     if (!IsPartyGuestRole() || now - last < GuestProgressInterval) {
         return;
     }
     last = now;
-    if (slot != character_slot.load()) {
-        slot = character_slot.load();
-        set_at_home = false;
-        home_since = {};
-    }
+    ResetGuestPickupObservationIfOwnerChanged(
+        character_slot.load(), deferred_reward_character_generation.load(std::memory_order_relaxed),
+        slot, generation, have_baseline, seen_on, set_at_home, home_since);
     if (watched.empty()) {
         watched = MapPickupFlags();
         if (watched.empty()) {
