@@ -57,8 +57,14 @@ can fail midway through an engine load. Treat that as a release blocker.
 - [deadinside #418](https://github.com/deadinside28/bloodborne_pc/pull/418):
   wipe recovery logic lives in its independent bbnet20 spectator module.
 - [YT upstream #540](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/540):
-  server flood source candidate avoids CGNAT address-wide bans, should
-  be compared to our separate server #7/#8 before adopting.
+  **already implemented in our separate server #7/#8**. Verified the v2
+  `Guard::AllowDatagram` logs flooding without temporary IP bans, operator-only
+  `Banned(address)`, `LogFloods`, `floods` admin statistics, and
+  `AFloodingLinkIsDroppedAndReportedNeverBanned` source test. All eight
+  PR-affected files differ from B04 because server v2 is still a separate
+  tested branch. Do not copy #540 over server #7 and lose its other hardening;
+  combine client/server only at a pinned milestone with Link4 and world data
+  safety checks.
 
 These remain **open evaluation candidates**, not proof of compatibility.
 
