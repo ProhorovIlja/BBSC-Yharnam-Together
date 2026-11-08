@@ -9,6 +9,8 @@ on:
       - 'bbport/launcher/**'
       - 'bbport/tests/test_launcher_auth.py'
       - 'bbport/tests/test_ultimate_edition.py'
+      - 'bbport/tests/test_launcher_look.py'
+      - 'bbport/tests/test_launcher_game_map_sync.py'
       - 'bbport/packaging/windows/version_info.py'
       - 'tools/release/check_release.py'
       - 'tools/make-release.ps1'
@@ -35,19 +37,21 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
           git diff --name-only origin/main HEAD | tee /tmp/changed_paths.txt
-          if grep -vE '^(bbport/launcher/bbport_auth\.py|bbport/launcher/bbport_lang_auth\.py|bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_launcher_auth\.py|bbport/tests/test_ultimate_edition\.py|bbport/packaging/windows/version_info\.py|tools/release/check_release\.py|tools/make-release\.ps1|tools/release/setup\.iss|tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|docs/ULTIMATE_SOURCE_AUDIT\.md|docs/ULTIMATE_PLAYABLE_EDITION\.md|\.github/workflows/ultimate-windows-test\.yml)$' /tmp/changed_paths.txt; then
+          if grep -vE '^(bbport/launcher/bbport_auth\.py|bbport/launcher/bbport_lang_auth\.py|bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_launcher_auth\.py|bbport/tests/test_launcher_look\.py|bbport/tests/test_launcher_game_map_sync\.py|bbport/tests/test_ultimate_edition\.py|bbport/packaging/windows/version_info\.py|tools/release/check_release\.py|tools/make-release\.ps1|tools/release/setup\.iss|tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|docs/ULTIMATE_SOURCE_AUDIT\.md|docs/ULTIMATE_PLAYABLE_EDITION\.md|\.github/workflows/ultimate-windows-test\.yml)$' /tmp/changed_paths.txt; then
             echo 'UNEXPECTED_RUNTIME_OR_SERVER_EDIT' >&2
             exit 1
           fi
       - name: Python parse and offline edition tests
         run: |
           set -euo pipefail
-          python3 -m py_compile bbport/launcher/bbport_auth.py bbport/launcher/bbport_lang_auth.py \
+          python3 -m py_compile bbport/tests/test_launcher_look.py bbport/tests/test_launcher_game_map_sync.py \
+            bbport/launcher/bbport_auth.py bbport/launcher/bbport_lang_auth.py \
             bbport/launcher/bbport_coop.py \
             bbport/launcher/bbport_launcher_win.py \
             bbport/tests/test_ultimate_edition.py
           python3 -m unittest discover -s bbport/tests -p 'test_ultimate_edition.py' -v
           python3 -m unittest discover -s bbport/tests -p 'test_launcher_auth.py' -v
+          python3 -m unittest discover -s bbport/tests -p 'test_launcher_game_map_sync.py' -v
           python3 -m unittest discover -s bbport/tests -p 'test_launcher_version_info.py' -v
           python3 -m unittest discover -s tools/re/tests -p 'test_event_patch_validation.py' -v
       - name: PowerShell release-script syntax (no release)
