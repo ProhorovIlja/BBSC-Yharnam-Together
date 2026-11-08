@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Offline contracts for separate Ultimate Windows TEST edition."""
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "bbport" / "launcher"))
+import bbport_coop as coop
+
+
+def release(tag, draft=False, sum_present=True):
+    name = "YharnamTogether-" + tag + "-setup.exe"
+    assets = [{"name": name, "browser_download_url": "https://example.test/" + name}]
+    if sum_present:
+        assets.append({"name": name + ".sha256", "browser_download_url": "https://example.test/sum"})
+    return {"tag_name": tag, "draft": draft, "assets": assets}
+
+
+class TestEdition(unittest.TestCase):
+    def test_repository_and_tag_pinning(self):
+        self.assertIn("repositories/1450213757/releases?", coop.RELEASES_API)
+        self.assertNotIn("repositories/1405692683/releases?", coop.RELEASES_API)
+        for tag in ("v1.4.0-test.1", "v2.0.0-test.22"):
+            self.assertIsNotNone(coop.TEST_EDITION_TAG.fullmatch(tag))
+        for tag in ("v1.4.0", "v9.9.9", "v1.4.0-test", "v1.4.0-test.2-extra"):
+            self.assertIsNone(coop.TEST_EDITION_TAG.fullmatch(tag))
+
+    def test_only_verified_edition_updates(self):
+        updates = [release("v9.9.9"), release("v1.4.0-test.3", draft=True),
+                   release("v1.4.0-test.2"), release("v1.4.0-test.1")]
+        with mock.patch.object(coop, "fetch_releases", return_value=updates):
+            self.assertEqual(coop.fetch_newest_release()["version"], "1.4.0-test.2")
+        with mock.patch.object(coop, "fetch_releases",
+                               return_value=[release("v1.4.0-test.9", sum_present=False)]):
+            self.assertIsNone(coop.fetch_newest_release())
+        with mock.patch.object(coop, "fetch_releases", return_value={"message": "rate limit"}):
+            with self.assertRaises(ValueError):
+                coop.fetch_newest_release()
+
+    def test_portable_marker_survives_update(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "portable.txt").write_text("TEST", encoding="utf-8")
+            self.assertIn("/PORTABLE=1", coop.setup_command(root / "update.exe", root))
+            (root / "portable.txt").unlink()
+            self.assertNotIn("/PORTABLE=1", coop.setup_command(root / "update.exe", root))
+
+    def test_installer_is_separate(self):
+        script = (ROOT / "tools/release/setup.iss").read_text(encoding="utf-8")
+        self.assertIn("AppId={{49B8B926-DC94-4371-B4B7-729839E6E32E}", script)
+        self.assertNotIn("6E0B4C2A-3F7D-4B8E-9A51-2C8D7E4F1B63", script)
+        self.assertIn('#define ShortName "BBSC Yharnam Together TEST"', script)
+        builder = (ROOT / "tools/make-release.ps1").read_text(encoding="utf-8")
+        self.assertIn("Experimental edition requires a version", builder)
+        self.assertIn('$top = "BBSC Yharnam Together TEST/"', builder)
+        self.assertIn("Get-FileHash -Algorithm SHA256", builder)
+
+    def test_launcher_edition_is_visible_and_isolated(self):
+        launcher = (ROOT / "bbport/launcher/bbport_launcher_win.py").read_text(encoding="utf-8")
+        for required in ("'bbsc-yharnam-test'", "'bloodborne-sh-test-update'",
+                         "text=' TEST '", "BBSC: Yharnam Together TEST",
+                         "if (PORT_DIR / 'portable.txt').is_file()"):
+            self.assertIn(required, launcher)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,57 @@
+name: Ultimate Windows TEST foundation (no release)
+
+on:
+  push:
+    branches:
+      - experiment/ultimate-playable-windows-1.4.0-test
+  pull_request:
+    paths:
+      - 'bbport/launcher/**'
+      - 'bbport/tests/test_ultimate_edition.py'
+      - 'tools/make-release.ps1'
+      - 'tools/release/setup.iss'
+      - 'docs/ULTIMATE_PLAYABLE_EDITION.md'
+      - '.github/workflows/ultimate-windows-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-windows-test
+  cancel-in-progress: true
+
+jobs:
+  source-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce client-only change boundary
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          git diff --name-only origin/main HEAD | tee /tmp/changed_paths.txt
+          if grep -vE '^(bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_ultimate_edition\.py|tools/make-release\.ps1|tools/release/setup\.iss|docs/ULTIMATE_PLAYABLE_EDITION\.md|\.github/workflows/ultimate-windows-test\.yml)$' /tmp/changed_paths.txt; then
+            echo 'UNEXPECTED_RUNTIME_OR_SERVER_EDIT' >&2
+            exit 1
+          fi
+      - name: Python parse and offline edition tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bbport/launcher/bbport_coop.py \
+            bbport/launcher/bbport_launcher_win.py \
+            bbport/tests/test_ultimate_edition.py
+          python3 -m unittest discover -s bbport/tests -p 'test_ultimate_edition.py' -v
+      - name: PowerShell release-script syntax (no release)
+        shell: pwsh
+        run: |
+          $errors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/tools/make-release.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            throw "PowerShell release script has syntax errors"
+          }
+          Write-Host "POWERSHELL_SYNTAX_PASS"
