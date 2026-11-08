@@ -14,6 +14,7 @@
 //   restore <folder>                 a world put aside back on the list
 //   retire                           worlds idle past HostedRetireDays put aside now
 //   stats                            players, worlds, the link thread's load, refusals
+//   online                           anonymous counts (existing private Unix socket only)
 //   suspects [id|name]               cheat watch: who was seen cheating or with an edited save,
 //                                    and what (coop/cheat_watch.h); reports only, bans nobody
 //   key                              the link's public key (what the launcher pins)

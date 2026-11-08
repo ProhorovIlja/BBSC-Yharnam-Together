@@ -73,6 +73,7 @@ underneath; `SHADNET_BIN`/`SHADNET_HOME` for a systemd install).
 | `restore <folder>` | A folder from `forgotten/` back on the list, to its players, as played now. Worlds put aside before this build come back with a new id and no players (hosted: nobody sees them) |
 | `retire` | Retirement (below) now |
 | `stats` | Players, worlds listed and in memory, the link thread's busy share (last 10 s), hellos refused, datagrams dropped, accounts refused, strike bans |
+| `online` | **Private Unix-socket aggregate only:** `connected_games` (linked games, not unique accounts), `active_parties` (in-memory sessions), `saved_worlds` (known worlds). No player IDs, link key or secrets. Do not open the admin socket to the website or the internet. |
 | `suspects [id\|name]` | Cheat watch (docs/CHEAT_WATCH.md): the players seen with cheats, the save editor or an edited save since the server started, the surest first, each finding with its level (`certain`, `likely`, `info`), text, character and how many runs. Reports only: nobody is banned for it. `suspects.jsonl` in the worlds' folder keeps every finding across restarts |
 
 ```bash
