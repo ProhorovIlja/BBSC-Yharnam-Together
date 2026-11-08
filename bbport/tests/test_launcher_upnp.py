@@ -30,6 +30,8 @@ class Router:
 
     def __init__(self, public='203.0.113.7', refuse=()):
         self.public, self.refuse, self.mappings, self.calls = public, set(refuse), {}, []
+        self.descriptions = {}  # UPnP's NewPortMappingDescription identifies ownership
+        self.query_error = False
         router = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -60,12 +62,19 @@ class Router:
                     if f'{key[0]} {key[1]}' in router.refuse:
                         return self.reply(500, '<errorCode>718</errorCode>')
                     router.mappings[key] = args['NewInternalClient']
+                    router.descriptions[key] = args.get('NewPortMappingDescription', '')
                 elif action == 'GetSpecificPortMappingEntry':
+                    if router.query_error:
+                        return self.reply(500, '<errorCode>401</errorCode>')
                     if key not in router.mappings:
                         return self.reply(500, '<errorCode>714</errorCode>')
-                    out = f'<NewInternalClient>{router.mappings[key]}</NewInternalClient>'
+                    out = (f'<NewInternalClient>{router.mappings[key]}</NewInternalClient>'
+                           f'<NewInternalPort>{key[1]}</NewInternalPort>'
+                           f'<NewPortMappingDescription>{router.descriptions.get(key, "")}'
+                           '</NewPortMappingDescription>')
                 elif action == 'DeletePortMapping':
                     router.mappings.pop(key, None)
+                    router.descriptions.pop(key, None)
                 self.reply(200, f'<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>'
                                 f'<u:{action}Response xmlns:u="{SERVICE}">{out}</u:{action}Response>'
                                 '</s:Body></s:Envelope>')
@@ -113,6 +122,49 @@ class UpnpTests(unittest.TestCase):
         result = upnp.open_ports(found=found)
         self.assertEqual(result['state'], 'refused')
         self.assertEqual(result['failed'], ['UDP 31314'])
+        self.assertEqual(router.mappings, {}, 'partial forwards must be rolled back')
+
+    def test_retry_is_idempotent_and_stop_removes_only_our_described_mappings(self):
+        router, found = self.router()
+        self.assertEqual(upnp.open_ports(found=found)['state'], 'open')
+        self.assertEqual(upnp.open_ports(found=found)['state'], 'open')
+        added = [action for action, _args in router.calls if action == 'AddPortMapping']
+        self.assertEqual(added, ['AddPortMapping'] * 3, 'retry must not overwrite existing forwards')
+        self.assertEqual(upnp.close_ports(found=found), 3)
+        self.assertEqual(router.mappings, {})
+
+    def test_foreign_mapping_to_same_pc_is_never_overwritten_or_removed(self):
+        router, found = self.router()
+        foreign = ('TCP', '31315')
+        router.mappings[foreign] = '127.0.0.1'
+        router.descriptions[foreign] = 'Another application'
+        result = upnp.open_ports(found=found)
+        self.assertEqual(result['state'], 'refused')
+        self.assertIn('TCP 31315', result['failed'])
+        self.assertEqual(router.mappings, {foreign: '127.0.0.1'})
+        self.assertEqual(router.descriptions[foreign], 'Another application')
+        self.assertEqual(upnp.close_ports(found=found), 0)
+        self.assertEqual(router.mappings, {foreign: '127.0.0.1'})
+
+    def test_partial_failure_keeps_preexisting_owned_forward(self):
+        router, found = self.router(refuse={'UDP 31314'})
+        existing = ('TCP', '31315')
+        router.mappings[existing] = '127.0.0.1'
+        router.descriptions[existing] = upnp.DESCRIPTION
+        result = upnp.open_ports(found=found)
+        self.assertEqual(result['state'], 'refused')
+        self.assertEqual(result['failed'], ['UDP 31314'])
+        self.assertEqual(router.mappings, {existing: '127.0.0.1'},
+                         'newly created port is undone, an old BBSC forward remains')
+
+    def test_mapping_query_failure_does_not_override_untested_existing_rules(self):
+        router, found = self.router()
+        router.query_error = True
+        result = upnp.open_ports(found=found)
+        self.assertEqual(result['state'], 'refused')
+        self.assertEqual(set(result['failed']), set(f'{proto} {port}' for proto, port in upnp.HOST_PORTS))
+        self.assertEqual(router.mappings, {})
+        self.assertEqual(upnp.close_ports(found=found), 0)
 
     def test_stop_takes_only_our_forwards_away(self):
         router, found = self.router()
