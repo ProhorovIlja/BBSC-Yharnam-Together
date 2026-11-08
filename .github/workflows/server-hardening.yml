@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: yharnam-server-hardening-v1
+  group: yharnam-server-hardening-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
