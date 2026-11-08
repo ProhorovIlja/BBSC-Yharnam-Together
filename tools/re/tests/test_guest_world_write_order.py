@@ -6,6 +6,7 @@ the B06 staged file writer, with synthetic file paths. No game dump, save,
 network account, or complete client compilation is involved.
 """
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -55,7 +56,7 @@ class GuestWorldWriteOrder(unittest.TestCase):
         b = text.index("\nvoid SaveGuestWorldChanges() {", a)
         real_guard = text[a:b]
         self.assertIn("CommitLatestGuestWorldSnapshot(", real_guard)
-        compiler = shutil.which("g++") or shutil.which("c++")
+        compiler = shutil.which("g++") or shutil.which("clang++") or shutil.which("c++")
         if compiler is None:
             self.skipTest("C++20 compiler unavailable")
         fixture = r"""
@@ -76,7 +77,11 @@ class GuestWorldWriteOrder(unittest.TestCase):
 #include <system_error>
 #include <utility>
 #include <vector>
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 using u64 = std::uint64_t;
 using u32 = std::uint32_t;
 namespace fmt {
@@ -146,7 +151,7 @@ int main(int argc, char** argv) {
         fixture = fixture.replace("// EXACT_PRODUCTION_FENCE", real_guard)
         with tempfile.TemporaryDirectory(prefix="bbsc-b07-") as td:
             file = Path(td) / "fixture.cpp"
-            executable = Path(td) / "fixture"
+            executable = Path(td) / ("fixture.exe" if os.name == "nt" else "fixture")
             folder = Path(td) / "synthetic"
             folder.mkdir()
             file.write_text(fixture, encoding="utf-8")

@@ -1,0 +1,106 @@
+name: Ultimate B09 native Windows and Linux guest-world file regressions (no game)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-08-world-write-retry.yml'
+      - '.github/workflows/ultimate-batch-09-windows-savedata-faults.yml'
+      - 'docs/ULTIMATE_BATCH_09.md'
+      - 'tools/re/tests/test_guest_metadata_atomic_replace.py'
+      - 'tools/re/tests/test_guest_world_write_order.py'
+      - 'tools/re/tests/test_guest_world_write_retry.py'
+      - 'tools/ultimate/batch_09_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b09-file-io-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scope-and-source-pins:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exact 7-path B08 to B09 delta
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-08-world-write-retry-20261108:refs/remotes/origin/b08
+          git diff --name-only origin/b08 HEAD > /tmp/b09-changes.txt
+          cat /tmp/b09-changes.txt
+          if grep -vE '^(\.github/workflows/ultimate-batch-08-world-write-retry\.yml|\.github/workflows/ultimate-batch-09-windows-savedata-faults\.yml|docs/ULTIMATE_BATCH_09\.md|tools/re/tests/test_guest_metadata_atomic_replace\.py|tools/re/tests/test_guest_world_write_order\.py|tools/re/tests/test_guest_world_write_retry\.py|tools/ultimate/batch_09_manifest\.json)$' /tmp/b09-changes.txt; then
+            echo 'Unexpected game, save, server, production, external archive or launcher change' >&2
+            exit 1
+          fi
+          test "$(wc -l < /tmp/b09-changes.txt)" -eq 7
+      - name: Pin production source and all three tested C++ harnesses
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          m=json.loads(Path("tools/ultimate/batch_09_manifest.json").read_text())
+          previous=json.loads(Path("tools/ultimate/batch_08_manifest.json").read_text())
+          assert m["batch_id"]=="B09-2026-11-08" and m["parent_pr"]==40
+          assert all(m[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_full_build"))
+          assert len(m["changed_files"])==7
+          assert m["source_pin"]["blob_sha1"]==previous["sources"][0]["candidate_blob_sha1"]
+          for item in [m["source_pin"]]+m["regressions"]:
+              p=Path(item["path"])
+              data=p.read_bytes()
+              got=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
+              assert got==item["blob_sha1"],f"{p}: {got} != {item['blob_sha1']}"
+          print("B09_SOURCE_PINS_PASS")
+          PY
+
+  synthetic-linux-production-cpp:
+    needs: scope-and-source-pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Linux ABI synthetic world metadata fault-injection
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_metadata_atomic_replace.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_order.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_retry.py' -v
+          echo 'B09_LINUX_REAL_CPP_HELPER_FIXTURES_PASS'
+
+  synthetic-windows-production-cpp:
+    needs: scope-and-source-pins
+    runs-on: windows-2022
+    timeout-minutes: 22
+    steps:
+      - name: Keep source files with consistent line endings
+        shell: pwsh
+        run: git config --global core.autocrlf input
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          cache: true
+          install: >-
+            mingw-w64-clang-x86_64-toolchain
+            mingw-w64-clang-x86_64-python
+      - name: Windows CLANG64 native ABI synthetic world metadata fault-injection
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tools/re/tests -p 'test_guest_metadata_atomic_replace.py' -v
+          python -m unittest discover -s tools/re/tests -p 'test_guest_world_write_order.py' -v
+          python -m unittest discover -s tools/re/tests -p 'test_guest_world_write_retry.py' -v
+          echo 'B09_WINDOWS_REAL_CPP_HELPER_FIXTURES_PASS_NO_GAME'

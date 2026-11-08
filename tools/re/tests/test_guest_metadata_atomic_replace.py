@@ -5,6 +5,7 @@ Uses a production C++ helper extracted directly from bloodborne_flags_store.cpp,
 a compiler, and synthetic small text files only. Does not read real saves.
 """
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -57,7 +58,7 @@ class GuestMetadataAtomicReplacement(unittest.TestCase):
         a = text.index("bool ReplaceGuestMetadataFile(")
         b = text.index("\n}\n\nstd::filesystem::path GuestProgressFile()", a) + 2
         helper = text[a:b]
-        compiler = shutil.which("g++") or shutil.which("c++")
+        compiler = shutil.which("g++") or shutil.which("clang++") or shutil.which("c++")
         if compiler is None:
             self.skipTest("C++20 compiler unavailable")
         # Only fmt::format for the temporary name is stubbed; the filesystem
@@ -71,7 +72,11 @@ class GuestMetadataAtomicReplacement(unittest.TestCase):
 #include <string>
 #include <string_view>
 #include <system_error>
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 using u64 = std::uint64_t;
 namespace fmt {
     template <typename A, typename B>
@@ -121,7 +126,7 @@ int main(int argc, char** argv) {
         fixture = fixture.replace("// PRODUCTION_HELPER", helper)
         with tempfile.TemporaryDirectory(prefix="bbsc-b06-") as tmp:
             path = Path(tmp) / "atomic.cpp"
-            exe = Path(tmp) / "atomic"
+            exe = Path(tmp) / ("atomic.exe" if os.name == "nt" else "atomic")
             work = Path(tmp) / "synthetic-user"
             work.mkdir()
             path.write_text(fixture, encoding="utf-8")

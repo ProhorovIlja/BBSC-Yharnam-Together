@@ -23,6 +23,9 @@ concurrency:
 
 jobs:
   production-cpp-retry-and-inherited-regression:
+    # The B08 blob-pin and parent diff gate applies to B07 only.
+    # B09 reruns the B08 real C++ fixtures on both Linux and Windows.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-07-world-write-order-20261108')
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:

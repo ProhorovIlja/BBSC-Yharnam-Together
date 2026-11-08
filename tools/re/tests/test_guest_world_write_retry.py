@@ -5,6 +5,7 @@ Tests only synthetic metadata files and injected rename errors. Compiles the
 exact B06 staged writer and B07/B08 revision/idle-retry helpers. No game data.
 """
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -52,7 +53,7 @@ class GuestWorldWriteRetry(unittest.TestCase):
         a = code.index("struct GuestWorldWriteState {")
         b = code.index("\nvoid SaveGuestWorldChanges() {", a)
         guard_and_retry = code[a:b]
-        compiler = shutil.which("g++") or shutil.which("c++")
+        compiler = shutil.which("g++") or shutil.which("clang++") or shutil.which("c++")
         if not compiler:
             self.skipTest("C++20 compiler unavailable")
         fixture = r"""
@@ -73,7 +74,11 @@ class GuestWorldWriteRetry(unittest.TestCase):
 #include <system_error>
 #include <utility>
 #include <vector>
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 using u64 = std::uint64_t;
 using u32 = std::uint32_t;
 namespace fmt {
@@ -155,7 +160,7 @@ int main(int argc, char** argv) {
         )
         with tempfile.TemporaryDirectory(prefix="bbsc-b08-") as td:
             code_path = Path(td) / "retry.cpp"
-            binary = Path(td) / "retry"
+            binary = Path(td) / ("retry.exe" if os.name == "nt" else "retry")
             work = Path(td) / "synthetic"
             work.mkdir()
             code_path.write_text(fixture, encoding="utf-8")
