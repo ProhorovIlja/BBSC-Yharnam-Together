@@ -277,7 +277,7 @@ if (Test-Path (Join-Path $gameEvents "common.emevd.dcx")) {
 
 $built = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'")
 Write-Utf8 (Join-Path $release "VERSION.txt") (@(
-    "Yharnam Together: Bloodborne Seamless Co-op $tag (Windows, Bloodborne PC native port)",
+    "BBSC: Yharnam Together TEST $tag (Windows, Bloodborne PC port)",
     "Commit: $commit$(if ($dirty) { ' + uncommitted changes (test build)' })",
     "Built: $built",
     "Game: Bloodborne 1.09 (tested with CUSA03173)",
@@ -347,7 +347,7 @@ if (Test-Path $portable) { Remove-Item -Force $portable }
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $zip = [IO.Compression.ZipFile]::Open($portable, [IO.Compression.ZipArchiveMode]::Create)
 try {
-    $top = "Yharnam Together/"
+    $top = "BBSC Yharnam Together TEST/"
     $from = (Resolve-Path -LiteralPath $release).Path
     foreach ($file in Get-ChildItem -LiteralPath $from -Recurse -File -Force) {
         $relative = $file.FullName.Substring($from.Length).TrimStart('\').Replace('\', '/')
@@ -356,7 +356,7 @@ try {
     }
     $entry = $zip.CreateEntry($top + "portable.txt")
     $writer = New-Object IO.StreamWriter($entry.Open(), (New-Object Text.UTF8Encoding $false))
-    $writer.Write("Portable Yharnam Together: play from BLauncher.exe in this folder, no setup needed.`r`n" +
+    $writer.Write("Portable BBSC: Yharnam Together TEST: launch BLauncher.exe; no setup needed.`r`n" +
                   "Everything stays in this folder (your saves, settings and logs in user\). To remove it, delete the folder.`r`n" +
                   "Updates from the launcher keep it portable. Delete this file and the launcher works as an installed one.`r`n")
     $writer.Dispose()
