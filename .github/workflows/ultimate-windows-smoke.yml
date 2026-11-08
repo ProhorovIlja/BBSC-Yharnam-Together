@@ -20,6 +20,9 @@ concurrency:
 
 jobs:
   windows-launcher:
+    # This validation belongs to launcher-smoke PR #29; do not rerun it on every
+    # unrelated GPU/source integration batch in the stacked Ultimate chain.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-member-specific-join-waits-20261108')
     runs-on: windows-2022
     timeout-minutes: 22
     steps:

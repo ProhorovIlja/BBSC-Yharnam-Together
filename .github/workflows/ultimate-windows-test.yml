@@ -7,6 +7,9 @@ on:
   pull_request:
     paths:
       - 'bbport/launcher/**'
+      - 'bbport/gpu/shadps4/**'
+      - 'tools/ultimate/test_batch_01.py'
+      - 'tools/ultimate/batch_01_manifest.json'
       - 'bbport/tests/test_launcher_auth.py'
       - 'bbport/tests/test_ultimate_edition.py'
       - 'bbport/tests/test_launcher_look.py'
@@ -31,6 +34,8 @@ on:
       - '.github/workflows/ultimate-source-sweep.yml'
       - '.github/workflows/ultimate-windows-test.yml'
       - '.github/workflows/ultimate-windows-smoke.yml'
+      - '.github/workflows/ultimate-launcher-freeze.yml'
+      - '.github/workflows/ultimate-native-client-windows.yml'
   workflow_dispatch:
 
 permissions:
@@ -51,7 +56,7 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
           git diff --name-only origin/main HEAD | tee /tmp/changed_paths.txt
-          if grep -vE '^(bbport/launcher/bbport_auth\.py|bbport/launcher/bbport_lang_auth\.py|bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_upnp\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_launcher_auth\.py|bbport/tests/test_launcher_look\.py|bbport/tests/test_launcher_game_map_sync\.py|bbport/tests/test_launcher_upnp\.py|bbport/tests/test_save_restore_atomicity\.py|bbport/tests/test_ultimate_edition\.py|bbport/packaging/windows/version_info\.py|tools/release/check_release\.py|tools/make-release\.ps1|tools/release/setup\.iss|tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|tools/re/tests/test_team_travel_locking\.py|tools/re/tests/fixtures/team_travel\.cpp\.in|emulator/src/core/bloodborne_host_rules_game\.cpp|emulator/src/core/bloodborne_boards\.cpp|emulator/src/core/bloodborne_party\.cpp|emulator/src/core/bloodborne_party\.h|tools/re/tests/test_member_specific_joins\.py|tools/ultimate/source_sweep\.py|tools/ultimate/test_source_sweep\.py|\.github/workflows/ultimate-source-sweep\.yml|docs/ULTIMATE_SOURCE_AUDIT\.md|docs/ULTIMATE_PLAYABLE_EDITION\.md|docs/ULTIMATE_BUG_ISSUE_BACKLOG\.md|\.github/workflows/ultimate-windows-test\.yml|\.github/workflows/ultimate-windows-smoke\.yml)$' /tmp/changed_paths.txt; then
+          if grep -vE '^(bbport/launcher/bbport_auth\.py|bbport/launcher/bbport_lang_auth\.py|bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_upnp\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_launcher_auth\.py|bbport/tests/test_launcher_look\.py|bbport/tests/test_launcher_game_map_sync\.py|bbport/tests/test_launcher_upnp\.py|bbport/tests/test_save_restore_atomicity\.py|bbport/tests/test_ultimate_edition\.py|bbport/packaging/windows/version_info\.py|tools/release/check_release\.py|tools/make-release\.ps1|tools/release/setup\.iss|tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|tools/re/tests/test_team_travel_locking\.py|tools/re/tests/fixtures/team_travel\.cpp\.in|emulator/src/core/bloodborne_host_rules_game\.cpp|emulator/src/core/bloodborne_boards\.cpp|emulator/src/core/bloodborne_party\.cpp|emulator/src/core/bloodborne_party\.h|tools/re/tests/test_member_specific_joins\.py|tools/ultimate/source_sweep\.py|tools/ultimate/test_source_sweep\.py|\.github/workflows/ultimate-source-sweep\.yml|docs/ULTIMATE_SOURCE_AUDIT\.md|docs/ULTIMATE_PLAYABLE_EDITION\.md|docs/ULTIMATE_BUG_ISSUE_BACKLOG\.md|\.github/workflows/ultimate-windows-test\.yml|\.github/workflows/ultimate-windows-smoke\.yml|\.github/workflows/ultimate-launcher-freeze\.yml|\.github/workflows/ultimate-native-client-windows\.yml|tools/ultimate/batch_01_manifest\.json|tools/ultimate/test_batch_01\.py|bbport/gpu/shadps4/shader_recompiler/(frontend/fetch_shader\.h|frontend/translate/translate\.cpp|backend/spirv/spirv_emit_context\.cpp|specialization\.h)|bbport/gpu/shadps4/video_core/renderer_vulkan/(vk_draw_prep\.cpp|vk_graphics_pipeline\.cpp|vk_pipeline_cache\.cpp|vk_pipeline_serialization\.cpp|vk_rasterizer\.cpp))$' /tmp/changed_paths.txt; then
             echo 'UNEXPECTED_RUNTIME_OR_SERVER_EDIT' >&2
             exit 1
           fi
@@ -71,6 +76,7 @@ jobs:
           python3 -m unittest discover -s bbport/tests -p 'test_save_restore_atomicity.py' -v
           PYTHONPATH=bbport/tests python3 -m unittest test_coop_launcher.SaveBackupTests -v
           python3 -m unittest discover -s tools/ultimate -p 'test_source_sweep.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
           python3 -m unittest discover -s bbport/tests -p 'test_launcher_version_info.py' -v
           python3 -m unittest discover -s tools/re/tests -p 'test_event_patch_validation.py' -v
       - name: Compile and run native team travel and member-specific join regressions

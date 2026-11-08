@@ -78,3 +78,47 @@ performance/latency comparisons against original droogie/bbhost, and gameplay
 including five hunters, duels, invasions, boss fights, DBNO, map travel,
 reconnect and persistent save recovery. No public Fornex changes until explicit
 validated cutover.
+
+## First integration-first batch: B01 (2026-11-08)
+
+This batch applies the owner's rule: **do not rebuild a full server, game
+client, launcher, installer and ZIP for each harvested PR**. It is a coherent
+**source integration candidate**, not a release and not a hardware benchmark.
+The inspectable machine-readable manifest with immutable Git blob SHA-1s and
+further gates is `tools/ultimate/batch_01_manifest.json`. Its synthetic,
+read-only source tests are `tools/ultimate/test_batch_01.py`.
+
+| Subsystem | Integrated into B01 | Source-level evidence | Still required |
+| --- | --- | --- | --- |
+| GPU null vertex inputs, pipeline/shader specialization & cache | **All nine files**, pinned upstream [YT #543](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/543) `7a8c6afb1cdfcb3a0c71c0498a3ad3da4e6de4cf` | All nine base blobs were exactly equal to official upstream `main` before copying; candidate changes null V# to zero float4, avoids VK_FORMAT_UNDEFINED and bumps ShaderBinaryVersion 17→18, PipelineKeyVersion 7→8. Author reports RTX 3080 improvement; **our hardware has not been tested** | Full compiler/linker after source batching, GPU vendor rig, shader-cache cold/warm correctness, map loads, 5-player gameplay and graphics comparison |
+| TLS auth UX | EN/RU auth source and specific locale regression from [our #27](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/27) | Existing Windows `BBSC_TEST_OPENSSL` support was kept while importing only the new locale test; TLS certificate checks stay enabled | Frozen 1.4.0 TEST launcher package integration, valid/invalid certs on real Windows |
+| Source intake | Repo/fork/PR/Issue scan and screenshot-backed bug ledger from [#16](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/16) / [#20](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/20) | Bounded GitHub metadata sources; no claim of exhaustive whole-GitHub inspection | Deeper source-level assessment of original droogie BBHost renderer/network (not CLS distribution), visy, deadinside, Supermedo, Nightwatch, shadPS4 and mods |
+
+The previous Windows compiler [probe #31](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/31)
+reached near the end of a 433-step CLANG64 build (including
+`bb-play.exe`, `bb-probe.exe` and `bb-gpu-capabilities.exe` linker steps)
+but **failed**. Only the last build-log lines were retained, and they do
+not expose the first failing diagnostic. This is an **open compiler gate**,
+not a completed engine build. Preserve and surface the *first* actual
+compiler/linker error in the next **milestone** build; avoid another blind
+full rebuild for every new source change.
+
+**Next batch intake** (not integrated in B01): original
+[droogie/bbhost #217](https://github.com/droogie/bbhost/pull/217)
+requires coordinated client/server lifecycle (not a drop-in fix);
+[#223](https://github.com/droogie/bbhost/pull/223) and
+[#218](https://github.com/droogie/bbhost/pull/218) are alternative runtime
+renderer/upscaler candidates; deadinside
+[#440](https://github.com/deadinside28/bloodborne_pc/pull/440) and
+[#442](https://github.com/deadinside28/bloodborne_pc/pull/442) need GPU
+ownership mapping to our source; Supermedo
+[#161](https://github.com/Supermedo/bloodborne_pc/pull/161) and
+[#168](https://github.com/Supermedo/bloodborne_pc/pull/168) concern
+save backups and offline Chalices. Search closed issues and prior fixes too.
+Duplicate fixes are not reimported. The client/server mainline retains
+**five-hunter** world/save/DBNO/late-join gates.
+
+Promotion cadence: source contract + focused tests per batch; full pinned
+Windows client/launcher/server build at integration milestones; private five-client
+game/play/latency/saves and owner-approved staging before publish. The
+**fully native port without PS4 EBOOT** remains a separate long-term track.

@@ -1,0 +1,121 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B01-2026-11-08",
+  "base_pr": 31,
+  "base_sha": "a0de6f263c81f05dd2b8e9f896be8002ec174a1a",
+  "disposition": "INTEGRATED_SOURCE_CANDIDATES_NOT_RELEASE_READY",
+  "no_automatic_deploy": true,
+  "no_game_assets": true,
+  "modules": [
+    {
+      "module": "gpu-null-vertex-and-specialization",
+      "project": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "pull_request": 543,
+      "head_sha": "7a8c6afb1cdfcb3a0c71c0498a3ad3da4e6de4cf",
+      "state": "source-integrated-hardware-unverified",
+      "expected_git_blobs": {
+        "bbport/gpu/shadps4/shader_recompiler/frontend/fetch_shader.h": "227702d4835d6c5699ea1d5b87279c220876c242",
+        "bbport/gpu/shadps4/shader_recompiler/specialization.h": "cf007d24cb772dc89e6f03b126e4b7d99d1e66c0",
+        "bbport/gpu/shadps4/video_core/renderer_vulkan/vk_pipeline_serialization.cpp": "26082050202a2fd399d6b568d2901b29c883f041",
+        "bbport/gpu/shadps4/shader_recompiler/backend/spirv/spirv_emit_context.cpp": "5f106338fde49c90ef5b335125244f721568dc88",
+        "bbport/gpu/shadps4/shader_recompiler/frontend/translate/translate.cpp": "7b572caccff54b143c99bb19db25e736256be879",
+        "bbport/gpu/shadps4/video_core/renderer_vulkan/vk_draw_prep.cpp": "1ccb9ac83448573b604e35d4256bb32149ca392b",
+        "bbport/gpu/shadps4/video_core/renderer_vulkan/vk_graphics_pipeline.cpp": "cb66e6df0684222e445cccbc41b78ef5c39e8e26",
+        "bbport/gpu/shadps4/video_core/renderer_vulkan/vk_pipeline_cache.cpp": "315ede65f06eb81a30e40cae37af8a26206d2772",
+        "bbport/gpu/shadps4/video_core/renderer_vulkan/vk_rasterizer.cpp": "64e837291817852dc9e29df6d5a82658adc17b7c"
+      },
+      "source_base_match": "all nine files verified same git blob against upstream main before copy",
+      "symptoms": [
+        "NVIDIA GPU device lost WriteInvalid at 0x0",
+        "VK_FORMAT_UNDEFINED vertex attributes"
+      ],
+      "checks": [
+        "byte-identical source against upstream PR SHA",
+        "shader binary cache 17->18",
+        "pipeline key 7->8",
+        "source-contract unittest"
+      ],
+      "pending": [
+        "full native GPU compile at next checkpoint",
+        "RTX 3080 AMD Intel game 1.09",
+        "five-hunter playtest",
+        "shader cache warm/cold perf"
+      ],
+      "fallback": "BB_NULL_VERTEX_INPUT=0 only for controlled A/B testing; never auto-disable correctness"
+    },
+    {
+      "module": "launcher-account-tls-diagnostics",
+      "project": "ProhorovIlja/BBSC-Yharnam-Together",
+      "pull_request": 27,
+      "head_sha": "3508a808058f9192c1cc7d7c2599c9fe0f78b436",
+      "state": "source-integrated-windows-hardware-unverified",
+      "expected_git_blobs": {
+        "bbport/launcher/bbport_auth.py": "1d252ef40487391e8acb9338362c2adbda8f6193",
+        "bbport/launcher/bbport_lang_auth.py": "50ad8d4dac588d4076e19e03acc40e0dd7017b3e"
+      },
+      "merge_note": "test_launcher_auth.py new locale regression inserted surgically; preserve inherited BBSC_TEST_OPENSSL override from PR29",
+      "checks": [
+        "offline TLS error mapping",
+        "EN/RU placeholder mapping",
+        "existing cert trust enforcement"
+      ],
+      "pending": [
+        "actual frozen Windows version rebuilt at milestone",
+        "test valid and revoked certificate on clean Windows",
+        "ensure zero credentials sent on verification failure"
+      ]
+    }
+  ],
+  "release_gates": [
+    "private five-hunter late join/team-world saves",
+    "compatible server v1.4.0 plus protocol and auth manifest",
+    "matched BBHost vs BBPort perf before engine selection",
+    "real GPU tests for null vertex semantics",
+    "atomic launcher updater/rollback",
+    "owner-approved staging then production"
+  ],
+  "pending_evaluations": [
+    {
+      "source": "droogie/bbhost",
+      "prs": [
+        217,
+        218,
+        223
+      ],
+      "decision": "alternative runtime benchmark, not cherry-pick into BBPort"
+    },
+    {
+      "source": "deadinside28/bloodborne_pc",
+      "prs": [
+        440,
+        442
+      ],
+      "decision": "adapt GPU synchronization only after matched source and local race reproduction"
+    },
+    {
+      "source": "Supermedo/bloodborne_pc",
+      "prs": [
+        161,
+        168,
+        169
+      ],
+      "decision": "save safety, offline chalice, recomp launcher require separate game/UX/protocol integration"
+    },
+    {
+      "source": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "prs": [
+        488,
+        524,
+        539,
+        540
+      ],
+      "decision": "prioritize de-duplication against existing integration to avoid overwriting world and server changes"
+    }
+  ],
+  "build_cadence": {
+    "source_intake": "no build",
+    "candidate_edits": "offline tests + source contract only",
+    "integration_checkpoint": "controlled complete Windows client/launcher/server build with pinned source and five-hunter tests",
+    "release": "no public package until test and approval"
+  }
+}
