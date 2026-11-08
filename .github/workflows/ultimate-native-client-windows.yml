@@ -87,7 +87,7 @@ jobs:
             bbport/gpu/third_party/fsr-vulkan/CMakeLists.txt \
             bbport/gpu/third_party/imgui/imgui.h \
             bbport/gpu/third_party/xbyak/xbyak/xbyak.h \
-            bbport/third_party/LibAtrac9/C/src/atrac9.c; do
+            bbport/third_party/LibAtrac9/C/src/libatrac9.c; do
             test -f "$file" || { echo "Missing submodule source: $file"; exit 1; }
           done
           echo BBPORT_SUBMODULE_SOURCE_PASS
