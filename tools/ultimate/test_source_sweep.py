@@ -42,6 +42,16 @@ class FakeAPI:
             return repo("droogie/bbhost", fork=False)
         if path == "/repos/droogie/bbhost/branches":
             return [{"name": "master", "commit": {"sha": "deadbeef" * 5}}]
+        if path == "/repos/droogie/bbhost/issues":
+            return [
+                {"number": 220, "title": "GPU device lost", "state": "open",
+                 "updated_at": "2026-11-08T00:00:00Z", "comments": 1,
+                 "body": "private screenshot must not be embedded", "labels": [{"name": "GPU"}]},
+                {"number": 217, "title": "This is a PR, not an Issue",
+                 "state": "open", "pull_request": {"url": "synthetic"}, "body": "test"},
+                {"number": 100, "title": "Old fixed issue", "state": "closed",
+                 "state_reason": "completed", "comments": 3, "body": "old log"},
+            ]
         if path == "/repos/droogie/bbhost/pulls":
             return [{"number": 217, "title": "Network protocol candidate",
                      "state": "open", "draft": False,
@@ -67,9 +77,15 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(bbhost["license"], "GPL-3.0")
         self.assertEqual(bbhost["branches"][0]["commit"], "deadbeef" * 5)
         self.assertEqual(bbhost["pull_requests"][0]["head_sha"], "f00d" * 10)
+        self.assertEqual([i["number"] for i in bbhost["issues"]], [220, 100])
+        self.assertEqual([i["state"] for i in bbhost["issues"]], ["open", "closed"])
+        self.assertEqual(bbhost["issues"][0]["labels"], ["GPU"])
+        self.assertFalse(bbhost["issue_truncated"])
+        self.assertNotIn("private screenshot", str(report))
+        self.assertNotIn("old log", str(report))
         self.assertIn("original-bbhost", bbhost["found_in"])
         self.assertIn("GitHub source sweep", sweep.markdown(report))
-        self.assertEqual(api.calls, 5)
+        self.assertEqual(api.calls, 6)
         self.assertNotIn("Authorization", str(report))
 
     def test_finite_budget_returns_explicit_partial_coverage(self):
@@ -95,6 +111,9 @@ class SweepTests(unittest.TestCase):
                 if path.endswith("/pulls"):
                     self.calls += 1
                     return [{"number": x, "title": "candidate"} for x in range(100)]
+                if path.endswith("/issues"):
+                    self.calls += 1
+                    return [{"number": x + 1, "title": "issue", "state": "open"} for x in range(100)]
                 return super().get(path, params)
         api = Full()
         report = sweep.scan(api, searches={"x": "bbhost"}, seeds=("droogie/bbhost",),
@@ -102,9 +121,10 @@ class SweepTests(unittest.TestCase):
                             branch_pages=1, pr_pages=1)
         bbhost = next(r for r in report["repositories"] if r["repo"] == "droogie/bbhost")
         self.assertTrue(report["truncated"])
-        self.assertTrue(bbhost["branch_truncated"] and bbhost["pr_truncated"])
+        self.assertTrue(bbhost["branch_truncated"] and bbhost["pr_truncated"] and bbhost["issue_truncated"])
         self.assertEqual(len(bbhost["branches"]), 100)
         self.assertEqual(len(bbhost["pull_requests"]), 100)
+        self.assertEqual(len(bbhost["issues"]), 100)
 
 
 if __name__ == "__main__":
