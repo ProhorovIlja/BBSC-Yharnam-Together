@@ -85,6 +85,41 @@
   Track as feature requests, with mod interoperability and no regression
   of quests or game-world persistence.
 
+## 2026-11-08 original screenshot archive and sanitized public issues
+
+Six original image files were archived in the non-shared Drive account
+`gungrain@gmail.com`:
+`Bloodborne — Seamless Hunt — HANDOFF / 05-TESTS-LOGS /
+2026-11-08 — PRIVATE Discord Bug Screenshots`.
+They remain private and **are not mirrored into public GitHub**. The private
+index `00-PRIVATE-README-and-SHA256.md` records each file's SHA-256 and
+technical categories. These are historical version-dependent bug reports,
+**not** reproducible evidence that current 1.4.0 has them.
+
+The source-aware, release-gated acceptance criteria are tracked in:
+
+| Public sanitized issue | Category | Screenshot evidence, privately stored |
+| --- | --- | --- |
+| [#22](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/22) | P0 world progression, lamp, door, quest and persistent save | 01, 02 |
+| [#23](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/23) | P0 enemy/actor, NPC, loot, party/boss state synchronization | 01, 02 |
+| [#24](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/24) | P0 account sign-in and certificate trust diagnostics | 03, 04 |
+| [#25](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/25) | P1 missing floor/geometry, VRAM and FPS decay, UI latency | 01, 02, 04, 06 |
+| [#26](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/26) | P1 leave-lobby UX, offline developer tooling, anti-cheat/mod false positives | 01, 02, 05 |
+
+**TLS wording correction:** the historical launcher message `certificate:
+not sent` means the **account request was not sent** because certificate
+verification blocked it; this is not evidence that the server failed to send
+a certificate at all. Distinguish unavailable roots, invalid chain,
+hostname mismatch, proxy interception and missing server certificate.
+See source `bbport_auth._tls_error` and the tested Windows truststore.
+[Experimental UI clarification PR #27](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/27)
+does not disable TLS verification.
+
+Any later screenshot must be deduplicated against **private SHA-256 evidence
+and technical symptoms** before upload and public Issue creation. If its
+binary attachment is unavailable, leave it **pending**, never falsely claim
+a successful Drive upload. Avoid raw Discord or user names in public code.
+
 ## 2026-11-08 source spot-check: two original screenshot regressions
 
 The current integrated 1.4.0 candidate was inspected **at exact blob SHAs**
