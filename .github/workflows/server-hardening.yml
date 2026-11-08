@@ -78,6 +78,28 @@ jobs:
     timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
+      - name: Fast Docker test-stage source and shell preflight
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          dockerfile = Path("server/hosting/Dockerfile").read_text()
+          stages = [line for line in dockerfile.splitlines() if line.startswith("FROM ")]
+          assert len(stages) == 9, f"unexpected Docker stages: {stages}"
+          assert stages[-1] == "FROM ubuntu:24.04 AS runtime", "default runtime moved"
+          assert stages.count("FROM build AS verification-tests") == 1
+          assert stages.count("FROM build AS loadtest-build") == 1
+          stage = dockerfile.split("FROM build AS verification-tests", 1)[1].split(
+              "FROM build AS loadtest-build", 1
+          )[0]
+          prefix = "RUN --mount=type=cache,id=shadnet-build,target=/src/server/build"
+          assert stage.count(prefix) == 1, "test RUN missing"
+          command = stage.split(prefix, 1)[1]
+          check = subprocess.run(["sh", "-n"], input=command, text=True, capture_output=True)
+          assert check.returncode == 0, f"invalid test stage shell: {check.stderr}"
+          assert "test_admin" in command and "test_world_writer" in command
+          print("DOCKER_PREFLIGHT_PASS stage_boundaries,test_shell,world_writer,admin")
+          PY
       - name: Fetch only required protobuf submodule
         run: git submodule update --init --depth=1 server/externals/protobuf
       - uses: docker/setup-buildx-action@v3
