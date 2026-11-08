@@ -45,7 +45,8 @@ class TeamTravelLockingTests(unittest.TestCase):
                                 '-I' + str(headers), '-I' + str(root / 'server'),
                                 str(cpp), str(headers / 'core/bloodborne_host_rules.cpp'),
                                 '-o', str(exe)]
-            subprocess.run(build, check=True, capture_output=True, text=True, timeout=60)
+            built = subprocess.run(build, capture_output=True, text=True, timeout=60)
+            self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
             result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn('PASS:', result.stdout)
