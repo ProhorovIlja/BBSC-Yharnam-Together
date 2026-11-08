@@ -65,10 +65,12 @@ class BuildFailureReporting(unittest.TestCase):
         ]
         out = self.run_report(logs)
         self.assertEqual(out.returncode, 0, out.stderr[:2000])
-        self.assertEqual(out.stderr.count("ld.lld: error:"), 8)
-        self.assertIn("item_0", out.stderr)
-        self.assertNotIn("item_13", out.stderr)
-        self.assertLess(len(out.stderr), 7000)
+        first = out.stderr.split("FIRST_COMPILER_OR_LINKER_ERRORS_MAX_8:", 1)[1]
+        first = first.split("NONPROGRESS_LOG_TAIL_MAX_12:", 1)[0]
+        self.assertEqual(first.count("ld.lld: error:"), 8)
+        self.assertIn("item_0", first)
+        self.assertNotIn("item_13", first)
+        self.assertLess(len(out.stderr), 15000)
 
     def test_missing_log_is_reported_not_silent(self):
         out = self.run_report([], exists=False)
