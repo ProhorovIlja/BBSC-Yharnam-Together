@@ -11,9 +11,11 @@ spec.loader.exec_module(sweep)
 
 
 def repo(name, **kw):
-    return dict(full_name=name, description="source candidate",
+    data = dict(full_name=name, description="source candidate",
                 default_branch="main", fork=False, license={"spdx_id": "GPL-3.0"},
-                pushed_at="2026-11-08T00:00:00Z", **kw)
+                pushed_at="2026-11-08T00:00:00Z")
+    data.update(kw)
+    return data
 
 
 class FakeAPI:
