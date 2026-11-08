@@ -1,0 +1,58 @@
+name: Experimental client game-link restart (no deployment)
+
+on:
+  push:
+    branches:
+      - experiment/client-reconnect-game-link-pr502
+  pull_request:
+    paths:
+      - 'server/coop/game_link.h'
+      - 'emulator/tests/bloodborne/test_bloodborne_game_link.cpp'
+      - '.github/workflows/client-game-link-reconnect.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-reconnect-pr502
+  cancel-in-progress: true
+
+jobs:
+  isolated-game-link-tests:
+    name: Reliable stream and returning hunter regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require only upstream experimental game-link changes
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-playable-windows-1.4.0-test:refs/remotes/origin/experiment/ultimate-playable-windows-1.4.0-test
+          git diff --name-only origin/experiment/ultimate-playable-windows-1.4.0-test HEAD > /tmp/modified.txt
+          cat /tmp/modified.txt
+          if grep -vE '^(server/coop/game_link\.h|emulator/tests/bloodborne/test_bloodborne_game_link\.cpp|\.github/workflows/client-game-link-reconnect\.yml)$' /tmp/modified.txt; then
+            echo 'Unexpected server runtime, database, game or launcher edits' >&2
+            exit 1
+          fi
+      - name: Install standalone C++ test requirements
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ libgtest-dev
+      - name: Compile actual shared GameLinkPeer unit tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O1 -g -pthread \
+            -I emulator/src -I server \
+            emulator/tests/bloodborne/test_bloodborne_game_link.cpp \
+            -lgtest_main -lgtest -o /tmp/yt-game-link-tests
+      - name: Execute restart/reliable/unreliable stream regressions
+        run: |
+          set -euo pipefail
+          timeout 90s /tmp/yt-game-link-tests \
+            --gtest_filter='GameLink.*' --gtest_color=no
+      - name: Declare experimental-only status
+        run: |
+          echo 'TESTS_ONLY: upstream PR502 still needs game rig party3 restart validation.'
+          echo 'No public server changes, game files, credentials, deploys or release assets.'
