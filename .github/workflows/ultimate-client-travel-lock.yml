@@ -35,6 +35,10 @@ jobs:
             echo "Unexpected server, launcher, protocol or asset edit" >&2
             exit 1
           fi
+      - name: Install native test dependency
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libfmt-dev
       - name: Compile and execute real Team Travel state machine
         run: |
           set -euo pipefail
