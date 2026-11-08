@@ -331,6 +331,7 @@ int ServerStats() {
   CHECK(stats["worlds"].toInt() == 1);
   CHECK(stats["link_load"].toDouble() == 0.25);
   CHECK(stats.contains("hellos_refused") && stats.contains("floods"));
+  CHECK(stats.contains("bans") && stats["bans"].toInt() == 0);
   // Link version 4: the server's public key, what the launcher pins.
   const QString key =
       QString::fromStdString(LinkAuth::HexOf(rig.hub.PublicKey()));

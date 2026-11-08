@@ -101,6 +101,27 @@ int AFloodingLinkIsDroppedAndReportedNeverBanned() {
   return 0;
 }
 
+// A flood on one link must not block another peer behind the same NAT address.
+int ANoisyPeerDoesNotBanItsNatNeighbour() {
+  Limits limits;
+  limits.datagrams_per_second = 2;
+  limits.datagram_burst = 2;
+  limits.strikes_to_ban = 2;
+  Guard guard{limits};
+  for (int second = 0; second <= 2; ++second) {
+    const qint64 at = second * 1000;
+    for (int i = 0; i < 40; ++i) {
+      guard.AllowDatagram(1, Home, 100, at);
+    }
+  }
+  CHECK(guard.Count().floods >= 1);
+  CHECK(!guard.Banned(Home));
+  CHECK(guard.AllowDatagram(2, Home, 100, 3000));
+  CHECK(guard.AllowHello(Home, 3000));
+  CHECK(guard.TakeFloods().size() >= 1);
+  return 0;
+}
+
 int ABigLinkWithinItsRateIsFine() {
   Guard guard{};
   qint64 now = 0;
@@ -204,6 +225,7 @@ int main() {
   failed |= HellosFromOneAddressAreLimited();
   failed |= LinksAndAccountsAnAddress();
   failed |= AFloodingLinkIsDroppedAndReportedNeverBanned();
+  failed |= ANoisyPeerDoesNotBanItsNatNeighbour();
   failed |= ABigLinkWithinItsRateIsFine();
   failed |= TheOperatorsBanList();
   failed |= SignupWorkRisesWithTheRate();

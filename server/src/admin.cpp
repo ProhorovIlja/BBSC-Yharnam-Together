@@ -282,7 +282,10 @@ Answer Stats(Context& context) {
                         {"hellos_refused", static_cast<qint64>(count.hellos_refused)},
                         {"datagrams_dropped", static_cast<qint64>(count.datagrams_dropped)},
                         {"accounts_refused", static_cast<qint64>(count.accounts_refused)},
-                        {"floods", static_cast<qint64>(count.floods)}},
+                        {"floods", static_cast<qint64>(count.floods)},
+                        // Deprecated admin stats field for pre-1.4 parsers: automatic
+                        // rate bans were removed. Operator bans use the separate ban list.
+                        {"bans", static_cast<qint64>(0)}},
             {},
             {}};
 }
