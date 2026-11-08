@@ -53,10 +53,10 @@ AUTH_KEYS = [
     'That password is too common: choose another.',
     'The password must not contain your name.',
     'The new password is the old one.',
-    "This PC does not trust the server's certificate: not sent. ({})",
+    "This PC could not verify the server's certificate. Your account details were not sent. ({})",
     'The server refused it: try again.',
     'Copied',
-    'The secure connection to the server failed: not sent. ({})',
+    'The secure connection to the server failed. Your account details were not sent. ({})',
 ]
 
 AUTH = {
@@ -110,10 +110,10 @@ AUTH = {
         'Этот пароль слишком распространён: выберите другой.',
         'Пароль не должен содержать ваше имя.',
         'Новый пароль совпадает со старым.',
-        'Этот ПК не доверяет сертификату сервера: ничего не отправлено. ({})',
+        'Не удалось проверить сертификат сервера. Данные вашего аккаунта не отправлены. ({})',
         'Сервер отказал: попробуйте снова.',
         'Скопировано',
-        'Не удалось установить защищённое соединение с сервером: ничего не отправлено. ({})',
+        'Не удалось установить защищённое соединение с сервером. Данные аккаунта не отправлены. ({})',
     ],
     'ar': [
         'محلي: خادمك أو خادم صديق',
