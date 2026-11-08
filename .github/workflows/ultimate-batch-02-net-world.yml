@@ -1,0 +1,68 @@
+name: Ultimate B02 co-op rejoin and world-lamp regressions (no release)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-02-net-world.yml'
+      - 'server/coop/game_link.h'
+      - 'emulator/tests/bloodborne/test_bloodborne_game_link.cpp'
+      - 'tools/re/tests/test_team_world_lamps_regression.py'
+      - 'tools/ultimate/batch_02_manifest.json'
+      - 'tools/ultimate/test_batch_02.py'
+      - 'docs/ULTIMATE_PLAYABLE_EDITION.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b02-net-world-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-native-fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify B02 changes only shared game-link, tests, audit and docs
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-01-gpu-auth-20261108:refs/remotes/origin/b01
+          git diff --name-only origin/b01 HEAD > /tmp/b02-paths.txt
+          cat /tmp/b02-paths.txt
+          if grep -vE '^(server/coop/game_link\.h|emulator/tests/bloodborne/test_bloodborne_game_link\.cpp|tools/re/tests/test_team_world_lamps_regression\.py|tools/ultimate/batch_02_manifest\.json|tools/ultimate/test_batch_02\.py|docs/ULTIMATE_PLAYABLE_EDITION\.md|\.github/workflows/ultimate-batch-02-net-world\.yml)$' /tmp/b02-paths.txt; then
+            echo 'UNEXPECTED_CLIENT_SERVER_ENGINE_DEPLOY_OR_GAME_ASSET_CHANGE' >&2
+            exit 1
+          fi
+          if test "$(wc -l < /tmp/b02-paths.txt)" -lt 5; then
+            echo 'B02 patch incomplete: expected source, regression and manifest' >&2
+            exit 1
+          fi
+      - name: Validate pin manifests and compile real production world-lamp helper
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_02.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_world_lamps_regression.py' -v
+      - name: Install small, standalone C++ test requirements
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ libgtest-dev
+      - name: Compile actual shared GameLinkPeer and its restart tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O1 -g -pthread \
+            -I emulator/src -I server \
+            emulator/tests/bloodborne/test_bloodborne_game_link.cpp \
+            -lgtest_main -lgtest -o /tmp/ultimate-b02-game-link
+          timeout 90s /tmp/ultimate-b02-game-link --gtest_filter='GameLink.*' --gtest_color=no
+          echo 'GAME_LINK_CPP_REAL_SOURCE_AND_2_3_5_HUNTER_FIXTURES_PASS'
+      - name: State limited scope
+        run: |
+          echo 'B02_SOURCE_ONLY_NO_FORNEX_NO_GAME_ASSETS_NO_RELEASE'
+          echo 'A passing unit test is NOT a Windows five-client gameplay proof.'

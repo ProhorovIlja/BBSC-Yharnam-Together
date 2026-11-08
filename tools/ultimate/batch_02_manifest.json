@@ -1,0 +1,92 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B02-2026-11-08",
+  "parent_batch": "B01-2026-11-08",
+  "parent_pr": 32,
+  "disposition": "SOURCE_INTEGRATION_CANDIDATE_NOT_PLAYTESTED",
+  "no_fornex_changes": true,
+  "no_deploy": true,
+  "no_game_or_save_assets": true,
+  "integrated": [
+    {
+      "module": "GameLinkPeer restart and rejoin world-head recovery",
+      "source_repo": "ProhorovIlja/BBSC-Yharnam-Together",
+      "source_pr": 12,
+      "source_commit": "3653fc488ad58fe659beaa59467fe960fb26ca86",
+      "root_upstream": "Amanises-Yharnam-Together/BBSC-Yharnam-Together#502",
+      "baseline_game_link_blob": "5029581251bfe5decf562c19a10bdd079150cdad",
+      "integrated_game_link_blob": "a51259f3228966ef0a75c2da4a082020c91913f7",
+      "test_blob": "8daacf148f8b9f5637c62a3b66770a8c0db97d1c",
+      "wire_format_changed": false,
+      "game_frame_version": 1,
+      "tests": [
+        "existing reconnect test from #12 (real C++ GTest)",
+        "synthetic independent per-member restart in 2/3/5 member teams"
+      ],
+      "status": "source-integrated-runtime-unverified",
+      "pending": [
+        "5-hunter crash/rejoin with late map load",
+        "packet-loss and latency benchmarks",
+        "host handoff and no stale reliable packet",
+        "matching running client/server build fingerprint"
+      ]
+    },
+    {
+      "module": "team world lamp change deduplication regression",
+      "source_repo": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "source_pr": 488,
+      "source_pr_status": "closed-unmerged",
+      "selected_action": "ALREADY_PRESENT_NO_DUPLICATE_PATCH",
+      "actual_source": [
+        "emulator/src/core/bloodborne_flags_store.cpp",
+        "emulator/src/core/bloodborne_party.cpp",
+        "emulator/src/core/bloodborne_travel.cpp",
+        "emulator/tests/bloodborne/test_bloodborne_flag_rules.cpp"
+      ],
+      "test_blob": "73678ec0542adceea4933016fb36042cecdba1aa",
+      "tests": [
+        "compile actual production WithoutRelitLamps with synthetic 2/5 player world flags",
+        "assert watcher clears relit ledger when sharing stops"
+      ],
+      "status": "existing-fix-protected-with-regression",
+      "pending": [
+        "real save data 1.09 world owner after team switching",
+        "NPC quest and lamp travel after leave and offline reload",
+        "chalice/altars and bosses in cross-team progression"
+      ]
+    }
+  ],
+  "deferred": [
+    {
+      "source": "CLSAMG22/BBSC#46",
+      "topic": "Logarius and m35 boss reward lots",
+      "disposition": "different bloodborne_re.cpp layout; inspect actual 1.4.0 boss reward tables before adapting, no blind patch"
+    },
+    {
+      "source": "CLSAMG22/BBSC#47",
+      "topic": "dead guest stranded on old session grey screen",
+      "disposition": "different engine leave state, inspect corresponding YT code before adapting"
+    },
+    {
+      "source": "deadinside28/bloodborne_pc#418",
+      "topic": "spectator after boss wipe",
+      "disposition": "separate bbnet20 module; coordinate with YT existing wipe reset before importing"
+    },
+    {
+      "source": "Supermedo/bloodborne_pc#161",
+      "topic": "outside-port-folder save backups",
+      "disposition": "B01 YT bbport does not have same bbport_saves.py module; adapt independently only after mapping source ownership"
+    }
+  ],
+  "tests_only": true,
+  "build_cadence": "single bounded offline C++ unit + production lamp helper regression per source batch; NO full Windows game build",
+  "release_gates": [
+    "source and CI success",
+    "5-hunter Windows 1.09 playtest",
+    "client/server Link4 encryption + build fingerprint",
+    "own-world versus team-world save integrity",
+    "rollback and backups",
+    "gpu + CPU latency benchmarks",
+    "owner approved staging"
+  ]
+}
