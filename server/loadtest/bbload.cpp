@@ -935,7 +935,7 @@ int main(int argc, char **argv) {
       {"server", "server address", "address", "127.0.0.1"},
       {"port", "link UDP port", "port", "31314"},
       {"teams", "teams", "n", "10"},
-      {"team-size", "players a team (2-4)", "n", "3"},
+      {"team-size", "players a team (2-5)", "n", "3"},
       {"seconds", "seconds to play after the last game starts", "n", "60"},
       {"ramp-ms", "ms between two games' starts", "n", "50"},
       {"owner-fps", "the enemy owner's frames a second per teammate", "n",
@@ -965,12 +965,13 @@ int main(int argc, char **argv) {
   settings.server = QHostAddress(parser.value("server"));
   settings.port = static_cast<quint16>(parser.value("port").toUInt());
   settings.teams = parser.value("teams").toInt();
-  settings.team_size = std::clamp(parser.value("team-size").toInt(), 2, 4);
+  settings.team_size = std::clamp(parser.value("team-size").toInt(), 2, 5);
   settings.seconds = parser.value("seconds").toInt();
   settings.ramp_ms = parser.value("ramp-ms").toInt();
   settings.owner_fps = std::max(1, parser.value("owner-fps").toInt());
   settings.follower_fps = std::max(1, parser.value("follower-fps").toInt());
-  settings.owners = std::max(0, parser.value("owners").toInt());
+  settings.owners = std::clamp(parser.value("owners").toInt(), 0,
+                               settings.team_size);
   settings.map_change_per_min = parser.value("map-changes").toDouble();
   settings.tag = parser.value("tag").toUtf8();
   settings.build = parser.value("build").toUtf8();
