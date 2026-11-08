@@ -20,6 +20,8 @@ concurrency:
 
 jobs:
   source-and-compiled-game-fixture:
+    # B05's exact blob/diff gate is only valid versus B04; B06 inherits its C++ tests.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-04-reward-slot-isolation-20261108')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

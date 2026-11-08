@@ -1,0 +1,53 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B06-2026-11-08",
+  "parent_pr": 37,
+  "parent_batch": "B05-2026-11-08",
+  "status": "EXPERIMENTAL_CPP_METADATA_REPLACE_SOURCE_TESTED_ONLY",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_full_build": true,
+  "source": {
+    "path": "emulator/src/core/bloodborne_flags_store.cpp",
+    "parent_blob_sha1": "a318dee5eed44bf4355fb400c96831fb81165e82",
+    "candidate_blob_sha1": "e3af38f9fa0da25a441b209d9abdc59084274003",
+    "test_path": "tools/re/tests/test_guest_metadata_atomic_replace.py",
+    "test_blob_sha1": "26ed45faf82c13a228d5c4f0f74463ef69cbc4ef"
+  },
+  "changed_files": [
+    "emulator/src/core/bloodborne_flags_store.cpp",
+    "tools/re/tests/test_guest_metadata_atomic_replace.py",
+    "tools/ultimate/batch_06_manifest.json",
+    "docs/ULTIMATE_BATCH_06.md",
+    ".github/workflows/ultimate-batch-06-guest-metadata.yml",
+    ".github/workflows/ultimate-batch-05-progress-owners.yml"
+  ],
+  "write_targets": [
+    "per-slot guest pickup progress",
+    "per-slot guest world flag changes",
+    "per-slot confirmed pickups",
+    "per-slot character-owner metadata"
+  ],
+  "policy": "Write sibling temporary file; flush and close; same-directory filesystem rename; if writing or replacing fails retain destination and clean staged temporary. Abort new-character list cleanup if owner metadata replacement failed. Never delete destination first.",
+  "test_coverage": [
+    "compile exact production C++ helper; successful replace, empty replace, missing parent failure, rename blocked by pre-existing directory, original preservation and temp cleanup",
+    "source asserts four persistence paths use helper and ownership cleanup fails closed",
+    "inherit B05 guest observation, B04 reward owner, B03 reward retry, B02 lamp, B01 source regressions"
+  ],
+  "remaining_risks": [
+    "std::ofstream flush is not OS-level fsync; power-loss durability is NOT established",
+    "pending writes that fail do not all currently retry automatically; isolated failure can leave old but not newly added progress",
+    "file visibility/rename semantics, long paths and antivirus locks require genuine Windows test",
+    "owner files and guest world state are not one cross-file transaction",
+    "asynchronous guest world writer callback lifetime and queue ordering require separate fault-injection tests",
+    "does not incorporate unreviewed external Supermedo 1.9.8.3 seamless source ZIP",
+    "no entire Windows client/server build; original #31 linker issue still open"
+  ],
+  "release_gates": [
+    "synthetic CI, Windows build smoke and real encrypted Link4 5-player sessions",
+    "reproduce failures with injected disk write/full volume/antivirus locks; confirm consistent per-character progress on quit/restart",
+    "real private Bloodborne 1.09 backups, flags, lamps, NPCs, Chalices and boss inventory across 2/3/5-player runs",
+    "no Fornex production actions without explicit approval and rollback plan"
+  ]
+}
