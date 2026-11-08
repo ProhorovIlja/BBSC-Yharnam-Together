@@ -1,0 +1,66 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B04-2026-11-08",
+  "parent_pr": 34,
+  "parent_batch": "B03-2026-11-08",
+  "status": "EXPERIMENTAL_SOURCE_IDENTITY_GUARD_NOT_GAMEPLAY_VERIFIED",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_full_build": true,
+  "source": {
+    "path": "emulator/src/core/bloodborne_flags_store.cpp",
+    "parent_blob_sha1": "9b04fe7e697e0dda18283fffb35df9576a92a11c",
+    "candidate_blob_sha1": "f265c686afc5f41eff0e041f45bac93d5dcc4689",
+    "test_path": "tools/re/tests/test_deferred_reward_character_owners.py",
+    "test_blob_sha1": "e3e7c64b1a03696a005e2dac25df4f2f017763b2",
+    "owner": "save slot plus monotonic generation bumped by confirmed new-character detection",
+    "production_behaviour": "queued boss lots and NPC gifts are tagged at enqueue; discard foreign slot/generation before due-item check, check identity again before each actual item award and requeue remaining items on a mid-tick character switch",
+    "source_based_justification": "B03 readiness retry allowed an award to survive a map load but had no originating-character identity. Without a tag it could later be given to another slot.",
+    "known_limits": [
+      "a valid save slot + generation does not prove the native item grant succeeded",
+      "different character taking the same slot before detection/epoch bump requires a real game test",
+      "discarding a stale pending lot prevents wrongful grant but does not reimburse the old character; owner-policy and durable journal may need more design",
+      "the game's item manager can change during real scene transitions after initial vtable readiness",
+      "this change does not implement DBNO, boss-specific item-lot coverage, multiplayer replication or original BBHost graphics improvements"
+    ]
+  },
+  "tests": [
+    "compile actual C++ reward owner selector against 5-member mixed slot/generation fixture",
+    "preserve B03 actual production queue-drain regression",
+    "source checks for both enqueue and both grant paths",
+    "continue B01 Vulkan source pin and B02 world lamp source regression"
+  ],
+  "deferred_candidates": [
+    "CLSAMG22/BBSC #38 revive: alternative relay protocol and client addresses; requires mapping to YT DBNO and 5-member constraints",
+    "deadinside28/bloodborne_pc #417 collision after in-place respawn: engine-specific physics reset address; verify YT equivalent before adoption",
+    "deadinside28/bloodborne_pc #418 wipe-spectating: alternative bbnet20 actor model; compare to YT existing wipe tracker",
+    "Amanises-Yharnam-Together/BBSC-Yharnam-Together #540: source-verified ALREADY IMPLEMENTED in our candidate server PR #7/#8 (Guard::AllowDatagram drops excess traffic but records Flood rather than banning IP, LinkServer::LogFloods, operator-only Banned, admin stats floods and matching test_admission). Do NOT cherry-pick into server7 again. Ultimate client-B04 branch still uses old upstream server sources until server milestone integration; Link v4 and builds need matching."
+  ],
+  "release_gates": [
+    "real Windows 1.09 test with 2/3/5 players and separate save slots",
+    "same-slot replaced character and detection of new owner",
+    "boss lot and NPC gift delayed through map reload/quit/reconnect",
+    "no wrong-slot grant, double award, or deleted personal world state",
+    "unavailable item-manager and failure after vtable check",
+    "match server Link4 encrypted handshake and client build fingerprint",
+    "full client/server integration stage and owner-approved rollback"
+  ],
+  "release_policy": "No full native build or public release for this single batch; staged milestone integration only",
+  "server_comparison": {
+    "candidate_prs": [
+      7,
+      8
+    ],
+    "server7_sha": "3ece39425d9fe081515b8f3fe6cb38fd77971553",
+    "source_checks": {
+      "server/src/admission.cpp": "1f0b8219412ab7bddcd1fa26899ce2534c1d9e62",
+      "server/src/admission.h": "146f9816e09aa1bf343a3366afe709afa7f7242d",
+      "server/tests/test_admission.cpp": "134814bea3c110da46aa71967cfee74e19d14736"
+    },
+    "upstream_540_head": "0b948061f8df16ceb8588e19cd858a0fffea7ddc",
+    "decision": "DEDUP_ALREADY_PRESENT_IN_SERVER_PR7",
+    "proof": "Server PR #7 has Banned(address) = operator list only, LogFloods, Count().floods and AFloodingLinkIsDroppedAndReportedNeverBanned source test; server v2 CI passing",
+    "note": "Do not merge either server PR automatically. Source parity of this feature is not Link4 protocol or five-hunter runtime verification."
+  }
+}

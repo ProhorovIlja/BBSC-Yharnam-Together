@@ -675,6 +675,9 @@ namespace Coop {
 // The character the kept progress belongs to: the save slot the game opened last (see
 // CharacterSlotOfSavePath), -1 until it opened one.
 std::atomic<int> character_slot{-1};
+// Invalidates deferred co-op items when a DIFFERENT character reuses the same save slot.
+// The game-thread new-character detector bumps this only for confirmed replacements.
+std::atomic<u64> deferred_reward_character_generation{1};
 
 } // namespace Coop
 
@@ -825,6 +828,7 @@ void ForgetSlotIfNewCharacter() {
     if (!ForgetsSlotLists(progress_now, progress_kept, IsNewCharacterInSlot(confirmed, set_now))) {
         return;
     }
+    deferred_reward_character_generation.fetch_add(1, std::memory_order_relaxed);
     TraceLife("slot-lists-forgotten", {{"slot", std::to_string(character_slot.load())}});
     BackUpSlotLists();
     {
@@ -1425,12 +1429,39 @@ namespace {
 constexpr std::array<u8, 10> AwardItemLotPrologue{0x55, 0x48, 0x89, 0xE5, 0x41,
                                                   0x57, 0x41, 0x56, 0x41, 0x55};
 std::mutex deferred_item_lots_mutex;
-std::vector<std::pair<s32, std::chrono::steady_clock::time_point>> deferred_item_lots;
+// A slot alone is not enough: loading a NEW character into that same slot must
+// also invalidate old pending items. Never award to an unknown slot (-1).
+struct DeferredRewardOwner {
+    int slot = -1;
+    u64 generation = 0;
+    bool operator==(const DeferredRewardOwner&) const = default;
+};
+DeferredRewardOwner CurrentDeferredRewardOwner() {
+    return {Coop::character_slot.load(std::memory_order_relaxed),
+            Coop::deferred_reward_character_generation.load(std::memory_order_relaxed)};
+}
+struct HeldBossItem {
+    s32 lot;
+    std::chrono::steady_clock::time_point due;
+    DeferredRewardOwner owner;
+};
+std::vector<HeldBossItem> deferred_item_lots;
 struct HeldNpcGift {
     NpcGift gift;
     std::chrono::steady_clock::time_point due;
+    DeferredRewardOwner owner;
 };
 std::vector<HeldNpcGift> held_npc_gifts; // under deferred_item_lots_mutex
+
+// Called with deferred_item_lots_mutex held, before probing MapItemMan or
+// considering due entries. Never silently carry pending items to a new hunter.
+template <typename Item>
+size_t DiscardOtherCharactersRewards(std::vector<Item>& pending,
+                                     DeferredRewardOwner current) {
+    const size_t original = pending.size();
+    std::erase_if(pending, [&](const Item& item) { return item.owner != current; });
+    return original - pending.size();
+}
 
 // Never remove a pending boss lot or NPC gift before the item's game object is ready.
 // The queue is only drained on the game thread, with deferred_item_lots_mutex held.
@@ -1500,13 +1531,17 @@ bool PS4_SYSV_ABI HoldGuestBossItem(u64, const GuestRegisterSnapshot* registers)
         return false;
     }
     const s32 lot = static_cast<s32>(registers->rsi);
+    const DeferredRewardOwner owner = CurrentDeferredRewardOwner();
+    if (owner.slot < 0) {
+        return false; // cannot safely defer an award without character identity
+    }
     {
         std::scoped_lock lock{deferred_item_lots_mutex};
-        deferred_item_lots.emplace_back(lot,
-                                        std::chrono::steady_clock::now() + DeferredBossItemDelay);
+        deferred_item_lots.push_back(
+            {lot, std::chrono::steady_clock::now() + DeferredBossItemDelay, owner});
     }
-    LOG_INFO(Debug, "Bloodborne party: guest's boss item lot {} held until the boss clear ends",
-             lot);
+    LOG_INFO(Debug, "Bloodborne party: guest's boss item lot {} held for slot {} generation {}",
+             lot, owner.slot, owner.generation);
     return true;
 }
 
@@ -1515,29 +1550,48 @@ bool PS4_SYSV_ABI HoldGuestBossItem(u64, const GuestRegisterSnapshot* registers)
 namespace Coop {
 
 void QueueGuestNpcGift(const NpcGift& gift) {
+    const DeferredRewardOwner owner = CurrentDeferredRewardOwner();
+    if (owner.slot < 0) {
+        LOG_WARNING(Debug, "Bloodborne party: cannot queue NPC gift {} for unknown character",
+                    gift.lot);
+        return;
+    }
     {
         std::scoped_lock lock{deferred_item_lots_mutex};
         if (std::ranges::any_of(held_npc_gifts, [&](const HeldNpcGift& held) {
-                return held.gift.trigger == gift.trigger;
+                return held.owner == owner && held.gift.trigger == gift.trigger;
             })) {
             return; // the talk set it again before the gift was given
         }
-        held_npc_gifts.push_back({gift, std::chrono::steady_clock::now() + NpcGiftDelay});
+        held_npc_gifts.push_back(
+            {gift, std::chrono::steady_clock::now() + NpcGiftDelay, owner});
     }
-    LOG_INFO(Debug, "Bloodborne party: the guest's talk set NPC gift trigger {}: item lot {} next",
-             gift.trigger, gift.lot);
+    LOG_INFO(Debug, "Bloodborne party: queued NPC gift {} for slot {} generation {}",
+             gift.lot, owner.slot, owner.generation);
 }
 
 // The held NPC gifts that are due: each given once, then what its event does once it has given it
 // (else the guest's own world's event would give it again at home).
 void GiveDueNpcGifts(std::chrono::steady_clock::time_point now) {
+    const DeferredRewardOwner owner = CurrentDeferredRewardOwner();
+    if (owner.slot < 0) {
+        return; // the game has no known character to receive this item
+    }
+    bool due_now = false;
+    size_t foreign = 0;
     {
         std::scoped_lock lock{deferred_item_lots_mutex};
-        if (std::ranges::none_of(held_npc_gifts, [&](const HeldNpcGift& held) {
-                return now >= held.due;
-            })) {
-            return;
-        }
+        foreign = DiscardOtherCharactersRewards(held_npc_gifts, owner);
+        due_now = !std::ranges::none_of(held_npc_gifts, [&](const HeldNpcGift& held) {
+            return now >= held.due;
+        });
+    }
+    if (foreign) {
+        LOG_WARNING(Debug, "Bloodborne party: discarded {} NPC gifts from a prior character",
+                    foreign);
+    }
+    if (!due_now) {
+        return;
     }
     // MapItemMan is absent during some loads. Keep the queued gift (and its
     // post-award event flags) until it is ready; don't consume it on failure.
@@ -1553,14 +1607,28 @@ void GiveDueNpcGifts(std::chrono::steady_clock::time_point now) {
     std::vector<HeldNpcGift> due;
     {
         std::scoped_lock lock{deferred_item_lots_mutex};
+        if (!(CurrentDeferredRewardOwner() == owner)) {
+            return;
+        }
         due = TakeDueDeferredItems(held_npc_gifts, true, [&](const HeldNpcGift& held) {
-            return now >= held.due;
+            return held.owner == owner && now >= held.due;
         });
     }
     using AwardItemLot = void PS4_SYSV_ABI (*)(u64, s32, u32);
     using SetFlag = void PS4_SYSV_ABI (*)(u64, s32, bool);
     const auto set_flag = reinterpret_cast<SetFlag>(image_base + PartyGhostSetEventFlagOffset);
-    for (const auto& [gift, _] : due) {
+    for (size_t index = 0; index < due.size(); ++index) {
+        // A character switch may have been signaled while the game thread was
+        // giving earlier lots. Never give the remaining gifts to another slot.
+        if (!(CurrentDeferredRewardOwner() == owner)) {
+            std::scoped_lock lock{deferred_item_lots_mutex};
+            held_npc_gifts.insert(held_npc_gifts.end(),
+                                  std::make_move_iterator(due.begin() + index),
+                                  std::make_move_iterator(due.end()));
+            LOG_WARNING(Debug, "Bloodborne party: suspended NPC gift delivery on slot switch");
+            return;
+        }
+        const NpcGift& gift = due[index].gift;
         // The manager was verified before draining the queue on this game-thread tick.
         // The lot gives nothing while its flag is on: the host's, from the team world (Valtr's
         // rune, Kaniel's playtest 2026-10-25), is not this guest's.
@@ -1647,13 +1715,25 @@ void GiveNpcDeathDrops(bool in_session, u32 map) {
 void GiveDeferredBossItems() {
     const auto now = std::chrono::steady_clock::now();
     GiveDueNpcGifts(now);
+    const DeferredRewardOwner owner = CurrentDeferredRewardOwner();
+    if (owner.slot < 0) {
+        return;
+    }
+    bool due_now = false;
+    size_t foreign = 0;
     {
         std::scoped_lock lock{deferred_item_lots_mutex};
-        if (std::ranges::none_of(deferred_item_lots, [&](const auto& held) {
-                return now >= held.second;
-            })) {
-            return;
-        }
+        foreign = DiscardOtherCharactersRewards(deferred_item_lots, owner);
+        due_now = !std::ranges::none_of(deferred_item_lots, [&](const auto& held) {
+            return now >= held.due;
+        });
+    }
+    if (foreign) {
+        LOG_WARNING(Debug, "Bloodborne party: discarded {} boss lots from a prior character",
+                    foreign);
+    }
+    if (!due_now) {
+        return;
     }
     // A boss-clear reward must survive a map transition, unlike the previous
     // implementation which discarded it before checking MapItemMan.
@@ -1666,15 +1746,27 @@ void GiveDeferredBossItems() {
     if (!HasVtable(item_man, MapItemManVtable, "held boss item lot")) {
         return;
     }
-    std::vector<std::pair<s32, std::chrono::steady_clock::time_point>> due;
+    std::vector<HeldBossItem> due;
     {
         std::scoped_lock lock{deferred_item_lots_mutex};
-        due = TakeDueDeferredItems(deferred_item_lots, true, [&](const auto& held) {
-            return now >= held.second;
+        if (!(CurrentDeferredRewardOwner() == owner)) {
+            return;
+        }
+        due = TakeDueDeferredItems(deferred_item_lots, true, [&](const HeldBossItem& held) {
+            return held.owner == owner && now >= held.due;
         });
     }
     using AwardItemLot = void PS4_SYSV_ABI (*)(u64, s32, u32);
-    for (const auto& [lot, _] : due) {
+    for (size_t index = 0; index < due.size(); ++index) {
+        if (!(CurrentDeferredRewardOwner() == owner)) {
+            std::scoped_lock lock{deferred_item_lots_mutex};
+            deferred_item_lots.insert(deferred_item_lots.end(),
+                                      std::make_move_iterator(due.begin() + index),
+                                      std::make_move_iterator(due.end()));
+            LOG_WARNING(Debug, "Bloodborne party: suspended boss lot delivery on slot switch");
+            return;
+        }
+        const s32 lot = due[index].lot;
         giving_deferred_item_lot = true;
         reinterpret_cast<AwardItemLot>(image_base + AwardItemLotOffset)(item_man, lot, 0);
         giving_deferred_item_lot = false;
