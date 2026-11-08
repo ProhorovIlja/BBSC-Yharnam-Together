@@ -1,0 +1,78 @@
+name: World writer fsync failure accounting (server-only)
+
+on:
+  push:
+    branches:
+      - feature/server-world-writer-fsync-accuracy-v1
+    paths:
+      - 'server/src/bloodborne_world.*'
+      - 'server/tests/test_world_writer.cpp'
+      - '.github/workflows/server-world-writer.yml'
+  pull_request:
+    paths:
+      - 'server/src/bloodborne_world.*'
+      - 'server/tests/test_world_writer.cpp'
+      - '.github/workflows/server-world-writer.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yharnam-world-sync-accounting
+  cancel-in-progress: true
+
+jobs:
+  world-sync-tests:
+    name: Deterministic world-journal failed-fsync C++ regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject non-world-writer / client changes
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          git diff --name-only origin/main HEAD | tee /tmp/world_paths.txt
+          if grep -vE '^(server/src/bloodborne_world\.cpp|server/src/bloodborne_world\.h|server/tests/test_world_writer\.cpp|\.github/workflows/server-world-writer\.yml)$' /tmp/world_paths.txt; then
+            echo 'ERROR: non-world-writer source file changed' >&2
+            exit 1
+          fi
+      - name: Compile-only target generated outside committed Dockerfile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          base = Path("server/hosting/Dockerfile").read_text()
+          anchor = "FROM build AS loadtest-build"
+          assert base.count(anchor) == 1, "Unexpected upstream Dockerfile"
+          stage = """
+          # Isolated CI-only stage. Not committed to the server runtime.
+          FROM build AS world-sync-tests
+          ARG BUILD_JOBS=2
+          RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \\
+              cmake --build build --target test_world_writer -j"$BUILD_JOBS" \\
+              && ctest --test-dir build --output-on-failure -R '^world_writer$'
+
+          """
+          # Remove indentation introduced by YAML block while keeping Docker RUN continuation.
+          import textwrap
+          stage = textwrap.dedent(stage)
+          Path("server/hosting/Dockerfile.world-sync-ci").write_text(
+              base.replace(anchor, stage + anchor)
+          )
+          from shutil import copyfile
+          copyfile("server/hosting/Dockerfile.dockerignore",
+                   "server/hosting/Dockerfile.world-sync-ci.dockerignore")
+          assert stage.splitlines()[2] == "FROM build AS world-sync-tests"
+          print("WORLD_SYNC_CI_DOCKERFILE_SOURCE_PASS")
+          PY
+      - name: Fetch protobuf for build
+        run: git submodule update --init --depth=1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and run actual test_world_writer including deterministic fsync failure
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build \
+            -f server/hosting/Dockerfile.world-sync-ci --target world-sync-tests \
+            --build-arg BUILD_JOBS=2 \
+            -t yharnam-world-fsync-test:ci .
+          echo 'WORLD_SYNC_TESTS_PASS no deployment, no game traffic'
