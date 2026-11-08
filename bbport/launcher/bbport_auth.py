@@ -31,9 +31,10 @@ LONG_TEXT = 'A password has at most 128 characters.'
 COMMON_TEXT = 'That password is too common: choose another.'
 HAS_NAME_TEXT = 'The password must not contain your name.'
 SAME_TEXT = 'The new password is the old one.'
-# 2026-11-06 (1.4.0 sign-in): the reason the TLS layer gave goes into the {} (English, for a report).
-CERTIFICATE_TEXT = "This PC does not trust the server's certificate: not sent. ({})"
-CONNECTION_TEXT = 'The secure connection to the server failed: not sent. ({})'
+# 2026-11-08: state explicitly what "not sent" means: *account details*, not the certificate.
+# TLS reasons remain exposed in {} for diagnosis; never skip certificate or hostname verification.
+CERTIFICATE_TEXT = "This PC could not verify the server's certificate. Your account details were not sent. ({})"
+CONNECTION_TEXT = 'The secure connection to the server failed. Your account details were not sent. ({})'
 REFUSED_TEXT = 'The server refused it: try again.'
 
 PROBLEMS = {('name', 'length'): NAME_LENGTH_TEXT, ('name', 'characters'): NAME_CHARACTERS_TEXT,
