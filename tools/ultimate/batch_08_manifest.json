@@ -30,7 +30,7 @@
     },
     {
       "path": "tools/re/tests/test_guest_world_write_order.py",
-      "blob_sha1": "f22b44bcc93fb8edd153cab04db6032df07d5891"
+      "blob_sha1": "96cd511f0266991604b7f6c0f3594506aa58e7b7"
     }
   ],
   "changed_files": [
