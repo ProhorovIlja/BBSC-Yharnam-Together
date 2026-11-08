@@ -1,0 +1,78 @@
+name: Ultimate B04 reward owner/slot regression (no full rebuild)
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_flags_store.cpp'
+      - 'tools/re/tests/test_deferred_reward_character_owners.py'
+      - 'tools/ultimate/batch_04_manifest.json'
+      - 'docs/ULTIMATE_BATCH_04.md'
+      - '.github/workflows/ultimate-batch-04-reward-owners.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b04-owners-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-compiled-owner-fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Guard exact B03 to B04 source boundary
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-03-deferred-item-retry-20261108:refs/remotes/origin/b03
+          git diff --name-only origin/b03 HEAD > /tmp/b04-files.txt
+          cat /tmp/b04-files.txt
+          if grep -vE '^(emulator/src/core/bloodborne_flags_store\.cpp|tools/re/tests/test_deferred_reward_character_owners\.py|tools/ultimate/batch_04_manifest\.json|docs/ULTIMATE_BATCH_04\.md|\.github/workflows/ultimate-batch-04-reward-owners\.yml)$' /tmp/b04-files.txt; then
+            echo 'Unexpected server, launcher, world-save, public deployment or private game file change' >&2
+            exit 1
+          fi
+          test "$(wc -l < /tmp/b04-files.txt)" -eq 5
+      - name: Pin exact game-source and new test blobs; retain previous B03 source provenance
+        run: |
+          set -euo pipefail
+          python3 -m json.tool tools/ultimate/batch_04_manifest.json >/dev/null
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          plan = json.loads(pathlib.Path("tools/ultimate/batch_04_manifest.json").read_text())
+          before = json.loads(pathlib.Path("tools/ultimate/batch_03_manifest.json").read_text())
+          assert plan["batch_id"] == "B04-2026-11-08"
+          assert plan["parent_pr"] == 34
+          assert all(plan[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_full_build"))
+          assert plan["source"]["parent_blob_sha1"] == before["fix"]["source_blob"]
+          for filename, expected in (
+              (plan["source"]["path"], plan["source"]["candidate_blob_sha1"]),
+              (plan["source"]["test_path"], plan["source"]["test_blob_sha1"]),
+          ):
+              data = pathlib.Path(filename).read_bytes()
+              actual = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              assert actual == expected, f"Source drift: {filename} {actual} != {expected}"
+          print("B04_SOURCE_AND_TEST_BLOB_PINS_PASS")
+          PY
+      - name: Compile actual production reward owner filter and verify character/slot isolation
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          echo 'B04_PRODUCTION_CPP_OWNER_FILTER_AND_FIVE_HUNTER_FIXTURE_PASS'
+      - name: Verify B03 queue readiness and B02 world-lamp regression remain intact
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_world_lamps_regression.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_02.py' -v
+          echo 'B01_B02_B03_INHERITED_SOURCE_FIXTURES_PASS'
+      - name: Explicitly state no real save/grant or game hardware validation
+        run: |
+          echo 'B04_SOURCE_TEST_ONLY, NOT REAL BLOODBORNE GAMEPLAY OR ITEM GRANT PROOF'
+          echo 'NO_CLIENT_SERVER_WINDOWS_REBUILD, NO_FORNEX, NO_PUBLIC_RELEASE, NO_REAL_SAVES'
