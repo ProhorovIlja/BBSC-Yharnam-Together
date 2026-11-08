@@ -4078,6 +4078,9 @@ std::optional<u32> WipeFor(const VitalsBoard& board, std::string_view self);
 // Whether another member stands on `map` (a usable map): a lethal hit then puts this player down
 // instead of wiping the map at once.
 bool SomeoneElseStands(std::span<const MemberVitals> board, std::string_view self, u32 map);
+// A remote join task must wait for *its own* standing member, not any other hunter
+// on the same map. Return false for an unknown/empty online id or a stale/zero map.
+bool MemberStandsOnMap(std::span<const MemberVitals> board, std::string_view member, u32 map);
 // Kaniel 2026-10-16: whether another member stands anywhere (up, on a map). A death that resets
 // this member's map is then its own: not the party's wipe (kills stay while anyone is on their
 // map).
