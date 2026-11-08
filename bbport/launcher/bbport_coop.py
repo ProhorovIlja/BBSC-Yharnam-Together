@@ -1746,7 +1746,10 @@ def allow_through_firewall(install, host):
 # .sha256; the update downloads both, checks the file against the sum, and runs the setup silently
 # into this install (it keeps user\), which starts the launcher again when it is done.
 # By repository id, not owner/name: the id survives a rename of the owner.
-RELEASES_API = 'https://api.github.com/repositories/1405692683/releases?per_page=100'  # every one: Home's notes
+# Independent TEST edition: the *repository ID* is stable across owner renames.
+# Do not use upstream releases here: they would overwrite our experimental client.
+RELEASES_API = 'https://api.github.com/repositories/1450213757/releases?per_page=100'
+TEST_EDITION_TAG = re.compile(r'^v[0-9]+\.[0-9]+\.[0-9]+-test\.[0-9]+$')
 SETUP_SUFFIX = '-setup.exe'
 
 
@@ -1794,8 +1797,19 @@ def fetch_releases(timeout=15):
 
 
 def fetch_newest_release(timeout=15):
-    """newest_release() of what GitHub lists now (raises OSError or ValueError when it cannot be read)."""
-    return newest_release(fetch_releases(timeout))
+    """Only our own numbered TEST releases may update this experimental client.
+
+    A normal v1.4.1 (or a release from another edition) must never silently
+    replace a TEST install. An empty/malformed response is handled by the same
+    caller-facing errors as the existing updater.
+    """
+    releases = fetch_releases(timeout)
+    if not isinstance(releases, list):
+        raise ValueError('GitHub did not return a list of releases')
+    return newest_release([item for item in releases
+                           if isinstance(item, dict) and
+                           isinstance(item.get('tag_name'), str) and
+                           TEST_EDITION_TAG.fullmatch(item['tag_name'])])
 
 
 # Home's patch notes (Kaniel 2026-10-20: every release's, from the latest back to the first) are the

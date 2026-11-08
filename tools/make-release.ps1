@@ -48,7 +48,7 @@ param(
     [switch]$AllowDirty,
     [switch]$Publish,
     [switch]$Prerelease,
-    [string]$Repo = "Amanises-Yharnam-Together/BBSC-Yharnam-Together"
+    [string]$Repo = "ProhorovIlja/BBSC-Yharnam-Together"
 )
 . "$PSScriptRoot\build-lock.ps1"
 Invoke-UnderBuildLock $PSCommandPath $PSBoundParameters "make-release"
@@ -59,6 +59,13 @@ $bbport = Join-Path $root "bbport"
 if (-not $Out) { $Out = Join-Path $env:BB_ROOT "release" }
 $name = "BloodborneSeamlessCoop"
 $tag = "v$Version"
+# TEST edition never silently replaces a stable official release.
+if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+-test\.[0-9]+$') {
+    throw "Experimental edition requires a version such as 1.4.0-test.1"
+}
+if ($Publish -and $Repo -ne 'ProhorovIlja/BBSC-Yharnam-Together') {
+    throw "TEST edition can only publish to its dedicated fork"
+}
 $setupName = "YharnamTogether-$tag-setup.exe"  # setup.iss OutputBaseFilename
 $portableName = "YharnamTogether-$tag-portable.zip"
 function Step([string]$Text) { Write-Host ""; Write-Host "== $Text" -ForegroundColor Cyan }
@@ -270,7 +277,7 @@ if (Test-Path (Join-Path $gameEvents "common.emevd.dcx")) {
 
 $built = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'")
 Write-Utf8 (Join-Path $release "VERSION.txt") (@(
-    "Yharnam Together: Bloodborne Seamless Co-op $tag (Windows, Bloodborne PC native port)",
+    "BBSC: Yharnam Together TEST $tag (Windows, Bloodborne PC port)",
     "Commit: $commit$(if ($dirty) { ' + uncommitted changes (test build)' })",
     "Built: $built",
     "Game: Bloodborne 1.09 (tested with CUSA03173)",
@@ -309,7 +316,9 @@ Write-Host "  BLauncher.exe --script: hud_patch from scripts\, icon strip found,
 
 Step "Check"
 $checkPython = (& (Join-Path $msys "usr\bin\cygpath.exe") -w $env:WINPYTHON).Trim()
-& $checkPython -I (Join-Path $PSScriptRoot "release\check_release.py") $release
+$releaseCheckArgs = @()
+if ($NoDlss) { $releaseCheckArgs += "--without-dlss" }
+& $checkPython -I (Join-Path $PSScriptRoot "release\check_release.py") @releaseCheckArgs $release
 if ($LASTEXITCODE -ne 0) { throw "the release check failed" }
 
 Step "Setup"
@@ -340,7 +349,7 @@ if (Test-Path $portable) { Remove-Item -Force $portable }
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $zip = [IO.Compression.ZipFile]::Open($portable, [IO.Compression.ZipArchiveMode]::Create)
 try {
-    $top = "Yharnam Together/"
+    $top = "BBSC Yharnam Together TEST/"
     $from = (Resolve-Path -LiteralPath $release).Path
     foreach ($file in Get-ChildItem -LiteralPath $from -Recurse -File -Force) {
         $relative = $file.FullName.Substring($from.Length).TrimStart('\').Replace('\', '/')
@@ -349,7 +358,7 @@ try {
     }
     $entry = $zip.CreateEntry($top + "portable.txt")
     $writer = New-Object IO.StreamWriter($entry.Open(), (New-Object Text.UTF8Encoding $false))
-    $writer.Write("Portable Yharnam Together: play from BLauncher.exe in this folder, no setup needed.`r`n" +
+    $writer.Write("Portable BBSC: Yharnam Together TEST: launch BLauncher.exe; no setup needed.`r`n" +
                   "Everything stays in this folder (your saves, settings and logs in user\). To remove it, delete the folder.`r`n" +
                   "Updates from the launcher keep it portable. Delete this file and the launcher works as an installed one.`r`n")
     $writer.Dispose()

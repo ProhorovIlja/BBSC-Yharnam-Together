@@ -17,17 +17,17 @@
   #define AppVersion "0.0.0"
 #endif
 ; The name (Kaniel 2026-10-20), and its short form for the folder and the shortcuts (no colon in a path).
-#define AppName "Yharnam Together: Bloodborne Seamless Co-op"
-#define ShortName "Yharnam Together"
+#define AppName "BBSC: Yharnam Together TEST"
+#define ShortName "BBSC Yharnam Together TEST"
 
 [Setup]
-AppId={{6E0B4C2A-3F7D-4B8E-9A51-2C8D7E4F1B63}
+AppId={{49B8B926-DC94-4371-B4B7-729839E6E32E}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppName}
-AppPublisherURL=https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together
-AppSupportURL=https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/issues
+AppPublisherURL=https://github.com/ProhorovIlja/BBSC-Yharnam-Together
+AppSupportURL=https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues
 ; D:\Games\Yharnam Together, or C:\Games\Yharnam Together without a fixed D: drive (Kaniel 2026-10-20). Not Program Files:
 ; writing there needs an administrator, and the launcher's own update runs the setup without one. An
 ; install that exists keeps its folder (UsePreviousAppDir), however old.

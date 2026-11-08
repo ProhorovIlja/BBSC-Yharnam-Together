@@ -48,7 +48,7 @@ DATA_DIR = Path(os.environ.get('BB_DATA_DIR', PORT_DIR))
 # Co-op test build: its own settings, and no updates (a public release would replace it).
 # This repository's build carries the seamless co-op, which upstream releases don't.
 COOP_TEST = True
-CONFIG_DIR = Path(os.environ.get('APPDATA', Path.home())) / ('bbport-launcher-coop' if COOP_TEST else 'bbport-launcher')
+CONFIG_DIR = Path(os.environ.get('APPDATA', Path.home())) / ('bbsc-yharnam-test' if COOP_TEST else 'bbport-launcher')
 if (PORT_DIR / 'portable.txt').is_file():  # the portable zip keeps everything in its folder (bbport_coop.PORTABLE_MARK)
     CONFIG_DIR = DATA_DIR / 'user' / 'launcher'
 CONFIG_FILE = CONFIG_DIR / 'settings.json'
@@ -235,7 +235,7 @@ DEV_TOOL_EXTRAS = ('debug_camera', 'debug_menu')
 COOP_INSTALL = os.environ.get('BB_COOP_INSTALL') == '1' or (PORT_DIR / 'event-reference.json').is_file()
 # The co-op release's name in the launcher: the repository's (Kaniel 2026-11-04,
 # Amanises-Yharnam-Together/BBSC-Yharnam-Together). The setup, its folder and shortcuts keep theirs.
-COOP_NAME, COOP_SHORT_NAME = 'BBSC: Yharnam Together', 'BBSC: Yharnam Together'
+COOP_NAME, COOP_SHORT_NAME = 'BBSC: Yharnam Together TEST', 'BBSC: Yharnam Together'
 HARDER_CHOICES = [('off', ('Off (the normal game)', 'Выключено (обычная игра)')),
                   (bbport_coop.HARDER_BIT, ('A bit harder: enemy HP ×1.5, damage ×1.25, poise ×1.5',
                                             'Чуть сложнее: HP врагов ×1.5, урон ×1.25, стойкость ×1.5')),
@@ -3357,6 +3357,11 @@ class Launcher:
         top = tk.Frame(main, bg=PANEL, height=px(34))
         top.pack(side='top', fill='x')
         top.pack_propagate(False)
+        if COOP_INSTALL:
+            # Clear TEST mark in the top-left, separate from the stable edition.
+            self.test_ribbon = tk.Label(top, text=' TEST ', bg=GOLD, fg=PANEL,
+                                        font=('Segoe UI', 10, 'bold'), bd=0)
+            self.test_ribbon.pack(side='left', padx=(px(12), 0), pady=px(6))
         self.caption_buttons = {}
         for kind, command in (('close', self.close), ('max', self.chrome.toggle_zoom), ('min', self.chrome.minimize)):
             self.caption_buttons[kind] = CaptionButton(self, top, kind, command)
@@ -3370,7 +3375,7 @@ class Launcher:
         if COOP_INSTALL:
             # The co-op release's own version (VERSION.txt), never the upstream port's (Kaniel 2026-10-16).
             release = coop_release_version()
-            self.side.set_texts(COOP_SHORT_NAME + '  ·  ' + (
+            self.side.set_texts(COOP_SHORT_NAME + '  ·  TEST  ·  ' + (
                 f'v{release}' if release else _('development build', 'сборка разработчика')), '')
         else:
             self.side.set_texts(_('native port · Windows', 'нативный порт · Windows') + f'  ·  v{VERSION}', '')
@@ -7170,7 +7175,7 @@ class Launcher:
 
         def work():
             try:
-                setup = bbport_coop.download_update(release, Path(tempfile.gettempdir()) / 'bloodborne-coop-update',
+                setup = bbport_coop.download_update(release, Path(tempfile.gettempdir()) / 'bloodborne-sh-test-update',
                                                     progress)
                 bbport_coop.stop_servers(PORT_DIR)
             except (OSError, ValueError) as error:

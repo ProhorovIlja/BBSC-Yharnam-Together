@@ -77,6 +77,38 @@ def without_parameter_fix(emevd: bytes, event: int) -> bytes:
     return bytes(out)
 
 
+
+class EmptyInstructionEventsAreValid(unittest.TestCase):
+    def test_empty_event_with_minus_one_offset_is_accepted(self):
+        # Some modding tools write -1 as the position of an empty event.
+        original = bytearray(build_emevd({
+            123456789: [],
+            SHOP: [(2000, 2, struct.pack('<i', 0))],
+        }))
+        at, event = event_entry(original, 123456789)
+        self.assertEqual(event[1], 0)
+        struct.pack_into('<q', original, at + 16, -1)
+        parsed = tool.parse(bytes(original))
+        self.assertEqual(parsed['events'][0]['instructions'], [])
+        tool.validate(bytes(original), bytes(original), [])
+
+    def test_nonempty_event_with_minus_one_offset_is_rejected(self):
+        original = bytearray(build_emevd({
+            SHOP: [(2000, 2, struct.pack('<i', 0))],
+        }))
+        at, _ = event_entry(original, SHOP)
+        struct.pack_into('<q', original, at + 16, -1)
+        with self.assertRaisesRegex(tool.EventPatchError, 'outside the instruction table'):
+            tool.parse(bytes(original))
+
+    def test_negative_offset_other_than_empty_sentinel_is_rejected(self):
+        original = bytearray(build_emevd({123456789: []}))
+        at, _ = event_entry(original, 123456789)
+        struct.pack_into('<q', original, at + 16, -32)
+        with self.assertRaisesRegex(tool.EventPatchError, 'outside the instruction table'):
+            tool.parse(bytes(original))
+
+
 class ValidatePassesTheIntendedPatches(unittest.TestCase):
 
     def test_an_unpatched_file_is_valid(self):

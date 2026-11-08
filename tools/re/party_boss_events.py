@@ -1054,8 +1054,14 @@ def parse(emevd: bytes) -> dict:
     for index in range(fields[0]):
         event, count, first, param_count, param_offset, rest, unknown = struct.unpack_from(
             '<qqqqqii', emevd, fields[1] + index * EVENT_SIZE)
-        if (count < 0 or first < 0 or first % INSTRUCTION_SIZE or
-                first + count * INSTRUCTION_SIZE > fields[2] * INSTRUCTION_SIZE):
+        # Valid EMEVD produced by some event editors: an empty event has no
+        # instruction location, stored as -1. There is nothing to dereference.
+        # Never apply that exception to a nonempty event.
+        empty_without_offset = count == 0 and first == -1
+        if (count < 0 or
+                (not empty_without_offset and
+                 (first < 0 or first % INSTRUCTION_SIZE or
+                  first + count * INSTRUCTION_SIZE > fields[2] * INSTRUCTION_SIZE))):
             raise EventPatchError(f'event {event}: its {count} instructions at {first} are '
                                   f'outside the instruction table')
         instructions = []
