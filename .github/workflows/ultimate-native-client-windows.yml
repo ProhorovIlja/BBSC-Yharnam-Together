@@ -1,0 +1,189 @@
+name: Ultimate TEST native Windows BBPort engine compile (no game or release)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-native-client-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-bbport-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-engine:
+    runs-on: windows-2022
+    timeout-minutes: 55
+    steps:
+      - name: Disable checkout CRLF rewrite for FSR-Vulkan patch consistency
+        shell: pwsh
+        run: git config --global core.autocrlf input
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Strict no-source-change safety gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch --no-tags --depth=1 origin 'experiment/ultimate-frozen-launcher-windows-ci-20261108:refs/remotes/origin/engine_parent'
+          if ($LASTEXITCODE -ne 0) { throw 'Parent source branch unavailable' }
+          $paths = @(git diff --name-only refs/remotes/origin/engine_parent HEAD)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot validate changed files' }
+          if ($paths.Count -ne 1 -or $paths[0] -ne '.github/workflows/ultimate-native-client-windows.yml') {
+            throw "Native client build probe changes game/production sources: $($paths -join ', ')"
+          }
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          cache: true
+          install: >-
+            git
+            patch
+            mingw-w64-clang-x86_64-toolchain
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-pkgconf
+            mingw-w64-clang-x86_64-python
+            mingw-w64-clang-x86_64-vulkan-headers
+            mingw-w64-clang-x86_64-vulkan-loader
+            mingw-w64-clang-x86_64-vulkan-memory-allocator
+            mingw-w64-clang-x86_64-glslang
+            mingw-w64-clang-x86_64-sdl3
+            mingw-w64-clang-x86_64-fmt
+            mingw-w64-clang-x86_64-boost
+            mingw-w64-clang-x86_64-robin-map
+            mingw-w64-clang-x86_64-xxhash
+            mingw-w64-clang-x86_64-ffmpeg
+            mingw-w64-clang-x86_64-zydis
+            mingw-w64-clang-x86_64-spirv-tools
+            mingw-w64-clang-x86_64-spirv-headers
+            mingw-w64-clang-x86_64-spirv-cross
+            mingw-w64-clang-x86_64-protobuf
+            mingw-w64-clang-x86_64-openssl
+            mingw-w64-clang-x86_64-zlib
+            mingw-w64-clang-x86_64-nlohmann-json
+
+      - name: Materialize ONLY the six bbport game-free code submodules
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive --depth 1 -- \
+            bbport/gpu/third_party/fsr-vulkan \
+            bbport/gpu/third_party/imgui \
+            bbport/gpu/third_party/magic_enum \
+            bbport/gpu/third_party/miniz \
+            bbport/gpu/third_party/xbyak \
+            bbport/third_party/LibAtrac9
+          for file in \
+            bbport/gpu/third_party/fsr-vulkan/CMakeLists.txt \
+            bbport/gpu/third_party/imgui/imgui.h \
+            bbport/gpu/third_party/xbyak/xbyak/xbyak.h \
+            bbport/third_party/LibAtrac9/C/src/libatrac9.c; do
+            test -f "$file" || { echo "Missing submodule source: $file"; exit 1; }
+          done
+          echo BBPORT_SUBMODULE_SOURCE_PASS
+
+      - name: Compile genuine Windows production client, graphics probe and play entry
+        shell: msys2 {0}
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          export BB_PRODUCTION=1
+          export BB_LTO=OFF
+          export CMAKE_BUILD_PARALLEL_LEVEL=2
+          # build.sh invokes Ninja directly; CMAKE_BUILD_PARALLEL_LEVEL does
+          # not constrain that call. Limit its actual parallel C/C++ links
+          # without modifying any production sources or game data.
+          ninja() { command ninja -j 2 "$@"; }
+          export -f ninja
+          bash -c 'type ninja' | grep -q 'function'
+          cd bbport
+          mkdir -p out
+          # Full CMake + clang build is deliberately bounded to diagnostics only:
+          # never print/download game files, private logs, credentials or large CI output.
+          if ! bash build.sh >out/ultimate-native-build.log 2>&1; then
+            echo 'WINDOWS_NATIVE_CLIENT_BUILD_FAILED (bounded last 65 lines):'
+            tail -n 65 out/ultimate-native-build.log || true
+            if test -f out/gpu-build.log; then
+              echo 'GPU_FIRST_LINK_OR_COMPILER_FAILURES (at most 5 errors, bounded context):'
+              # Ninja's failing target/first linker diagnostic can occur long
+              # before the 55-line tail. Read only local CI log and emit short
+              # fragments, not full compiler output, paths, credentials or dumps.
+              awk '
+                BEGIN { matches=0; after=0; have=0 }
+                /(^FAILED:|ld\\.lld: error:|lld-link: error:|clang: error:|undefined reference|undefined symbol:|collect2: error:|fatal error:|error:|ninja: build stopped|CMake Error)/ {
+                  if (matches < 5) {
+                    matches++
+                    printf "DIAGNOSTIC %d at build-log line %d\\n", matches, NR
+                    if (have) print "PREVIOUS: " substr(previous, 1, 350)
+                    print substr($0, 1, 600)
+                    after=5
+                    next
+                  }
+                }
+                {
+                  if (after > 0 && matches <= 5) {
+                    print substr($0, 1, 600)
+                    after--
+                  }
+                  previous=$0
+                  have=1
+                }
+                END { if (matches == 0) print "NO_MATCHING_ERROR_LINE_IN_GPU_LOG" }
+              ' out/gpu-build.log | head -n 80
+              echo 'GPU_BUILD_TAIL (last 15 non-sensitive lines):'
+              tail -n 15 out/gpu-build.log | cut -c 1-600
+              # The previous 2 Windows attempts ended near [432/433] with
+              # no FAILED/error line in the captured GPU log. Retry *only*
+              # the unfinished Ninja targets once on the same runner so we
+              # can distinguish missing final targets from lost error output.
+              # Never treat a failed first build as a passing release.
+              echo 'GPU_BOUNDED_INCREMENTAL_DIAGNOSTIC_RETRY_JOBS_2'
+              if timeout 180s ninja -C out/gpu -v bb-probe bb-gpu-capabilities bb-play >out/gpu-retry.log 2>&1; then
+                echo 'GPU_INCREMENTAL_RETRY_PASSED_BUT_INITIAL_BUILD_FAILED'
+              else
+                echo 'GPU_INCREMENTAL_RETRY_NONZERO'
+                grep -nEm 8 'FAILED:|error:|undefined|ninja:|killed|cannot allocate|out of memory|signal' out/gpu-retry.log | cut -c 1-550 || true
+              fi
+              echo 'GPU_RETRY_LOG_TAIL_MAX_12'
+              tail -n 12 out/gpu-retry.log | cut -c 1-550 || true
+              for exe in out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe out/gpu/bb-play.exe; do
+                if test -s "$exe"; then
+                  echo "AFTER_RETRY_EXISTS: $(basename "$exe")"
+                else
+                  echo "AFTER_RETRY_MISSING: $(basename "$exe")"
+                fi
+              done
+            fi
+            exit 1
+          fi
+          echo 'WINDOWS_NATIVE_CLIENT_BUILD_FINISHED'
+          tail -n 12 out/ultimate-native-build.log
+          test "$(tr -d '\r\n' <out/build-mode.txt)" = production
+          for exe in bb-probe.exe bb-gpu-capabilities.exe bb-play.exe; do
+            test -s "out/$exe" || { echo "Missing native executable: $exe"; exit 1; }
+            magic=$(head -c 2 "out/$exe" | od -An -t x1 | tr -d '[:space:]')
+            test "$magic" = 4d5a || { echo "Not a Windows PE executable: $exe"; exit 1; }
+            sha256sum "out/$exe"
+          done
+          echo 'BBPORT_PRODUCTION_WINDOWS_PE_BUILD_PASS_NO_GAME'
+
+      - name: Verify no game payload or public artifacts were produced
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          test -f bbport/out/bb-probe.exe
+          test -f bbport/out/bb-gpu-capabilities.exe
+          test -f bbport/out/bb-play.exe
+          test ! -e bbport/out/eboot.bin
+          test ! -e bbport/out/dvdroot_ps4
+          echo 'NO_GAME_ASSETS_NO_SERVER_NO_GITHUB_RELEASE_NO_UPLOAD_PASS'
