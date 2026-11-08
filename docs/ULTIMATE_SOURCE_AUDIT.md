@@ -97,3 +97,57 @@ New repository-search leads, **not yet code-reviewed**:
 Revisit full fork and branch pagination before selecting each new subsystem.
 
 No new candidate is released or deployed to Fornex by this intake.
+
+## November 8: repository-family and source-level runtime comparison
+
+Scope: this intake cross-checks the **original** runtime repository READMEs, repo
+parent/fork and license metadata, active branches, and source PR deltas. It is
+not a benchmark, proof of five-player compatibility, or a release recommendation.
+Source file blob SHA-1s are included to make future drift visible.
+
+| Runtime / feature | Actual source and provenance | Technical conclusion / gate |
+| --- | --- | --- |
+| [Original droogie/bbhost](https://github.com/droogie/bbhost) | Independent upstream, GPL-3.0; `master/README.md` blob `f983da7bd321978d6bf570c23b89e9cf35843f36`, active as of 2026-11-08; [#217](https://github.com/droogie/bbhost/pull/217), [#223](https://github.com/droogie/bbhost/pull/223), and [#218](https://github.com/droogie/bbhost/pull/218) | Full alternate x86-64 loader, PC PS4-HLE implementations and Vulkan rendering. **Not CLS's prepackaged YT BBHost**. PR #217 rewrites signaling/lifecycle and calls for a coordinated server/client upgrade. Keep this as an independent runtime bake-off candidate with a protocol bridge/reimplementation study, NOT an assumed replacement for YT 1.4.0's encrypted link. |
+| [deadinside28/bloodborne_pc](https://github.com/deadinside28/bloodborne_pc) | Independent bbport, GitHub GPL-2.0 metadata; `master/README.md` blob `febde4a33feff8ce1a6f1e02f9867966b76dd1a7`; [#440](https://github.com/deadinside28/bloodborne_pc/pull/440), [#442](https://github.com/deadinside28/bloodborne_pc/pull/442) | Alternative existing native x86-64 runtime with Vulkan. Check GPU submission counts and sampler destruction against current YT baseline. Reproduce race in code-level tests before importing. |
+| [Supermedo/bloodborne_pc](https://github.com/Supermedo/bloodborne_pc) | Fork of deadinside28, default `windows`, GPL-2.0 metadata, README blob `a3fb9dd6fcfd40c61f27736fa27abc287e7c133b` | Candidate Windows UX/launcher and robust save management. [PR #161](https://github.com/Supermedo/bloodborne_pc/pull/161) proposes external backup copies under `%APPDATA%/bbport-launcher/save_backups` and includes six synthetic backup regressions. **Not a direct import:** YT currently lacks `bbport/launcher/bbport_saves.py` and `bbport/tests/test_launcher_saves.py`. Adapt only with explicit save-layout mapping, distinct TEST app namespace, atomic writes, quota/retention, permissions, backups preserving existing characters, restore and rollback tests. No live save overwrite. |
+| [Mrsuss60/bloodborne_pc_windows_port](https://github.com/Mrsuss60/bloodborne_pc_windows_port) | Fork of deadinside28, GPL-2.0 metadata, default `master` | Compare Windows loader, UI, mouse input and Vulkan changes independently; neither the name nor the metadata proves it is the separate user-described "Massus". |
+| [visy/bloodborne_pc_windows_port](https://github.com/visy/bloodborne_pc_windows_port) | Fork of Mrsuss60, GPL-3.0 metadata; `master/README.md` blob `c3cc6f337156532222ed0e35e4bdf799c4645b63`, README version **0.7.9** on 2026-11-08 | Claims direct party co-op for host + up to 3 friends (**four**, not our required five), no server. Different protocol and lifecycle; mine UI/travel/boss-death ideas with clean integration tests, not blind code reuse. |
+| [bloodborne-native/bloodborne-recomp](https://github.com/bloodborne-native/bloodborne-recomp) + [bloodborne-runtime](https://github.com/bloodborne-native/bloodborne-runtime) | Independent GPL-2.0 repos, README blobs `a6f1eb854d8faec5f1d7837ef9c74fbebda6cc67` and `d30942a6d7d18d63092c14aa4ef64f8f1047cc5b` | An actual static-recompiler **candidate** for the *separate* native-port track: turns owner-supplied game executable functions into C and a native library, but still relies on runtime translation/fallback for non-recompiled functionality. Not a completed PS4-free Windows port; do not conflate generated game logic with original independent PC game source. |
+| [LRF17/bbhost-NativePlusHDR](https://github.com/LRF17/bbhost-NativePlusHDR) | Fork of original droogie/bbhost, GPL-3.0, `master/README.md` identical blob to original `master` above at this audit | Clone-like README **does not show any HDR advantage**. Diff branch commits/source before treating HDR in repository name as a feature. |
+| [ambientmf/bbhost-restock-plugin](https://github.com/ambientmf/bbhost-restock-plugin) | Standalone GPL-3.0 BBHost plugin; `main/README.md` blob `90150bf94d366cb33fe669e20ff2edade5e88dde`; author reports gameplay with BBHost 0.2.20/21 | Interesting QoL restocking existing storage (does not spawn free items); validate in YT five-player/invasion world state or reimplement behavior, never load the incompatible BBHost plugin into YT runtime by default. |
+| [ypcat/bbhost-savebak-plugin](https://github.com/ypcat/bbhost-savebak-plugin) | Linux BBHost plugin, GPL-3.0; README blob `f8dae4e4dcfe3c091c2b20684dc6a71ab31f6950` | Save safety inspiration only. Reads Linux `/dev/input` and has a separate data layout; not a Windows YT drop-in. Restore needs backups, validation and explicit player control. |
+| [shadps4-emu/shadNet](https://github.com/shadps4-emu/shadNet) | Separate shadNet C++/Qt source, GitHub repo metadata did not expose a license identifier | Primary network reference, but source-level license, dependencies, and YT protocol must be established before importing any code. No assumptions from project name. |
+| [theitsnschool/bloodborne-windows-native-loader](https://github.com/theitsnschool/bloodborne-windows-native-loader) | Standalone repo, GitHub metadata lacks license id; README advertises remote PowerShell install | **Unverified / no import.** Do not execute scripts downloaded from unrelated project sites or include untrusted binaries in official releases; first review exact source, package provenance, licensing and supply chain. |
+
+### Server overlap audit: upstream #540 vs our existing #1/#7
+
+Per-file patch text was compared directly between
+[upstream #540](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/540)
+and [our #1](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/1) /
+[our #7](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/7).
+The patches for **five files** are exactly equal: `docs/HOSTED_SERVER.md`,
+`server/src/admission.cpp`, `server/src/admission.h`,
+`server/src/link_server.cpp` and `server/src/link_server.h`.
+`server/src/admin.cpp`, `server/tests/test_admin.cpp`, and
+`server/tests/test_admission.cpp` are NOT byte-identical patches: ours
+contain other changes/tests and must be compared semantically. This means the
+core flooding-link no-automatic-IP-ban fix was already ingested in the TEST
+server candidate; blindly importing upstream #540 would duplicate it and could
+revert newer admin/stat changes. Preserve explicit operator `banned.txt` bans.
+
+### Expanded discovery coverage and stop rules
+
+GitHub search sampled `bbhost fork:true in:name sort:updated-desc`
+(68 returned), `bloodborne_pc fork:true in:name sort:updated-desc`
+(70 on page 1, 70 on page 2), `LanternEngine` (47),
+`NightwatchCoop` (6), `shadNet` (32), and other runtime/network/mod
+queries. These are search-page counts, NOT a global unique total or proof every
+fork was checked. Individual candidates must be followed into branches, PRs,
+commits, source and relevant tests. Use pagination and repeat on each subsystem
+decision, not a first-result shortcut.
+
+Critical hard stop: never deploy a new client+server pair with a changed wire
+protocol, auto-replace saves, copy copyrighted game data to CI, silently switch
+the TEST updater's origin, or promote a performance claim without matched
+hardware/scene measurement. Source README statements are *project claims*, not
+independent reproduction.
