@@ -66,7 +66,7 @@ int LinksAndAccountsAnAddress() {
   return 0;
 }
 
-int AFloodingLinkIsDroppedThenBanned() {
+int AFloodingLinkIsDroppedAndReportedNeverBanned() {
   Limits limits;
   limits.datagrams_per_second = 100;
   limits.datagram_burst = 100;
@@ -78,16 +78,47 @@ int AFloodingLinkIsDroppedThenBanned() {
     passed += guard.AllowDatagram(1, Home, 100, now);
   }
   CHECK(passed == 100);
-  CHECK(!guard.Banned(Home, now));
+  CHECK(guard.TakeFloods().isEmpty());
   for (int second = 1; second <= 3; ++second) {
+    CHECK(guard.TakeFloods().isEmpty());
     now = second * 1000;
     for (int i = 0; i < 1000; ++i) {
       guard.AllowDatagram(1, Home, 100, now);
     }
   }
-  CHECK(guard.Banned(Home, now));
-  CHECK(!guard.Banned(Other, now));
-  CHECK(!guard.Banned(Home, now + limits.ban_ms + 1)); // for a while only
+  // The third strike (a strike a second at most): reported once, with every drop of its window.
+  const auto floods = guard.TakeFloods();
+  CHECK(floods.size() == 1);
+  CHECK(floods[0].address == Home && floods[0].link == 1);
+  CHECK(floods[0].dropped == 3 * 900 + 1); // the third strike is its first drop
+  CHECK(guard.TakeFloods().isEmpty()); // taken
+  CHECK(guard.Count().floods == 1);
+  // Never banned: the address and its link go on within the rate.
+  CHECK(!guard.Banned(Home));
+  now = 10'000;
+  CHECK(guard.AllowDatagram(1, Home, 100, now));
+  CHECK(guard.AllowHello(Home, now));
+  return 0;
+}
+
+// A flood on one link must not block another peer behind the same NAT address.
+int ANoisyPeerDoesNotBanItsNatNeighbour() {
+  Limits limits;
+  limits.datagrams_per_second = 2;
+  limits.datagram_burst = 2;
+  limits.strikes_to_ban = 2;
+  Guard guard{limits};
+  for (int second = 0; second <= 2; ++second) {
+    const qint64 at = second * 1000;
+    for (int i = 0; i < 40; ++i) {
+      guard.AllowDatagram(1, Home, 100, at);
+    }
+  }
+  CHECK(guard.Count().floods >= 1);
+  CHECK(!guard.Banned(Home));
+  CHECK(guard.AllowDatagram(2, Home, 100, 3000));
+  CHECK(guard.AllowHello(Home, 3000));
+  CHECK(guard.TakeFloods().size() >= 1);
   return 0;
 }
 
@@ -111,7 +142,7 @@ int TheOperatorsBanList() {
   CHECK(ids.contains("Mallory") && ids.size() == 1);
   Guard guard{};
   guard.SetBanned(addresses, ids);
-  CHECK(guard.Banned(0xCB007107, 0));
+  CHECK(guard.Banned(0xCB007107));
   CHECK(guard.BannedId("Mallory"));
   return 0;
 }
@@ -193,7 +224,8 @@ int main() {
   int failed = 0;
   failed |= HellosFromOneAddressAreLimited();
   failed |= LinksAndAccountsAnAddress();
-  failed |= AFloodingLinkIsDroppedThenBanned();
+  failed |= AFloodingLinkIsDroppedAndReportedNeverBanned();
+  failed |= ANoisyPeerDoesNotBanItsNatNeighbour();
   failed |= ABigLinkWithinItsRateIsFine();
   failed |= TheOperatorsBanList();
   failed |= SignupWorkRisesWithTheRate();
