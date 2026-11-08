@@ -21,6 +21,9 @@ concurrency:
 
 jobs:
   source-and-compiled-world-write-regressions:
+    # B07's exact source pins and B06 comparison apply only to the B07 parent.
+    # Later batches rerun B07 compiled fixtures in their own workflow.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-06-atomic-guest-progress-20261108')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
