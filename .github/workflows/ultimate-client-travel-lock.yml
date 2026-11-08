@@ -1,6 +1,9 @@
 name: Ultimate TEST Travel Together lock-order
 
 on:
+  push:
+    branches:
+      - experiment/client-team-travel-lock-order-pr524-20261108
   pull_request:
     paths:
       - 'emulator/src/core/bloodborne_host_rules_game.cpp'
@@ -25,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --depth=1 origin "${{ github.base_ref }}:refs/remotes/origin/travel-base"
+          git fetch --depth=1 origin "experiment/ultimate-playable-windows-1.4.0-test:refs/remotes/origin/travel-base"
           git diff --name-only refs/remotes/origin/travel-base HEAD > /tmp/client-travel-paths.txt
           cat /tmp/client-travel-paths.txt
           if grep -Ev '^(emulator/src/core/bloodborne_host_rules_game\.cpp|tools/re/tests/fixtures/team_travel\.cpp\.in|tools/re/tests/test_team_travel_locking\.py|\.github/workflows/ultimate-client-travel-lock\.yml)$' /tmp/client-travel-paths.txt; then
