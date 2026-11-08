@@ -1,0 +1,80 @@
+name: Private online summary (server-only regression)
+
+on:
+  push:
+    branches:
+      - feature/server-private-online-summary-v1
+    paths:
+      - 'server/src/admin.*'
+      - 'server/tests/test_admin.cpp'
+      - 'server/hosting/README.md'
+      - '.github/workflows/server-online-summary.yml'
+  pull_request:
+    paths:
+      - 'server/src/admin.*'
+      - 'server/tests/test_admin.cpp'
+      - 'server/hosting/README.md'
+      - '.github/workflows/server-online-summary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yharnam-private-online-summary
+  cancel-in-progress: true
+
+jobs:
+  admin-summary-tests:
+    name: Fixed-schema, private admin socket and C++ tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check strict server-only change boundary
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          git diff --name-only origin/main HEAD | tee /tmp/online_paths.txt
+          if grep -vE '^(server/src/admin\.cpp|server/src/admin\.h|server/tests/test_admin\.cpp|server/hosting/README\.md|\.github/workflows/server-online-summary\.yml)$' /tmp/online_paths.txt; then
+            echo 'ERROR: non-admin or protocol file changed' >&2
+            exit 1
+          fi
+      - name: Compile-only target generated outside committed Dockerfile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          base = Path("server/hosting/Dockerfile").read_text()
+          anchor = "FROM build AS loadtest-build"
+          assert base.count(anchor) == 1, "Unexpected upstream Dockerfile"
+          stage = """
+          # Isolated CI-only stage. Not committed to the server runtime.
+          FROM build AS online-admin-tests
+          ARG BUILD_JOBS=2
+          RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \\
+              cmake --build build --target test_admin -j"$BUILD_JOBS" \\
+              && ctest --test-dir build --output-on-failure -R '^admin$'
+
+          """
+          # Remove indentation introduced by YAML block while keeping Docker RUN continuation.
+          import textwrap
+          stage = textwrap.dedent(stage)
+          Path("server/hosting/Dockerfile.online-admin-ci").write_text(
+              base.replace(anchor, stage + anchor)
+          )
+          from shutil import copyfile
+          copyfile("server/hosting/Dockerfile.dockerignore",
+                   "server/hosting/Dockerfile.online-admin-ci.dockerignore")
+          assert stage.splitlines()[2] == "FROM build AS online-admin-tests"
+          print("ADMIN_CI_DOCKERFILE_SOURCE_PASS")
+          PY
+      - name: Fetch protobuf for build
+        run: git submodule update --init --depth=1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and run actual test_admin including online privacy regression
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build \
+            -f server/hosting/Dockerfile.online-admin-ci --target online-admin-tests \
+            --build-arg BUILD_JOBS=2 \
+            -t yharnam-private-online-tests:ci .
+          echo 'ADMIN_SUMMARY_TESTS_PASS no deployment, no game traffic'

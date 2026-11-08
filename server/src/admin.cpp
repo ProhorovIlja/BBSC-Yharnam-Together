@@ -287,6 +287,18 @@ Answer Stats(Context& context) {
             {}};
 }
 
+// Fixed-schema anonymous summary for a future website-side exporter.
+// The admin socket is private; never publish the socket or full "stats".
+Answer Online(Context& context) {
+    return {QJsonObject{{"ok", true},
+                        {"connected_games", context.hub.Members()},
+                        {"parties_in_memory", context.world.Parties()},
+                        {"saved_worlds",
+                         static_cast<int>(context.world.Lobby().Worlds().size())}},
+            {},
+            {}};
+}
+
 } // namespace
 
 std::optional<qint64> ParseDuration(const QString& text) {
@@ -378,6 +390,9 @@ Answer Run(const QString& line, Context& context) {
     if (verb == QStringLiteral("stats")) {
         return Stats(context);
     }
+    if (verb == QStringLiteral("online") && words.size() == 1) {
+        return Online(context);
+    }
     if (verb == QStringLiteral("suspects") && words.size() <= 2) {
         return Suspects(context, words.value(1));
     }
@@ -386,7 +401,7 @@ Answer Run(const QString& line, Context& context) {
     }
     return Fail(QStringLiteral("commands: players, kick <id|address>, ban <id|address> "
                                "[90s|30m|12h|7d] [note], unban <id|address>, bans, worlds, "
-                               "restore <folder>, retire, stats, suspects [id|name], key"));
+                               "restore <folder>, retire, stats, online, suspects [id|name], key"));
 }
 
 } // namespace Admin
