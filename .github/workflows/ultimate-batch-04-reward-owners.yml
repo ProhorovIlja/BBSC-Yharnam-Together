@@ -8,6 +8,7 @@ on:
       - 'tools/ultimate/batch_04_manifest.json'
       - 'docs/ULTIMATE_BATCH_04.md'
       - '.github/workflows/ultimate-batch-04-reward-owners.yml'
+      - '.github/workflows/ultimate-batch-03-rewards.yml'
   workflow_dispatch:
 
 permissions:
@@ -33,11 +34,11 @@ jobs:
             experiment/ultimate-batch-03-deferred-item-retry-20261108:refs/remotes/origin/b03
           git diff --name-only origin/b03 HEAD > /tmp/b04-files.txt
           cat /tmp/b04-files.txt
-          if grep -vE '^(emulator/src/core/bloodborne_flags_store\.cpp|tools/re/tests/test_deferred_reward_character_owners\.py|tools/ultimate/batch_04_manifest\.json|docs/ULTIMATE_BATCH_04\.md|\.github/workflows/ultimate-batch-04-reward-owners\.yml)$' /tmp/b04-files.txt; then
+          if grep -vE '^(emulator/src/core/bloodborne_flags_store\.cpp|tools/re/tests/test_deferred_reward_character_owners\.py|tools/ultimate/batch_04_manifest\.json|docs/ULTIMATE_BATCH_04\.md|\.github/workflows/ultimate-batch-04-reward-owners\.yml|\.github/workflows/ultimate-batch-03-rewards\.yml)$' /tmp/b04-files.txt; then
             echo 'Unexpected server, launcher, world-save, public deployment or private game file change' >&2
             exit 1
           fi
-          test "$(wc -l < /tmp/b04-files.txt)" -eq 5
+          test "$(wc -l < /tmp/b04-files.txt)" -eq 6
       - name: Pin exact game-source and new test blobs; retain previous B03 source provenance
         run: |
           set -euo pipefail
