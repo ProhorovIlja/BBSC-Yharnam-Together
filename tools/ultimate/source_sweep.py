@@ -112,13 +112,15 @@ def compact(item):
         "found_in": [],
         "branches": [],
         "pull_requests": [],
+        "issues": [],  # GitHub Issues only, excludes PRs returned from /issues
         "branch_truncated": False,
         "pr_truncated": False,
+        "issue_truncated": False,
     }
 
 
 def scan(api, searches=SEARCHES, seeds=SEEDS, search_pages=2, search_page_size=75,
-         inspect_repos=12, branch_pages=2, pr_pages=2, max_repos=1500):
+         inspect_repos=12, branch_pages=2, pr_pages=2, issue_pages=1, max_repos=1500):
     records, scans, warnings = {}, [], []
     halted = False
     for family, query in searches.items():
@@ -191,10 +193,11 @@ def scan(api, searches=SEARCHES, seeds=SEEDS, search_pages=2, search_page_size=7
                 break
         for label, count, suffix, per_page in (
                 ("branches", branch_pages, "branches", 100),
-                ("pull_requests", pr_pages, "pulls", 100)):
+                ("pull_requests", pr_pages, "pulls", 100),
+                ("issues", issue_pages, "issues", 100)):
             for page in range(1, count + 1):
                 params = {"per_page": per_page, "page": page}
-                if label == "pull_requests":
+                if label in ("pull_requests", "issues"):
                     params.update({"state": "all", "sort": "updated", "direction": "desc"})
                 try:
                     values = api.get("/repos/" + name + "/" + suffix, params)
@@ -202,7 +205,8 @@ def scan(api, searches=SEARCHES, seeds=SEEDS, search_pages=2, search_page_size=7
                         raise ValueError("Expected a list from GitHub")
                 except (RequestLimit, RuntimeError, ValueError) as exc:
                     warnings.append(f"{label} {name}: {exc}")
-                    current["branch_truncated" if label == "branches" else "pr_truncated"] = True
+                    current[{"branches": "branch_truncated", "pull_requests": "pr_truncated",
+                             "issues": "issue_truncated"}[label]] = True
                     if isinstance(exc, RequestLimit):
                         halted = True
                     break
@@ -212,7 +216,7 @@ def scan(api, searches=SEARCHES, seeds=SEEDS, search_pages=2, search_page_size=7
                             "name": value.get("name"),
                             "commit": (value.get("commit") or {}).get("sha"),
                         })
-                    else:
+                    elif label == "pull_requests":
                         current["pull_requests"].append({
                             "number": value.get("number"),
                             "title": (value.get("title") or "")[:180],
@@ -222,23 +226,43 @@ def scan(api, searches=SEARCHES, seeds=SEEDS, search_pages=2, search_page_size=7
                             "updated_at": value.get("updated_at"),
                             "head_sha": ((value.get("head") or {}).get("sha")),
                         })
+                    elif not value.get("pull_request"):  # /repos/.../issues includes PRs!
+                        # Metadata only: issue bodies, logs, attachments and image URLs are
+                        # deliberately not copied into the public CI artifact.
+                        number = value.get("number")
+                        if not isinstance(number, int) or number < 1:
+                            continue
+                        current["issues"].append({
+                            "number": number,
+                            "title": (value.get("title") or "")[:180],
+                            "url": current["html_url"] + "/issues/" + str(number),
+                            "state": value.get("state"),
+                            "state_reason": value.get("state_reason"),
+                            "updated_at": value.get("updated_at"),
+                            "closed_at": value.get("closed_at"),
+                            "comments": value.get("comments", 0),
+                            "labels": [str(label.get("name", ""))[:60]
+                                       for label in (value.get("labels") or []) if isinstance(label, dict)][:12],
+                        })
                 if len(values) < per_page:
                     break
                 if page == count:
-                    current["branch_truncated" if label == "branches" else "pr_truncated"] = True
+                    current[{"branches": "branch_truncated", "pull_requests": "pr_truncated",
+                             "issues": "issue_truncated"}[label]] = True
             if halted:
                 break
         if halted:
             break
 
     return {
-        "schema": "bbsc-ultimate-source-audit-v1",
+        "schema": "bbsc-ultimate-source-audit-v2-with-issues",
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "coverage": "BOUNDED_DISCOVERY_NOT_ALL_GITHUB",
         "request_count": api.calls,
         "request_limit": api.max_requests,
         "truncated": halted or any(x["truncated"] for x in scans)
-                     or any(x["branch_truncated"] or x["pr_truncated"] for x in records.values()),
+                     or any(x["branch_truncated"] or x["pr_truncated"] or x["issue_truncated"]
+                            for x in records.values()),
         "searches": scans,
         "repositories": [records[name] for name in sorted(records)],
         "warnings": warnings[:80],
@@ -267,15 +291,16 @@ def markdown(report):
         lines.append(f"| {s['family']} | {s['pages']} | {s['matched_in_pages']} | "
                      f"{s['github_total_count'] or 'unknown'} | {s['truncated']} |")
     lines += ["", "## Selected original runtimes / pinned inspection", "",
-              "| Repository | License metadata | Parent | Branches read | PRs read |",
-              "| --- | --- | --- | ---: | ---: |"]
+              "| Repository | License metadata | Parent | Branches read | PRs read | Issues read |",
+              "| --- | --- | --- | ---: | ---: | ---: |"]
     originals = set(SEEDS)
     for r in report["repositories"]:
         if r["repo"] not in originals:
             continue
         lines.append(f"| [\x60{r['repo']}\x60]({r['html_url']}) | "
                      f"{r['license'] or 'unknown'} | {r['parent'] or 'root/unknown'} | "
-                     f"{len(r['branches'])} | {len(r['pull_requests'])} |")
+                     f"{len(r['branches'])} | {len(r['pull_requests'])} | "
+                     f"{len(r['issues'])} |")
     lines += ["", "## Warnings", ""]
     lines += ["- " + w.replace("|", "/")[:240] for w in report["warnings"]]
     if not report["warnings"]:
@@ -294,15 +319,17 @@ def main(argv=None):
     p.add_argument("--inspect-repos", type=int, default=12)
     p.add_argument("--branch-pages", type=int, default=2)
     p.add_argument("--pr-pages", type=int, default=2)
+    p.add_argument("--issue-pages", type=int, default=1)
     opts = p.parse_args(argv)
     if not (1 <= opts.max_requests <= 350 and 1 <= opts.search_pages <= 10
             and 0 <= opts.inspect_repos <= 30 and 1 <= opts.branch_pages <= 10
-            and 1 <= opts.pr_pages <= 10):
+            and 1 <= opts.pr_pages <= 10 and 1 <= opts.issue_pages <= 10):
         p.error("invalid bounded audit limits")
     report = scan(GitHubAPI(token=os.environ.get("GITHUB_TOKEN", ""),
                             max_requests=opts.max_requests),
                   search_pages=opts.search_pages, inspect_repos=opts.inspect_repos,
-                  branch_pages=opts.branch_pages, pr_pages=opts.pr_pages)
+                  branch_pages=opts.branch_pages, pr_pages=opts.pr_pages,
+                  issue_pages=opts.issue_pages)
     target = Path(opts.output_dir)
     target.mkdir(parents=True, exist_ok=True)
     data = json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
@@ -311,6 +338,7 @@ def main(argv=None):
     (target / "inventory.json").write_text(data, encoding="utf-8")
     (target / "index.md").write_text(markdown(report), encoding="utf-8")
     print(f"SWEEP_RECORDED repos={len(report['repositories'])} "
+          f"issues={sum(len(r['issues']) for r in report['repositories'])} "
           f"api_calls={report['request_count']} warnings={len(report['warnings'])} "
           f"truncated={report['truncated']}")
     return 0 if report["repositories"] else 2
