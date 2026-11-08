@@ -1,0 +1,85 @@
+name: Ultimate B08 failed guest-world write retries (no full rebuild)
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_flags_store.cpp'
+      - 'emulator/src/core/bloodborne_re.cpp'
+      - 'emulator/src/core/bloodborne_re_internal.h'
+      - 'tools/re/tests/test_guest_world_write_retry.py'
+      - 'tools/re/tests/test_guest_world_write_order.py'
+      - 'tools/ultimate/batch_08_manifest.json'
+      - 'docs/ULTIMATE_BATCH_08.md'
+      - '.github/workflows/ultimate-batch-08-world-write-retry.yml'
+      - '.github/workflows/ultimate-batch-07-world-write-order.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b08-world-retry-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-cpp-retry-and-inherited-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Guard B07-to-B08 source boundary
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-07-world-write-order-20261108:refs/remotes/origin/b07
+          git diff --name-only origin/b07 HEAD > /tmp/b08-changed-files.txt
+          cat /tmp/b08-changed-files.txt
+          if grep -vE '^(emulator/src/core/bloodborne_flags_store\.cpp|emulator/src/core/bloodborne_re\.cpp|emulator/src/core/bloodborne_re_internal\.h|tools/re/tests/test_guest_world_write_retry\.py|tools/re/tests/test_guest_world_write_order\.py|tools/ultimate/batch_08_manifest\.json|docs/ULTIMATE_BATCH_08\.md|\.github/workflows/ultimate-batch-08-world-write-retry\.yml|\.github/workflows/ultimate-batch-07-world-write-order\.yml)$' /tmp/b08-changed-files.txt; then
+            echo 'Unexpected engine, protocol, live server, private game, save or installer change' >&2
+            exit 1
+          fi
+          test "$(wc -l < /tmp/b08-changed-files.txt)" -eq 9
+      - name: Verify full B08 source/test Git blob provenance
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, hashlib
+          m=json.loads(Path('tools/ultimate/batch_08_manifest.json').read_text())
+          p=json.loads(Path('tools/ultimate/batch_07_manifest.json').read_text())
+          assert m['batch_id']=='B08-2026-11-08' and m['parent_pr']==39
+          assert all(m[k] for k in ('no_deploy','no_game_assets','no_live_saves','no_full_build'))
+          assert m['sources'][0]['parent_blob_sha1']==p['source']['candidate_blob_sha1']
+          for obj in m['sources']+m['tests']:
+              path=obj['path']
+              sha=obj.get('candidate_blob_sha1') or obj.get('blob_sha1')
+              data=Path(path).read_bytes()
+              actual=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              assert actual==sha, f'{path}: {actual} != {sha}'
+          assert len(m['changed_files'])==9
+          print('B08_FULL_SOURCE_PINS_PASS')
+          PY
+      - name: Compile the real C++ B08 failed-write retry and simulate recovery
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_retry.py' -v
+          echo 'B08_CPP_RECOVERY_BACKOFF_AND_STALE_SKIP_PASS'
+      - name: Run inherited B07 B06 B05 B04 B03 B02 B01 source tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_order.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_metadata_atomic_replace.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_progress_slot_baselines.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_world_lamps_regression.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_02.py' -v
+          echo 'B01_TO_B08_ALL_SOURCE_REGRESSIONS_PASS'
+      - name: No runtime or production validation claim
+        run: |
+          echo 'NO_WINDOWS_NATIVE_CLIENT_SERVER_LAUNCHER_BUILD, NO_PLAYABLE 5-HUNTER_TEST'
+          echo 'NO_FSYNC, NO_TERMINATEPROCESS_SHUTDOWN_FLUSH, NO_FORNEX, NO_REAL_SAVES'
