@@ -21,6 +21,10 @@ on:
       - 'tools/make-release.ps1'
       - 'tools/release/setup.iss'
       - 'docs/ULTIMATE_PLAYABLE_EDITION.md'
+      - 'docs/ULTIMATE_BUG_ISSUE_BACKLOG.md'
+      - 'tools/ultimate/source_sweep.py'
+      - 'tools/ultimate/test_source_sweep.py'
+      - '.github/workflows/ultimate-source-sweep.yml'
       - '.github/workflows/ultimate-windows-test.yml'
   workflow_dispatch:
 
@@ -42,7 +46,7 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
           git diff --name-only origin/main HEAD | tee /tmp/changed_paths.txt
-          if grep -vE '^(bbport/launcher/bbport_auth\.py|bbport/launcher/bbport_lang_auth\.py|bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_upnp\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_launcher_auth\.py|bbport/tests/test_launcher_look\.py|bbport/tests/test_launcher_game_map_sync\.py|bbport/tests/test_launcher_upnp\.py|bbport/tests/test_save_restore_atomicity\.py|bbport/tests/test_ultimate_edition\.py|bbport/packaging/windows/version_info\.py|tools/release/check_release\.py|tools/make-release\.ps1|tools/release/setup\.iss|tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|tools/re/tests/test_team_travel_locking\.py|tools/re/tests/fixtures/team_travel\.cpp\.in|emulator/src/core/bloodborne_host_rules_game\.cpp|tools/ultimate/source_sweep\.py|tools/ultimate/test_source_sweep\.py|\.github/workflows/ultimate-source-sweep\.yml|docs/ULTIMATE_SOURCE_AUDIT\.md|docs/ULTIMATE_PLAYABLE_EDITION\.md|\.github/workflows/ultimate-windows-test\.yml)$' /tmp/changed_paths.txt; then
+          if grep -vE '^(bbport/launcher/bbport_auth\.py|bbport/launcher/bbport_lang_auth\.py|bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_upnp\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_launcher_auth\.py|bbport/tests/test_launcher_look\.py|bbport/tests/test_launcher_game_map_sync\.py|bbport/tests/test_launcher_upnp\.py|bbport/tests/test_save_restore_atomicity\.py|bbport/tests/test_ultimate_edition\.py|bbport/packaging/windows/version_info\.py|tools/release/check_release\.py|tools/make-release\.ps1|tools/release/setup\.iss|tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|tools/re/tests/test_team_travel_locking\.py|tools/re/tests/fixtures/team_travel\.cpp\.in|emulator/src/core/bloodborne_host_rules_game\.cpp|tools/ultimate/source_sweep\.py|tools/ultimate/test_source_sweep\.py|\.github/workflows/ultimate-source-sweep\.yml|docs/ULTIMATE_SOURCE_AUDIT\.md|docs/ULTIMATE_PLAYABLE_EDITION\.md|docs/ULTIMATE_BUG_ISSUE_BACKLOG\.md|\.github/workflows/ultimate-windows-test\.yml)$' /tmp/changed_paths.txt; then
             echo 'UNEXPECTED_RUNTIME_OR_SERVER_EDIT' >&2
             exit 1
           fi
