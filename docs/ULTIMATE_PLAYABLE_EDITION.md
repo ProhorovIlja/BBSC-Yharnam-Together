@@ -20,6 +20,7 @@ different project, currently paused.
 - Separate Inno AppId, program/shortcut folder, launcher data and update temp.
 - Portable ZIP uses BBSC Yharnam Together TEST folder and portable.txt semantics.
 - Existing build/release stack reused. No server/client protocol changes.
+- Additional synthetic EMEVD parser regression imported from isolated, green PR #11: modded empty events (0 instructions at -1) are valid; nonempty/invalid offsets remain rejected.
 
 ## Next release gates
 1. Actually build Windows exe/portable ZIP/Inno Setup with MSYS2 CLANG64,

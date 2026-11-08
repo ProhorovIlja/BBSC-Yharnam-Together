@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
           git diff --name-only origin/main HEAD | tee /tmp/changed_paths.txt
-          if grep -vE '^(bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_ultimate_edition\.py|tools/make-release\.ps1|tools/release/setup\.iss|docs/ULTIMATE_PLAYABLE_EDITION\.md|\.github/workflows/ultimate-windows-test\.yml)$' /tmp/changed_paths.txt; then
+          if grep -vE '^(bbport/launcher/bbport_coop\.py|bbport/launcher/bbport_launcher_win\.py|bbport/tests/test_ultimate_edition\.py|tools/make-release\.ps1|tools/release/setup\.iss|tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|docs/ULTIMATE_PLAYABLE_EDITION\.md|\.github/workflows/ultimate-windows-test\.yml)$' /tmp/changed_paths.txt; then
             echo 'UNEXPECTED_RUNTIME_OR_SERVER_EDIT' >&2
             exit 1
           fi
@@ -43,6 +43,7 @@ jobs:
             bbport/launcher/bbport_launcher_win.py \
             bbport/tests/test_ultimate_edition.py
           python3 -m unittest discover -s bbport/tests -p 'test_ultimate_edition.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_event_patch_validation.py' -v
       - name: PowerShell release-script syntax (no release)
         shell: pwsh
         run: |
