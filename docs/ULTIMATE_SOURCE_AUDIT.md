@@ -66,3 +66,34 @@ branches and forks may be discovered and appended. Distinct executable
 architecture, renderer and network protocols prevent a simplistic “merge
 everything from GitHub” operation. Treat the best *verified* implementations as
 building blocks, preserving their provenance and original licences.
+
+## November 8: expanded GitHub source intake (bounded discovery)
+
+This pass searches project names, active forks, branches and open PRs across the
+original [droogie/bbhost](https://github.com/droogie/bbhost) (not CLS BBHost),
+deadinside28, Supermedo, Mrsuss60, visy, LanternEngine, Nightwatch,
+shadNet, shadPS4 and other related repositories. The searched result pages are
+NOT all of GitHub. Every import needs a matched base, revision/PR, license, tests,
+and a quantified benefit on the final client/server.
+
+| Verified candidate | Integration judgment |
+| --- | --- |
+| [YT upstream PR #539](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/539), open | Launcher password sign-in uses Python CA store while updates use Windows truststore. Stacked TEST candidate: import exact auth/localization/tests files only after matching their base SHA; surgically adapt `bbport_coop.py` to preserve our independent updater. No TLS bypass. |
+| [YT upstream PR #524](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/524), open | Travel Together lock inversion: inspect lock-order proofs and test before game-client integration. |
+| [YT upstream PR #537](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/537), open | Launcher 3D map does not refresh selected game folder. Small Windows UI/test candidate. |
+| [YT upstream PR #540](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/540), open | Compare ban fix to our existing PR #1/#7 before any duplicate server patch. |
+| [droogie BBHost PR #217](https://github.com/droogie/bbhost/pull/217), open | Original BBHost networking lifecycle; author explicitly warns of coordinated client/server changes, not a YT drop-in. |
+| [droogie BBHost PR #223](https://github.com/droogie/bbhost/pull/223) and [#218](https://github.com/droogie/bbhost/pull/218), open/draft | Upscaling/multimonitor, input and draw path; compare against master on the same Windows hardware. |
+| [Supermedo PR #169](https://github.com/Supermedo/bloodborne_pc/pull/169), [#168](https://github.com/Supermedo/bloodborne_pc/pull/168), [#161](https://github.com/Supermedo/bloodborne_pc/pull/161), open | Launcher integration, offline chalice glyphs, offsite saves. Validate game-folder and server-data safety first. |
+| [deadinside28 PR #440](https://github.com/deadinside28/bloodborne_pc/pull/440) and [#442](https://github.com/deadinside28/bloodborne_pc/pull/442), open | GPU queue concurrency and Vulkan lifetime risks; renderer benchmark and ABI review required. |
+| [shadPS4 PR #5562](https://github.com/shadps4-emu/shadPS4/pull/5562) and [#5589](https://github.com/shadps4-emu/shadPS4/pull/5589), open | GPU/renderer implementation references, not drop-in commits. |
+| [Nightwatch PR #10](https://github.com/vladtepes22/NightwatchCoop/pull/10), open | HDR experiment; test independently before transfer. |
+| [MaSieS4Fun ARM port](https://github.com/MaSieS4Fun/ARM_bloodborne_pc) | ARM/FEX portability reference, NOT a Windows x64 candidate. |
+| [visy Windows port](https://github.com/visy/bloodborne_pc_windows_port) | P2P four-player party and UX: not protocol-compatible by assumption with dedicated YT five-player network. |
+
+New repository-search leads, **not yet code-reviewed**:
+`bloodborne-native/bloodborne-recomp`, `bloodborne-native/bloodborne-runtime`,
+`theitsnschool/bloodborne-windows-native-loader`, `LRF17/NightwatchCoop-NativePlusHDR`.
+Revisit full fork and branch pagination before selecting each new subsystem.
+
+No new candidate is released or deployed to Fornex by this intake.
