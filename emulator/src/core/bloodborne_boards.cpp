@@ -806,8 +806,9 @@ void SendMemberDataRequest(u64 net, u64 member_id) {
 
 namespace Coop {
 
-// See joins_waiting_for_data: once another member has stood on this map a moment, the waiting
-// members are asked for their data until all of it is in, then their characters are created.
+// See joins_waiting_for_data: ask for a particular member's data only after THAT member
+// stands on this map, not simply because some other hunter in a five-person party is here.
+// Then allow its character to be created when its data has arrived.
 void FinishWaitingJoins(bool in_session) {
     if (joins_waiting_for_data.empty()) {
         return;
@@ -817,8 +818,21 @@ void FinishWaitingJoins(bool in_session) {
         return;
     }
     const VitalsView view = ReadVitalsBoard();
-    const bool here = view.Fresh() && !view.member.empty() &&
-                      SomeoneElseStands(view.board.members, view.member, PlayingMap());
+    const u32 map = PlayingMap();
+    // The board names encode the online ids found in the game's session identity objects.
+    // Resolve only standing guests on this map; all other hunters must not unblock their
+    // join tasks. Cache the candidate names once per tick (not per waiting task).
+    std::vector<std::string> online_ids;
+    if (view.Fresh() && !view.member.empty() && map != 0) {
+        for (const MemberVitals& member : view.board.members) {
+            if (member.member == view.member || member.map != map || member.vital != Vital::Up) {
+                continue;
+            }
+            if (const std::string id = OnlineIdOfBoardMember(member.member); !id.empty()) {
+                online_ids.push_back(id);
+            }
+        }
+    }
     const s64 now = SteadyMilliseconds();
     const u64 net = ReadValue<u64>(image_base + SummonSessionRulesPointerOffset, 0);
     using SetStep = void PS4_SYSV_ABI (*)(u64 task, s32 step);
@@ -836,9 +850,13 @@ void FinishWaitingJoins(bool in_session) {
             return;
         }
         const u64 member_id = task + 0xC8;
+        const std::optional<std::string> board_name =
+            online_ids.empty() ? std::nullopt : SessionMemberBoardName(member_id, online_ids);
+        const bool member_here = view.Fresh() && board_name.has_value() &&
+                                 MemberStandsOnMap(view.board.members, *board_name, map);
         const std::optional<s32> slot = MemberDataSlot(net, member_id);
         const u64 parts = slot ? MemberDataPartsAddress(*slot) : 0;
-        switch (waiting->second.Tick(now, here, parts ? ReadValue<u8>(parts, 0) : 0)) {
+        switch (waiting->second.Tick(now, member_here, parts ? ReadValue<u8>(parts, 0) : 0)) {
         case MemberDataWait::Action::None:
             return;
         case MemberDataWait::Action::Request:
