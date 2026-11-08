@@ -1,0 +1,76 @@
+name: Ultimate B05 guest progress owner isolation (no full build)
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_flags_store.cpp'
+      - 'tools/re/tests/test_guest_progress_slot_baselines.py'
+      - 'tools/ultimate/batch_05_manifest.json'
+      - 'docs/ULTIMATE_BATCH_05.md'
+      - '.github/workflows/ultimate-batch-05-progress-owners.yml'
+      - '.github/workflows/ultimate-batch-04-reward-owners.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b05-owner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-compiled-game-fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Validate exactly B05's files against inherited B04
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-04-reward-slot-isolation-20261108:refs/remotes/origin/b04
+          git diff --name-only origin/b04 HEAD >/tmp/b05-files.txt
+          cat /tmp/b05-files.txt
+          if grep -vE '^(emulator/src/core/bloodborne_flags_store\.cpp|tools/re/tests/test_guest_progress_slot_baselines\.py|tools/ultimate/batch_05_manifest\.json|docs/ULTIMATE_BATCH_05\.md|\.github/workflows/ultimate-batch-05-progress-owners\.yml|\.github/workflows/ultimate-batch-04-reward-owners\.yml)$' /tmp/b05-files.txt; then
+            echo 'Unexpected server, game files, user saves, network protocol or deployment change' >&2
+            exit 1
+          fi
+          test "$(wc -l </tmp/b05-files.txt)" -eq 6
+      - name: Pin B05 source/test Git blob identities and no-deploy contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          m = json.loads(pathlib.Path('tools/ultimate/batch_05_manifest.json').read_text())
+          b04 = json.loads(pathlib.Path('tools/ultimate/batch_04_manifest.json').read_text())
+          assert m['batch_id'] == 'B05-2026-11-08' and m['parent_pr'] == 36
+          assert all(m[k] for k in ('no_deploy','no_game_assets','no_live_saves','no_full_build'))
+          assert m['source']['parent_blob_sha1'] == b04['source']['candidate_blob_sha1']
+          for path, expected in ((m['source']['path'],m['source']['candidate_blob_sha1']),
+                                 (m['source']['test_path'],m['source']['test_blob_sha1'])):
+              data=pathlib.Path(path).read_bytes()
+              actual=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              assert actual==expected, f'{path}: {actual} differs from pinned {expected}'
+          print('B05_SOURCE_PINS_AND_NO_DEPLOY_PASS')
+          PY
+      - name: Compile the exact game C++ owner transition for 5 hunters
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_progress_slot_baselines.py' -v
+          echo 'B05_GUEST_PROGRESS_OWNER_SLOT_AND_GENERATION_PASS'
+      - name: Run inherited B04, B03, B02 and B01 source regression tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_world_lamps_regression.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_02.py' -v
+          echo 'B01_TO_B05_TARGETED_SOURCE_REGRESSIONS_PASS'
+      - name: State actual validation limits
+        run: |
+          echo 'SOURCE_CPP_FIXTURE_ONLY; NO_REAL_GAME, NO_SAVE_FILES, NO_BBHOST_BENCHMARK'
+          echo 'NO_FORNEX, NO_FULL_WINDOWS_CLIENT_SERVER_LAUNCHER_BUILD, NO_RELEASE'

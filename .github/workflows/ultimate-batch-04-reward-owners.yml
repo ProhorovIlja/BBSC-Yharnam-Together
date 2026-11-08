@@ -20,6 +20,9 @@ concurrency:
 
 jobs:
   source-and-compiled-owner-fixture:
+    # This source-diff/pin gate applies only to B04 against its B03 parent.
+    # B05 and later batches rerun the B04 C++ fixture in their own gates.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-03-deferred-item-retry-20261108')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
