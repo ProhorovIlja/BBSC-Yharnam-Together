@@ -48,6 +48,7 @@ jobs:
             bbport/tests/test_ultimate_edition.py
           python3 -m unittest discover -s bbport/tests -p 'test_ultimate_edition.py' -v
           python3 -m unittest discover -s bbport/tests -p 'test_save_restore_atomicity.py' -v
+          PYTHONPATH=bbport/tests python3 -m unittest test_coop_launcher.SaveBackupTests -v
           python3 -m unittest discover -s bbport/tests -p 'test_launcher_version_info.py' -v
           python3 -m unittest discover -s tools/re/tests -p 'test_event_patch_validation.py' -v
       - name: PowerShell release-script syntax (no release)
