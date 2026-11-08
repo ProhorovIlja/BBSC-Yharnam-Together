@@ -216,7 +216,7 @@ int BansAreKeptInTheBanListAndEnd() {
   }
   // An address, for ever.
   answer = rig.Run("ban 203.0.113.8");
-  CHECK(answer.json["ok"].toBool() && rig.guard.Banned(Bob.ipv4, 0));
+  CHECK(answer.json["ok"].toBool() && rig.guard.Banned(Bob.ipv4));
   CHECK(rig.Run("bans").json["bans"].toArray().size() == 3);
   for (const auto &ban : rig.Run("bans").json["bans"].toArray()) {
     if (ban.toObject()["who"].toString() == "Alice") {
@@ -229,7 +229,7 @@ int BansAreKeptInTheBanListAndEnd() {
   // Unban: off the file (the operator's lines too), off the guard.
   CHECK(rig.Run("unban Mallory").json["ok"].toBool());
   CHECK(rig.Run("unban 203.0.113.8").json["ok"].toBool());
-  CHECK(!rig.guard.BannedId("Mallory") && !rig.guard.Banned(Bob.ipv4, 0));
+  CHECK(!rig.guard.BannedId("Mallory") && !rig.guard.Banned(Bob.ipv4));
   CHECK(!ReadFile(rig.bans).contains("Mallory"));
   CHECK(ReadFile(rig.bans).contains("# the operator's own"));
   CHECK(!rig.Run("unban Nobody").json["ok"].toBool());
@@ -330,13 +330,40 @@ int ServerStats() {
   CHECK(stats["players"].toInt() == 1);
   CHECK(stats["worlds"].toInt() == 1);
   CHECK(stats["link_load"].toDouble() == 0.25);
-  CHECK(stats.contains("hellos_refused") && stats.contains("bans"));
+  CHECK(stats.contains("hellos_refused") && stats.contains("floods"));
+  CHECK(stats.contains("bans") && stats["bans"].toInt() == 0);
   // Link version 4: the server's public key, what the launcher pins.
   const QString key =
       QString::fromStdString(LinkAuth::HexOf(rig.hub.PublicKey()));
   CHECK(stats["link_key"].toString() == key && stats.contains("bad_hellos"));
   const QJsonObject asked = rig.Run("key").json;
   CHECK(asked["ok"].toBool() && asked["key"].toString() == key);
+  return 0;
+}
+
+// The future website should not need "stats", whose response includes the
+// public link key and detailed diagnostics. The online response has no such keys.
+int OnlineSummaryExcludesIdentityAndLinkKey() {
+  QTemporaryDir dir;
+  Rig rig{dir.path()};
+  SeedWorlds(QDir{dir.path()}.filePath("worlds"), {{"w1", Now - Day}});
+  rig.world.Load(Now);
+  QJsonObject online = rig.Run("online").json;
+  CHECK(online["ok"].toBool());
+  CHECK(online["connected_games"].toInt() == 0);
+  CHECK(online["saved_worlds"].toInt() == 1);
+  CHECK(online.size() == 4);
+  rig.Link(Alice, "Alice");
+  online = rig.Run("online").json;
+  CHECK(online["ok"].toBool());
+  CHECK(online["connected_games"].toInt() == 1);
+  CHECK(online["parties_in_memory"].toInt() == rig.world.Parties());
+  CHECK(online["saved_worlds"].toInt() == 1);
+  CHECK(online.size() == 4);
+  CHECK(!online.contains("link_key") && !online.contains("players"));
+  CHECK(!online.contains("bad_tags") && !online.contains("bans"));
+  CHECK(!online.contains("suspects") && !online.contains("addresses"));
+  CHECK(!rig.Run("online extra").json["ok"].toBool());
   return 0;
 }
 
@@ -391,17 +418,6 @@ int WorldSizesAreReadOffTheLinkThread() {
 // Only banned.txt's bans unlink linked games when it is read again: an
 // address the guard banned for a while on its own (its rate) does not take
 // every game behind it (one CGNAT) off every 30 s.
-int ARateBanDoesNotUnlinkLinkedGames() {
-  QTemporaryDir dir;
-  Rig rig{dir.path()};
-  rig.Link(Alice, "Alice");
-  rig.guard.Ban(Alice.ipv4, rig.link_ms + 60'000);
-  CHECK(rig.guard.Banned(Alice.ipv4, rig.link_ms)); // its next hello waits
-  const auto result = Admin::KickBanned(rig.hub, rig.guard, rig.link_ms);
-  CHECK(result.gone.isEmpty());
-  CHECK(rig.hub.Members() == 1);
-  return 0;
-}
 
 // A second server started on the same admin socket does not take it from the
 // running one: it is refused, the running server keeps answering.
@@ -489,10 +505,10 @@ int main(int argc, char **argv) {
   failed |= WorldsAreListedWithTheirSize();
   failed |= IdleWorldsRetireAndComeBack();
   failed |= ServerStats();
+  failed |= OnlineSummaryExcludesIdentityAndLinkKey();
   failed |= Durations();
   failed |= ABanListReadAgainUnlinksTheBanned();
   failed |= WorldSizesAreReadOffTheLinkThread();
-  failed |= ARateBanDoesNotUnlinkLinkedGames();
   failed |= ARunningServersAdminSocketIsKept();
   failed |= SuspectsAreListed();
   if (failed == 0) {

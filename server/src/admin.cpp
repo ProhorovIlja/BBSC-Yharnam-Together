@@ -282,7 +282,22 @@ Answer Stats(Context& context) {
                         {"hellos_refused", static_cast<qint64>(count.hellos_refused)},
                         {"datagrams_dropped", static_cast<qint64>(count.datagrams_dropped)},
                         {"accounts_refused", static_cast<qint64>(count.accounts_refused)},
-                        {"bans", static_cast<qint64>(count.bans)}},
+                        {"floods", static_cast<qint64>(count.floods)},
+                        // Deprecated admin stats field for pre-1.4 parsers: automatic
+                        // rate bans were removed. Operator bans use the separate ban list.
+                        {"bans", static_cast<qint64>(0)}},
+            {},
+            {}};
+}
+
+// Fixed-schema anonymous summary for a future website-side exporter.
+// The admin socket is private; never publish the socket or full "stats".
+Answer Online(Context& context) {
+    return {QJsonObject{{"ok", true},
+                        {"connected_games", context.hub.Members()},
+                        {"parties_in_memory", context.world.Parties()},
+                        {"saved_worlds",
+                         static_cast<int>(context.world.Lobby().Worlds().size())}},
             {},
             {}};
 }
@@ -319,8 +334,7 @@ ServerLink::Hub::Result KickBanned(ServerLink::Hub& hub, const Admission::Guard&
                                    qint64 link_ms) {
     ServerLink::Hub::Result result;
     for (const ServerLink::Hub::LinkRow& link : hub.Links()) {
-        // banned.txt's alone: a rate ban (Guard::Ban) holds the address's next hellos only, or
-        // every game behind one address (a CGNAT) would go with the one flooding.
+        // banned.txt's (the only bans: a flooding link is logged, never banned).
         if (guard.BannedId(link.online_id) || guard.ListBanned(link.endpoint.ipv4)) {
             const auto kicked = hub.Kick(link.online_id, 0, link_ms);
             result.sends.append(kicked.sends);
@@ -378,6 +392,9 @@ Answer Run(const QString& line, Context& context) {
     if (verb == QStringLiteral("stats")) {
         return Stats(context);
     }
+    if (verb == QStringLiteral("online") && words.size() == 1) {
+        return Online(context);
+    }
     if (verb == QStringLiteral("suspects") && words.size() <= 2) {
         return Suspects(context, words.value(1));
     }
@@ -386,7 +403,7 @@ Answer Run(const QString& line, Context& context) {
     }
     return Fail(QStringLiteral("commands: players, kick <id|address>, ban <id|address> "
                                "[90s|30m|12h|7d] [note], unban <id|address>, bans, worlds, "
-                               "restore <folder>, retire, stats, suspects [id|name], key"));
+                               "restore <folder>, retire, stats, online, suspects [id|name], key"));
 }
 
 } // namespace Admin
