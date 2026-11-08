@@ -1,0 +1,83 @@
+name: Ultimate B07 guest-world snapshot ordering (no full rebuild)
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_flags_store.cpp'
+      - 'tools/re/tests/test_guest_world_write_order.py'
+      - 'tools/re/tests/test_guest_metadata_atomic_replace.py'
+      - 'tools/ultimate/batch_07_manifest.json'
+      - 'docs/ULTIMATE_BATCH_07.md'
+      - '.github/workflows/ultimate-batch-07-world-write-order.yml'
+      - '.github/workflows/ultimate-batch-06-guest-metadata.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b07-world-write-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-compiled-world-write-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: B06 to B07 files only; never game data/server/production
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-06-atomic-guest-progress-20261108:refs/remotes/origin/b06
+          git diff --name-only origin/b06 HEAD >/tmp/b07-paths.txt
+          cat /tmp/b07-paths.txt
+          if grep -vE '^(emulator/src/core/bloodborne_flags_store\.cpp|tools/re/tests/test_guest_world_write_order\.py|tools/re/tests/test_guest_metadata_atomic_replace\.py|tools/ultimate/batch_07_manifest\.json|docs/ULTIMATE_BATCH_07\.md|\.github/workflows/ultimate-batch-07-world-write-order\.yml|\.github/workflows/ultimate-batch-06-guest-metadata\.yml)$' /tmp/b07-paths.txt; then
+            echo 'Unexpected server, network, deploy, player save, game asset or installer change' >&2
+            exit 1
+          fi
+          test "$(wc -l </tmp/b07-paths.txt)" -eq 7
+      - name: Verify B07 B06 provenance and source hashes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          m = json.loads(Path("tools/ultimate/batch_07_manifest.json").read_text())
+          previous = json.loads(Path("tools/ultimate/batch_06_manifest.json").read_text())
+          assert m["batch_id"] == "B07-2026-11-08" and m["parent_pr"] == 38
+          assert all(m[key] for key in ("no_deploy", "no_game_assets", "no_live_saves", "no_full_build"))
+          assert m["source"]["parent_blob_sha1"] == previous["source"]["candidate_blob_sha1"]
+          for path, expected in (
+              (m["source"]["path"], m["source"]["candidate_blob_sha1"]),
+              (m["source"]["test_path"], m["source"]["test_blob_sha1"]),
+              (m["source"]["modified_inherited_test_path"], m["source"]["modified_inherited_test_blob_sha1"]),
+          ):
+              data=Path(path).read_bytes()
+              actual=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
+              assert actual == expected, f"{path}: {actual} != {expected}"
+          print("B07_GITHUB_SOURCE_PINS_PASS")
+          PY
+      - name: Compile production C++ and test newest-world-write-wins
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_order.py' -v
+          echo 'B07_DELAYED_WORKER_AND_NEW_SYNC_FALLBACK_PASS'
+      - name: Run inherited B06 B05 B04 B03 B02 B01 regressions
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_metadata_atomic_replace.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_progress_slot_baselines.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_world_lamps_regression.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_02.py' -v
+          echo 'B01_TO_B07_SOURCE_REGRESSIONS_PASS'
+      - name: State validation limits
+        run: |
+          echo 'NO_CLIENT_OR_SERVER_BINARY_BUILD, NO_GAMEPLAY, NO_PERSONAL_SAVES'
+          echo 'NO_SHUTDOWN_FLUSH_OR_POWER_LOSS_GUARANTEE, NO_FORNEX, NO_RELEASE'
