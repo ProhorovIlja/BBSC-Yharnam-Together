@@ -29,7 +29,7 @@ class GuestProgressOwnerIsolation(unittest.TestCase):
             loader.index("guest_world_kept_ms.clear();"),
             loader.index("guest_world_slot = character_slot.load();"),
         )
-        reset = code.split("void ForgetGuestWorldChanges()", 1)[1].split(
+        reset = code.split("void ForgetGuestWorldChanges() {", 1)[1].split(
             "\nvoid KeepWorldChanges(", 1
         )[0]
         self.assertIn("guest_world_kept_ms.clear();", reset)
