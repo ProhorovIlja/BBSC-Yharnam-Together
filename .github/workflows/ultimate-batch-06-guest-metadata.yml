@@ -1,0 +1,78 @@
+name: Ultimate B06 protected guest metadata writes (source tests only)
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_flags_store.cpp'
+      - 'tools/re/tests/test_guest_metadata_atomic_replace.py'
+      - 'tools/ultimate/batch_06_manifest.json'
+      - 'docs/ULTIMATE_BATCH_06.md'
+      - '.github/workflows/ultimate-batch-06-guest-metadata.yml'
+      - '.github/workflows/ultimate-batch-05-progress-owners.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b06-guest-metadata-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cpp-atomic-replacement-and-inherited-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify B05 to B06 isolated change-set
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-05-guest-progress-slot-state-20261108:refs/remotes/origin/b05
+          git diff --name-only origin/b05 HEAD > /tmp/b06-changes.txt
+          cat /tmp/b06-changes.txt
+          if grep -vE '^(emulator/src/core/bloodborne_flags_store\.cpp|tools/re/tests/test_guest_metadata_atomic_replace\.py|tools/ultimate/batch_06_manifest\.json|docs/ULTIMATE_BATCH_06\.md|\.github/workflows/ultimate-batch-06-guest-metadata\.yml|\.github/workflows/ultimate-batch-05-progress-owners\.yml)$' /tmp/b06-changes.txt; then
+            echo 'Unexpected deploy, server, game-assets, private saves or full build modification' >&2
+            exit 1
+          fi
+          test "$(wc -l < /tmp/b06-changes.txt)" -eq 6
+      - name: Pin B06 production C++ and regression source identities
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          m=json.loads(Path("tools/ultimate/batch_06_manifest.json").read_text())
+          b05=json.loads(Path("tools/ultimate/batch_05_manifest.json").read_text())
+          assert m["batch_id"]=="B06-2026-11-08" and m["parent_pr"]==37
+          assert all(m[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_full_build"))
+          assert m["source"]["parent_blob_sha1"] == b05["source"]["candidate_blob_sha1"]
+          for p,sha in ((m["source"]["path"],m["source"]["candidate_blob_sha1"]),
+                        (m["source"]["test_path"],m["source"]["test_blob_sha1"])):
+              data=Path(p).read_bytes()
+              actual=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
+              assert actual==sha, f"{p}: {actual} != {sha}"
+          print("B06_SOURCE_IDENTITY_PASS")
+          PY
+      - name: Compile production metadata writer and inject replacement failures
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_metadata_atomic_replace.py' -v
+          echo 'B06_CPP_ATOMIC_REPLACEMENT_AND_OLD_FILE_PRESERVED_PASS'
+      - name: Retain B05 B04 B03 B02 B01 production source regressions
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_progress_slot_baselines.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_world_lamps_regression.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_02.py' -v
+          echo 'B01_TO_B05_INHERITED_REGRESSIONS_PASS'
+      - name: State actual validation limits
+        run: |
+          echo 'NO_FSYNC_OR_POWERLOSS_DURABILITY_CLAIM; NO_GAMEPLAY_REPRODUCER'
+          echo 'NO_REAL_PLAYER_DATA, NO_CLIENT_SERVER_WINDOWS_BUILD, NO_FORNEX, NO_PUBLIC_RELEASE'
