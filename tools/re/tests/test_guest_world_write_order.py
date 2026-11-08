@@ -59,7 +59,10 @@ class GuestWorldWriteOrder(unittest.TestCase):
         if compiler is None:
             self.skipTest("C++20 compiler unavailable")
         fixture = r"""
+#include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -67,9 +70,12 @@ class GuestWorldWriteOrder(unittest.TestCase):
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
+#include <vector>
 #include <unistd.h>
 using u64 = std::uint64_t;
 namespace fmt {
