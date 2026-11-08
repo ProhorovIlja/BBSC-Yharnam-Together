@@ -1,0 +1,38 @@
+name: Ultimate TEST Travel Together lock-order
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_host_rules_game.cpp'
+      - 'tools/re/tests/test_team_travel_locking.py'
+      - 'tools/re/tests/fixtures/team_travel.cpp.in'
+      - '.github/workflows/ultimate-client-travel-lock.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-travel-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  travel-source-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate bounded upstream source import
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin "\${{ github.event.pull_request.base.sha }}:refs/remotes/origin/travel-base"
+          git diff --name-only refs/remotes/origin/travel-base HEAD > /tmp/client-travel-paths.txt
+          cat /tmp/client-travel-paths.txt
+          if grep -Ev '^(emulator/src/core/bloodborne_host_rules_game\.cpp|tools/re/tests/fixtures/team_travel\.cpp\.in|tools/re/tests/test_team_travel_locking\.py|\.github/workflows/ultimate-client-travel-lock\.yml)$' /tmp/client-travel-paths.txt; then
+            echo "Unexpected server, launcher, protocol or asset edit" >&2
+            exit 1
+          fi
+      - name: Compile and execute real Team Travel state machine
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_travel_locking.py' -v
