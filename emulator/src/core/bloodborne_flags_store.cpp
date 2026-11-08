@@ -683,6 +683,46 @@ std::atomic<u64> deferred_reward_character_generation{1};
 
 namespace {
 
+// Small per-character co-op metadata files are replaced only after the new data
+// has been fully written. A failed write/rename must keep the previous file.
+// The sibling temporary path keeps replacement on the same filesystem.
+bool ReplaceGuestMetadataFile(const std::filesystem::path& path, std::string_view text) {
+    static std::atomic<u64> sequence{0};
+    const u64 id = sequence.fetch_add(1, std::memory_order_relaxed);
+#ifdef _WIN32
+    const auto pid = _getpid();
+#else
+    const auto pid = getpid();
+#endif
+    std::filesystem::path staged = path;
+    staged += fmt::format(".tmp-{}-{}", pid, id);
+    {
+        std::ofstream file{staged, std::ios::binary | std::ios::trunc};
+        if (!file) {
+            return false;
+        }
+        file.write(text.data(), static_cast<std::streamsize>(text.size()));
+        file.flush();
+        const bool written = file.good();
+        file.close();
+        if (!written || file.fail()) {
+            std::error_code ignored;
+            std::filesystem::remove(staged, ignored);
+            return false;
+        }
+    }
+    std::error_code error;
+    std::filesystem::rename(staged, path, error);
+    if (error) {
+        // In particular, Windows may refuse replacement while a reader has
+        // the destination open. Never remove the old destination as a fallback.
+        std::error_code ignored;
+        std::filesystem::remove(staged, ignored);
+        return false;
+    }
+    return true;
+}
+
 std::filesystem::path GuestProgressFile() {
     return Common::FS::GetUserPath(Common::FS::PathType::UserDir) /
            SlotFileName("progress", character_slot.load());
@@ -706,8 +746,9 @@ std::vector<s32>& GuestPickedFlags() {
 }
 
 void SaveGuestProgress(std::span<const s32> flags) {
-    std::ofstream file{GuestProgressFile(), std::ios::trunc};
-    file << FormatFlagList(flags);
+    if (!ReplaceGuestMetadataFile(GuestProgressFile(), FormatFlagList(flags))) {
+        LOG_WARNING(Debug, "Bloodborne party: guest pickup progress update failed; old file kept");
+    }
 }
 
 } // namespace
@@ -821,9 +862,10 @@ void ForgetSlotIfNewCharacter() {
         file >> progress_kept;
     }
     const bool other = IsOtherCharacter(progress_now, progress_kept);
-    {
-        std::ofstream file{GuestOwnerFile(), std::ios::trunc};
-        file << (other ? progress_now : std::max(progress_now, progress_kept)) << '\n';
+    if (!ReplaceGuestMetadataFile(
+            GuestOwnerFile(),
+            fmt::format("{}\n", other ? progress_now : std::max(progress_now, progress_kept)))) {
+        LOG_WARNING(Debug, "Bloodborne party: guest owner metadata update failed; old file kept");
     }
     if (!ForgetsSlotLists(progress_now, progress_kept, IsNewCharacterInSlot(confirmed, set_now))) {
         return;
@@ -861,9 +903,9 @@ void ConfirmGuestPickupsInOwnWorld() {
             }
         }
     }
-    if (!confirmed.empty()) {
-        std::ofstream file{GuestConfirmedFile(), std::ios::trunc};
-        file << FormatFlagList(confirmed);
+    if (!confirmed.empty() &&
+        !ReplaceGuestMetadataFile(GuestConfirmedFile(), FormatFlagList(confirmed))) {
+        LOG_WARNING(Debug, "Bloodborne party: guest confirmed pickup update failed; old file kept");
     }
 }
 
@@ -1080,8 +1122,9 @@ std::map<s32, bool>& GuestWorldChanges() {
 void SaveGuestWorldChanges() {
     // The disk can take long: 66 ms on the game's thread in a rig run. The worker writes in order.
     const auto write = [path = GuestWorldFile(), text = FormatWorldChanges(*guest_world)] {
-        std::ofstream file{path, std::ios::trunc};
-        file << text;
+        if (!ReplaceGuestMetadataFile(path, text)) {
+            LOG_WARNING(Debug, "Bloodborne party: guest world update failed; old file kept");
+        }
     };
     if (!Coop::OffMainOn(OffMainPart::WorldFile) || !Coop::CoopOffMain().Post(write)) {
         write();
