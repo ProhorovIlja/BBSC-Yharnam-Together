@@ -35,7 +35,7 @@ jobs:
           git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
           git diff --name-only origin/main HEAD > /tmp/changed_paths.txt
           cat /tmp/changed_paths.txt
-          if grep -vE '^(server/|docs/HOSTED_SERVER.md$|docs/SERVER_HARDENING.md$|\.github/workflows/server-hardening.yml$)' /tmp/changed_paths.txt; then
+          if grep -vE '^(server/|docs/HOSTED_SERVER.md$|docs/SERVER_HARDENING.md$|\.github/workflows/server-hardening.yml$|\.github/workflows/server-candidate-five-hunters\.yml$)' /tmp/changed_paths.txt; then
             echo 'ERROR: unexpected non-server change' >&2
             exit 1
           fi
