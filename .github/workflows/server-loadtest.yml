@@ -1,0 +1,85 @@
+name: Server loadtest generator (offline only)
+
+on:
+  push:
+    branches:
+      - feature/server-loadtest-multi-owner-pr444
+    paths:
+      - 'server/loadtest/bbload.cpp'
+      - '.github/workflows/server-loadtest.yml'
+  pull_request:
+    paths:
+      - 'server/loadtest/bbload.cpp'
+      - '.github/workflows/server-loadtest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shadnet-loadtest-verify
+  cancel-in-progress: true
+
+jobs:
+  source-and-cli-contract:
+    name: Five-player / multi-owner source contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure server runtime / client untouched
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          git diff --name-only origin/main HEAD > /tmp/changed_paths.txt
+          cat /tmp/changed_paths.txt
+          if grep -vE '^(server/loadtest/bbload\.cpp|\.github/workflows/server-loadtest\.yml)$' /tmp/changed_paths.txt; then
+            echo 'UNEXPECTED_RUNTIME_OR_CLIENT_EDIT' >&2
+            exit 1
+          fi
+      - name: Check five-hunter and multi-owner boundaries
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s = Path("server/loadtest/bbload.cpp").read_text()
+          for expression in (
+            r'\{"owners",\s*"seats a team that own enemies',
+            r'bool Game::Owner\(\) const \{ return seat < load.settings.owners; \}',
+            r'settings.team_size = std::clamp\(parser.value\("team-size"\).toInt\(\), 2, 5\);',
+            r'settings.owners = std::clamp\(parser.value\("owners"\).toInt\(\), 0,\s*settings.team_size\);',
+            r'\{"team-size",\s*"players a team \(2-5\)"',
+          ):
+            assert re.search(expression, s), f"missing regression invariant: {expression}"
+          print("LOADTEST_SOURCE_PASS five_players,owner_range,default_legacy_behavior")
+          PY
+
+  build-loadtest:
+    name: Build isolated bbload executable and inspect --help
+    needs: source-and-cli-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch protobuf submodule only
+        run: git submodule update --init --depth=1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Build load generator, never connect to live games
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build \
+            -f server/hosting/Dockerfile \
+            --build-arg BUILD_JOBS=2 \
+            --target loadtest \
+            -t yharnam-bbload:offline-test .
+      - name: Validate CLI offline, without game/network flags
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            --read-only --cap-drop ALL \
+            --security-opt no-new-privileges \
+            yharnam-bbload:offline-test --help > /tmp/bbload-help.txt
+          grep -F -- '--owners' /tmp/bbload-help.txt
+          grep -F -- '--team-size' /tmp/bbload-help.txt
+          grep -F -- '--owner-fps' /tmp/bbload-help.txt
+          echo 'LOADTEST_OFFLINE_HELP_PASS'
