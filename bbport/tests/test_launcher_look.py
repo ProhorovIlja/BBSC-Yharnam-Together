@@ -896,7 +896,7 @@ class CoopSettingsTests(unittest.TestCase):
         self.assertEqual(self.app.status.cget('text'), 'Version 1.0.1 is available.', 'not left on Checking…')
 
     def test_the_launcher_has_the_new_name(self):
-        self.assertEqual(self.root.title(), 'BBSC: Yharnam Together')
+        self.assertEqual(self.root.title(), 'BBSC: Yharnam Together TEST')
         self.assertIn('BBSC: Yharnam Together', self.app.side.canvas.itemcget(self.app.side.sub, 'text'))
 
     def test_a_newer_release_shows_the_update_button_and_installs_with_the_switch(self):
