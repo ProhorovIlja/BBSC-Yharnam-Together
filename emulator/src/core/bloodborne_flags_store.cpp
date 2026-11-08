@@ -1126,6 +1126,12 @@ std::map<s32, bool>& GuestWorldChanges() {
 struct GuestWorldWriteState {
     std::atomic<u64> newest_revision{0};
     std::mutex commit_mutex;
+    // Retain only the latest failed file snapshot. The worker retries with
+    // bounded backoff; never let a stale revision return to disk.
+    u64 retry_revision{};
+    std::optional<std::string> retry_text;
+    u32 retry_failures{};
+    std::chrono::steady_clock::time_point retry_after{};
 };
 
 std::mutex guest_world_writer_index_mutex;
@@ -1150,7 +1156,64 @@ bool CommitLatestGuestWorldSnapshot(
     if (state->newest_revision.load(std::memory_order_acquire) != revision) {
         return true; // Older snapshot; keep the newer writer's result.
     }
-    return ReplaceGuestMetadataFile(path, text);
+    if (ReplaceGuestMetadataFile(path, text)) {
+        state->retry_revision = 0;
+        state->retry_text.reset();
+        state->retry_failures = 0;
+        return true;
+    }
+    // The new world is still in memory. Do not discard it on a transient
+    // disk failure; the idle worker may recover it without a game-thread write.
+    state->retry_revision = revision;
+    state->retry_text = std::string{text};
+    state->retry_failures = 1;
+    state->retry_after = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    return false;
+}
+
+// At idle, retry at most two failed paths. This runs on CoopWorker, never
+// while holding the game world/flag mutex and never scans game memory.
+size_t RetryFailedWorldFileWrites() {
+    std::vector<std::pair<std::filesystem::path, std::shared_ptr<GuestWorldWriteState>>> paths;
+    {
+        std::scoped_lock lock{guest_world_writer_index_mutex};
+        for (const auto& [path, state] : guest_world_writer_states) {
+            paths.emplace_back(path, state);
+        }
+    }
+    size_t attempts = 0;
+    size_t saved = 0;
+    for (const auto& [path, state] : paths) {
+        if (attempts >= 2) {
+            break;
+        }
+        std::scoped_lock lock{state->commit_mutex};
+        if (!state->retry_text) {
+            continue;
+        }
+        if (state->retry_revision !=
+            state->newest_revision.load(std::memory_order_acquire)) {
+            state->retry_revision = 0;
+            state->retry_text.reset();
+            state->retry_failures = 0;
+            continue;
+        }
+        if (std::chrono::steady_clock::now() < state->retry_after) {
+            continue;
+        }
+        ++attempts;
+        if (ReplaceGuestMetadataFile(path, *state->retry_text)) {
+            state->retry_revision = 0;
+            state->retry_text.reset();
+            state->retry_failures = 0;
+            ++saved;
+        } else {
+            state->retry_failures = std::min<u32>(state->retry_failures + 1, 5);
+            state->retry_after = std::chrono::steady_clock::now() +
+                                  std::chrono::seconds{1 << state->retry_failures};
+        }
+    }
+    return saved;
 }
 
 void SaveGuestWorldChanges() {
@@ -1161,7 +1224,10 @@ void SaveGuestWorldChanges() {
     const u64 revision = state->newest_revision.fetch_add(1, std::memory_order_acq_rel) + 1;
     const auto write = [state, revision, path, text = FormatWorldChanges(*guest_world)] {
         if (!CommitLatestGuestWorldSnapshot(state, revision, path, text)) {
-            LOG_WARNING(Debug, "Bloodborne party: guest world update failed; old file kept");
+            LOG_WARNING(Debug, "Bloodborne party: guest world update failed; retry queued");
+            // Even with off-main world writes disabled, make sure the idle
+            // worker exists to retry this snapshot out of the game thread.
+            (void)Coop::CoopOffMain().Post([] {});
         }
     };
     if (!Coop::OffMainOn(OffMainPart::WorldFile) || !Coop::CoopOffMain().Post(write)) {
@@ -1196,6 +1262,13 @@ void KeepWorldChanges(const FlagChanges& changes) {
 } // namespace
 
 namespace Coop {
+
+void RetryFailedGuestWorldWritesOnWorker() {
+    const size_t recovered = RetryFailedWorldFileWrites();
+    if (recovered > 0) {
+        LOG_INFO(Debug, "Bloodborne party: recovered {} failed world-file update(s)", recovered);
+    }
+}
 
 // At home: sets the kept changes in the guest's own world; the ones that took are done.
 size_t SetGuestWorldChanges(bool keep) {

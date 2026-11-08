@@ -42,7 +42,7 @@ class GuestWorldWriteOrder(unittest.TestCase):
         self.assertIn("std::scoped_lock lock{guest_world_writer_index_mutex}", part)
         self.assertIn("std::scoped_lock lock{state->commit_mutex}", part)
         self.assertLess(part.index("std::scoped_lock lock{state->commit_mutex}"),
-                        part.index("ReplaceGuestMetadataFile(path, text);"))
+                        part.index("if (ReplaceGuestMetadataFile(path, text))"))
         self.assertIn("newest_revision.load(std::memory_order_acquire) != revision", part)
         self.assertNotIn("std::filesystem::remove(path", part)
 
@@ -59,7 +59,10 @@ class GuestWorldWriteOrder(unittest.TestCase):
         if compiler is None:
             self.skipTest("C++20 compiler unavailable")
         fixture = r"""
+#include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -67,11 +70,15 @@ class GuestWorldWriteOrder(unittest.TestCase):
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
+#include <vector>
 #include <unistd.h>
 using u64 = std::uint64_t;
+using u32 = std::uint32_t;
 namespace fmt {
     template <class A, class B>
     std::string format(const char*, A a, B b) {

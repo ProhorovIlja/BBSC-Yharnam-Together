@@ -1173,7 +1173,10 @@ CoopWorker& CoopOffMain() {
                                                     Common::SetCurrentThreadName("CoopWorker");
                                                     LowerThisThreadPriority();
                                                 },
-                                                ReadOffMainFile};
+                                                [] {
+                                                    ReadOffMainFile();
+                                                    RetryFailedGuestWorldWritesOnWorker();
+                                                }};
     return worker;
 }
 

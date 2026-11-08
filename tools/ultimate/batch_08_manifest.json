@@ -1,0 +1,97 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B08-2026-11-08",
+  "parent_pr": 39,
+  "parent_batch": "B07-2026-11-08",
+  "status": "EXPERIMENTAL_WORKER_IDLE_WORLD_WRITE_RETRY_CPP_FIXTURE_ONLY",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_full_build": true,
+  "sources": [
+    {
+      "path": "emulator/src/core/bloodborne_flags_store.cpp",
+      "parent_blob_sha1": "16163ccfcb3f6a395a81585a6d8ecc187d730dbd",
+      "candidate_blob_sha1": "fc6647e8b8fdd1a5bf1f604442e431f881b3465e"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_re.cpp",
+      "candidate_blob_sha1": "10b7c498c5e2a776e6da1ca77a6c5ee3b3933398"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_re_internal.h",
+      "candidate_blob_sha1": "76a1ec29a7a67bb304ab9ec6e7d930845e25947b"
+    }
+  ],
+  "tests": [
+    {
+      "path": "tools/re/tests/test_guest_world_write_retry.py",
+      "blob_sha1": "35afc6f75d3d1089ac927ef6ac57b20a98c6af4d"
+    },
+    {
+      "path": "tools/re/tests/test_guest_world_write_order.py",
+      "blob_sha1": "96cd511f0266991604b7f6c0f3594506aa58e7b7"
+    }
+  ],
+  "changed_files": [
+    "emulator/src/core/bloodborne_flags_store.cpp",
+    "emulator/src/core/bloodborne_re.cpp",
+    "emulator/src/core/bloodborne_re_internal.h",
+    "tools/re/tests/test_guest_world_write_retry.py",
+    "tools/re/tests/test_guest_world_write_order.py",
+    "tools/ultimate/batch_08_manifest.json",
+    "docs/ULTIMATE_BATCH_08.md",
+    ".github/workflows/ultimate-batch-08-world-write-retry.yml",
+    ".github/workflows/ultimate-batch-07-world-write-order.yml"
+  ],
+  "design": {
+    "trigger": "A latest guest world snapshot failed to replace its metadata destination. Prior B07 returned failure but did not retain it for retry.",
+    "retention": "Keep one latest failed text snapshot per world file in process memory, tagged with its exact B07 revision.",
+    "retry": "Existing CoopWorker idle callback (2 s) retries at most two file paths per pass, with per-path backoff starting at 2s, doubling and capping at 32s.",
+    "stale": "If current path revision is different, discard stale in-memory retry rather than writing it.",
+    "worker_start": "A failed synchronous fallback posts a no-op job to ensure the idle worker is running even when world off-main writes are disabled.",
+    "disk_and_locks": "All retry writes use B06 staged replacement and B07 per-file commit mutex; world-file map index mutex protects only snapshotting path references, not disk I/O."
+  },
+  "limitations": [
+    "not durable across abrupt process termination; no shutdown flush or fsync implemented",
+    "newest in-flight world snapshot can still be lost if a process exits before failed commit is captured",
+    "when disk remains failed, previous world file stays and latest world changes remain only in memory",
+    "no reliability guarantees for game-owned PS4 savedata or combined multi-file transactions",
+    "retry work shares the worker with other off-main tasks, so severe disk stalls could delay those tasks",
+    "bounded 2 paths per idle can defer recovery of later paths in larger populations",
+    "no real Windows NTFS/game rig/5-player testing or full integrated executable build",
+    "separate Supermedo 1.9.8.3 personal-world fix source archive still not inspected; no claim of inclusion"
+  ],
+  "related_issues": [
+    9,
+    22,
+    23,
+    35
+  ],
+  "external_evidence": [
+    {
+      "source": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "note": "CoopWorker queue has maximum 8 pending jobs and a 2-second idle callback; compared with independent B07 source"
+    },
+    {
+      "source": "droogie/bbhost",
+      "note": "Independent runtime option, not presumed compatible with YT 1.4.0 packet or save semantics"
+    },
+    {
+      "source": "Supermedo/bloodborne_pc windows-v1.9.8.3",
+      "note": "public release explicitly claims personal-world fix, GPL seamless source ZIP listed but not retrieved; not integrated"
+    },
+    {
+      "source": "Awakenchan/LanternEngine #89",
+      "note": "separate asynchronous online signaling performance candidate; not imported into B08"
+    }
+  ],
+  "release_gates": [
+    "real Windows Bloodborne 1.09 and 2/3/5-player tests",
+    "inject full disk/permissions/AV locking failures and measure worker latency",
+    "verify save slot and generation isolation through team travel/quit/restart",
+    "check Link4 secure client/server compatibility before any release",
+    "full native Windows build #31 investigation at integration milestone",
+    "owner-approved staging and rollback; never auto-deploy on Fornex"
+  ]
+}
