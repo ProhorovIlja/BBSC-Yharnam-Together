@@ -53,7 +53,8 @@ ARG QT_VERSION=6.8.4
 ARG QTHTTPSERVER_VERSION=6.8.3
 ARG MICROMAMBA_VERSION=2.3.3-0
 ARG BUILD_JOBS=0
-RUN curl -fsSL -o /usr/local/bin/micromamba \
+RUN curl -fL --retry 4 --retry-all-errors --retry-delay 5 \
+        --connect-timeout 20 --max-time 90 -o /usr/local/bin/micromamba \
         "https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-linux-64" \
     && chmod +x /usr/local/bin/micromamba \
     && micromamba create -y -r /tmp/mamba -p /opt/qt -c conda-forge "qt6-main=${QT_VERSION}" \
@@ -103,6 +104,57 @@ RUN sh /usr/local/bin/collect-runtime.sh /bin-out/shadnet /opt/qt /out
 
 # Simulated players (loadtest/bbload.cpp) for smoke tests against a deployed shard:
 #   docker build --target loadtest -t yharnam-bbload:local -f server/hosting/Dockerfile .
+# Isolated CI-only verification target. The default runtime remains unchanged.
+# Build through: docker build -f server/hosting/Dockerfile --target verification-tests .
+FROM build AS verification-tests
+ARG BUILD_JOBS=2
+RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
+    cmake --build build --target \
+        test_admission test_admin test_server_link test_watchdog \
+        test_world_writer test_bloodborne_world test_http_gate test_team_lobby \
+        test_password_accounts test_rpc_tunnel test_build_fingerprint test_packet_routes \
+        -j"$BUILD_JOBS" \
+    && ctest --test-dir build --output-on-failure \
+        -R '^(admission|admin|server_link|watchdog|world_writer|bloodborne_world|http_gate|team_lobby|password_accounts|rpc_tunnel|build_fingerprint|packet_routes)
+ARG BUILD_JOBS=0
+RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
+    cmake --build build --target bbload $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
+    && strip -o /bin-out/bbload build/bbload \
+    && sh /usr/local/bin/collect-runtime.sh /bin-out/bbload /opt/qt /out-bbload
+
+FROM ubuntu:24.04 AS loadtest
+COPY --from=loadtest-build /out-bbload/ /opt/shadnet/
+ENV LD_LIBRARY_PATH=/opt/shadnet/lib QT_PLUGIN_PATH=/opt/shadnet/plugins
+USER 10001
+ENTRYPOINT ["/opt/shadnet/bbload"]
+
+# --- runtime (the default target) ----------------------------------------------------------------
+FROM ubuntu:24.04 AS runtime
+ARG SHADNET_UID=10001
+RUN groupadd --system --gid "${SHADNET_UID}" shadnet \
+    && useradd --system --uid "${SHADNET_UID}" --gid "${SHADNET_UID}" --home-dir /data \
+        --shell /usr/sbin/nologin shadnet \
+    && mkdir -p /data && chown shadnet:shadnet /data && chmod 0750 /data
+COPY --from=build /usr/bin/tini /usr/bin/tini
+COPY --from=build /out/ /opt/shadnet/
+COPY server/worlds.cfg server/scoreboards.cfg server/data/common-passwords.txt /opt/shadnet/defaults/
+COPY server/hosting/entrypoint.sh server/hosting/healthcheck.sh /opt/shadnet/
+ENV LD_LIBRARY_PATH=/opt/shadnet/lib QT_PLUGIN_PATH=/opt/shadnet/plugins SHADNET_HOME=/data \
+    LANG=C.UTF-8 \
+    PATH=/opt/shadnet:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+VOLUME /data
+WORKDIR /data
+USER ${SHADNET_UID}:${SHADNET_UID}
+# 31314/udp the games' link (public). 20443/tcp the game's services and 31315/tcp summons/WebAPI
+# (public, plain HTTP; the games call them at their link's address). 31313/tcp stays on 127.0.0.1
+# (TcpLocalOnly: the games' calls come through the link). 31320 stats: keep private.
+EXPOSE 31314/udp 20443/tcp 31315/tcp
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD ["/opt/shadnet/healthcheck.sh"]
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/shadnet/entrypoint.sh"]
+
+
 FROM build AS loadtest-build
 ARG BUILD_JOBS=0
 RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
