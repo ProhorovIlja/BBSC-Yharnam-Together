@@ -48,7 +48,7 @@ param(
     [switch]$AllowDirty,
     [switch]$Publish,
     [switch]$Prerelease,
-    [string]$Repo = "Amanises-Yharnam-Together/BBSC-Yharnam-Together"
+    [string]$Repo = "ProhorovIlja/BBSC-Yharnam-Together"
 )
 . "$PSScriptRoot\build-lock.ps1"
 Invoke-UnderBuildLock $PSCommandPath $PSBoundParameters "make-release"
@@ -59,6 +59,13 @@ $bbport = Join-Path $root "bbport"
 if (-not $Out) { $Out = Join-Path $env:BB_ROOT "release" }
 $name = "BloodborneSeamlessCoop"
 $tag = "v$Version"
+# TEST edition never silently replaces a stable official release.
+if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+-test\.[0-9]+$') {
+    throw "Experimental edition requires a version such as 1.4.0-test.1"
+}
+if ($Publish -and $Repo -ne 'ProhorovIlja/BBSC-Yharnam-Together') {
+    throw "TEST edition can only publish to its dedicated fork"
+}
 $setupName = "YharnamTogether-$tag-setup.exe"  # setup.iss OutputBaseFilename
 $portableName = "YharnamTogether-$tag-portable.zip"
 function Step([string]$Text) { Write-Host ""; Write-Host "== $Text" -ForegroundColor Cyan }
