@@ -1,0 +1,90 @@
+name: Ultimate TEST Windows launcher smoke (no game assets)
+
+on:
+  push:
+    branches:
+      - experiment/ultimate-windows-launcher-smoke-20261108
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-windows-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-windows-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-launcher:
+    runs-on: windows-2022
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+      - name: Strict no-runtime/no-server source gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch --no-tags --depth=1 origin 'experiment/ultimate-member-specific-join-waits-20261108:refs/remotes/origin/parent'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to obtain immutable TEST parent' }
+          $paths = @(git diff --name-only refs/remotes/origin/parent HEAD)
+          if ($LASTEXITCODE -ne 0) { throw 'Could not verify changed files' }
+          foreach ($path in $paths) {
+            Write-Host "AUDIT_PATH $path"
+            if ($path -ne '.github/workflows/ultimate-windows-smoke.yml') {
+              throw "Unexpected production, server, game or launcher source change: $path"
+            }
+          }
+          if ($paths.Count -ne 1) { throw 'Expected the new smoke workflow only' }
+      - name: Verify Windows Python, Tk and release entry source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python --version
+          python -c "import sys, ssl, tkinter; assert sys.platform == 'win32'; print('WINDOWS_TK_AVAILABLE', tkinter.TkVersion, ssl.OPENSSL_VERSION)"
+          if ($LASTEXITCODE -ne 0) { throw 'Missing Windows Tk/Python runtime' }
+          python -m py_compile bbport/launcher/bbport_auth.py bbport/launcher/bbport_coop.py bbport/launcher/bbport_upnp.py bbport/launcher/bbport_launcher_win.py bbport/launcher/bbport_lang_auth.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows launcher syntax failed' }
+      - name: Run offline Windows auth, map, UPnP, save and version regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tests = @(
+            'test_launcher_auth.py',
+            'test_launcher_game_map_sync.py',
+            'test_launcher_upnp.py',
+            'test_save_restore_atomicity.py',
+            'test_launcher_version_info.py'
+          )
+          foreach ($pattern in $tests) {
+            Write-Host "RUNNING_OFFLINE_TEST $pattern"
+            python -m unittest discover -s bbport/tests -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "Windows offline test failed: $pattern" }
+          }
+          $env:PYTHONPATH = 'bbport/tests'
+          python -m unittest test_coop_launcher.SaveBackupTests -v
+          if ($LASTEXITCODE -ne 0) { throw 'Windows co-op save tests failed' }
+      - name: Exercise real Windows Tk co-op input and 3D map UI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONDONTWRITEBYTECODE = '1'
+          foreach ($pattern in @('test_launcher_lag.py', 'test_launcher_look.py')) {
+            Write-Host "RUNNING_WINDOWS_TK_TEST $pattern"
+            python -m unittest discover -s bbport/tests -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "Windows Tk launcher test failed: $pattern" }
+          }
+      - name: Explain test scope (not an installer)
+        shell: pwsh
+        run: |
+          Write-Host 'WINDOWS_SMOKE_PASS: all invoked source tests returned success'
+          Write-Host 'Real Tk test classes may skip themselves if the runner lacks a desktop.'
+          Write-Host 'No Bloodborne game dump, real accounts, 5-player rig, installer, or Fornex deployment were used.'
