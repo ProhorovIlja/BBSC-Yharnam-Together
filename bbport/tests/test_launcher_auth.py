@@ -25,6 +25,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 import bbport_auth as auth  # noqa: E402
+import bbport_lang_auth as lang_auth  # noqa: E402
 import bbport_coop as coop  # noqa: E402
 
 OPENSSL = r'C:\Program Files\Git\mingw64\bin\openssl.exe'
@@ -266,6 +267,22 @@ class TlsErrorTests(unittest.TestCase):
         self.assertEqual(auth._tls_error(ssl.SSLEOFError()).args, (auth.CONNECTION_TEXT, 'SSLEOFError'))
         for text in (auth.CERTIFICATE_TEXT, auth.CONNECTION_TEXT):
             self.assertIn('not sent', text.format('x'))
+
+
+    def test_tls_failure_explains_which_data_were_not_sent_in_en_and_ru(self):
+        # Prior 1.4.0 message "certificate: not sent" could read as "server sent no cert".
+        # The HTTPS check refused to send *account details*. Don't relax TLS validation.
+        for key in (auth.CERTIFICATE_TEXT, auth.CONNECTION_TEXT):
+            self.assertIn('account details were not sent', key.lower())
+            self.assertEqual(key.count('{}'), 1)
+            index = lang_auth.AUTH_KEYS.index(key)
+            self.assertIn('Данные', lang_auth.AUTH['ru'][index])
+            self.assertIn('не отправлены', lang_auth.AUTH['ru'][index])
+            self.assertEqual(lang_auth.AUTH['ru'][index].count('{}'), 1)
+        self.assertEqual(len(lang_auth.AUTH_KEYS), len(lang_auth.AUTH['ru']))
+        verify = ssl.SSLCertVerificationError(1, 'invalid issuer')
+        verify.verify_message = 'certificate verify failed'
+        self.assertEqual(auth._tls_error(verify).text(), auth.CERTIFICATE_TEXT)
 
 
 class TrustContext(ssl.SSLContext):
