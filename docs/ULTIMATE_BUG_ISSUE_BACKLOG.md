@@ -85,6 +85,40 @@
   Track as feature requests, with mod interoperability and no regression
   of quests or game-world persistence.
 
+## 2026-11-08 source spot-check: two original screenshot regressions
+
+The current integrated 1.4.0 candidate was inspected **at exact blob SHAs**
+without any game or private screenshot bytes:
+
+- `emulator/src/core/bloodborne_boards.cpp`, SHA
+  `3318b6e3c330f7bef7cca90d546f56c7a41fa783`, line ~821:
+  `FinishWaitingJoins` computes one `here` value with
+  `SomeoneElseStands(view.board.members, view.member, PlayingMap())`
+  **before** looping over all waiting tasks, and passes the same
+  `here` to every `MemberDataWait::Tick`. This confirms the shared
+  map-presence condition described in the private screenshot handoff.
+  It does **not** establish which task's actor fails, and is **not yet
+  proof of causation**. Before changing it, prove how each remote
+  `member_id` correlates to its vitals board identity; otherwise a
+  speculative fix may break multi-map joining.
+- `emulator/src/core/bloodborne_join.cpp`, SHA
+  `9283bb49bb6875f5e5616bd8928a7541dfbbb03a`:
+  `RebuildJoinTask` saves waiting tasks by member identity, and
+  `RecreateRemotePlayers` matches the session member via the engine
+  equality function. This logic must remain identity-specific in
+  regression tests with 3 and 5 members.
+- `emulator/src/core/bloodborne_party.cpp`, SHA
+  `54637fea5b6f15d8410f68b1f8ba70d2344127dd`,
+  contains `NameUnnamedGuestRole`; `bloodborne_party_rules.cpp`,
+  SHA `5511b8310afe77c20a9a182f43f707bf6e1d9ee2`,
+  invokes it in `PolishMultiplayerUi` when the writable role table
+  is present. **Do not add a duplicate `?ActionEventInfo?` fix.**
+  Test exact Windows bundled code, table access and reload behavior.
+
+Next correctness gate for USR-001 and USR-002: actual two-/three-/five-game
+repro with per-member identity, map and join task state; a source-level
+hypothesis cannot be marked fixed from CI alone.
+
 ## Triage procedure for all new Issues / discussions / comments
 
 1. Collect repository + immutable commit/branch + issue URL, state and last
