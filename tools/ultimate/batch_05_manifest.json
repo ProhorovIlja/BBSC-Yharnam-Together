@@ -1,0 +1,65 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B05-2026-11-08",
+  "parent_pr": 36,
+  "parent_batch": "B04-2026-11-08",
+  "status": "EXPERIMENTAL_CPP_OWNER_RESET_COMPILED_FIXTURE_ONLY",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_full_build": true,
+  "source": {
+    "path": "emulator/src/core/bloodborne_flags_store.cpp",
+    "parent_blob_sha1": "f265c686afc5f41eff0e041f45bac93d5dcc4689",
+    "candidate_blob_sha1": "a318dee5eed44bf4355fb400c96831fb81165e82",
+    "test_path": "tools/re/tests/test_guest_progress_slot_baselines.py",
+    "test_blob_sha1": "a94c524467abe31721b8083d331bc3e41c149512",
+    "changes": [
+      "guest pickup in-memory observation baseline reset when save slot changes or confirmed new character generation changes",
+      "guest world per-flag transient keep timestamps reset on slot switch and when old same-slot character lists are forgotten"
+    ],
+    "mechanism": "do not allow an observed pickup flag or timestamp belonging to a different hunter to affect the next hunter's world tracking"
+  },
+  "related_issues": [
+    22,
+    23,
+    35
+  ],
+  "independent_source_candidates": [
+    {
+      "origin": "Supermedo/bloodborne_pc",
+      "release": "windows-v1.9.8.3",
+      "claim": "host progression from a guest seamless session no longer persists as guest's own world",
+      "access": "Release and GPL source ZIP metadata identified; ZIP source bytes NOT examined in this batch",
+      "decision": "NOT_IMPORTED_PENDING_SOURCE_AND_SAVE_SEMANTICS_REVIEW"
+    },
+    {
+      "origin": "droogie/bbhost",
+      "decision": "FULL_RUNTIME_BENCHMARK_CANDIDATE_NOT_SOURCE_COMPATIBLE_ASSUMED"
+    },
+    {
+      "origin": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "release": "v1.4.0",
+      "decision": "DIRECT_BASELINE_BEHAVIOR_REVIEWED"
+    }
+  ],
+  "tests": [
+    "compile exact production C++ pickup owner-reset helper; five hunter synthetic slot transitions and same-slot generation replacement",
+    "source guards for world timestamp lifetime, owner generation, reset-before-observe",
+    "inherit B04 deferred reward owner, B03 readiness, B02 world-lamp and B01 source regression tests"
+  ],
+  "remaining_risks": [
+    "does not implement the external Supermedo personal-world fix or prove guest personal saves remain unchanged",
+    "only detects same-slot replacement after existing new-character detector increments B04 generation",
+    "no real game, item pickup, team world, DLC or Chalice tests",
+    "offline world timestamp map and disk file persistence require dedicated gameplay validation",
+    "full game-client Windows build PR #31 still has an unresolved late build failure"
+  ],
+  "release_gates": [
+    "private Windows Bloodborne 1.09 with 2, 3, 5 hunters and independent saves",
+    "switch slots during late join and team travel, return home, switch same-slot character, quit/restart",
+    "verify pre/post personal world progress, NPCs, bosses, doors, Chalice, lamps and pickup flags",
+    "preserve Link4 client/server fingerprint, encrypted authentication, backup/rollback and all user data",
+    "perform first full compilation only at approved integration milestone"
+  ]
+}
