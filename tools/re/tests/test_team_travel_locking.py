@@ -44,7 +44,7 @@ class TeamTravelLockingTests(unittest.TestCase):
                                 '-I' + str(root / 'gpu/bbseamless/include'),
                                 '-I' + str(headers), '-I' + str(root / 'server'),
                                 str(cpp), str(headers / 'core/bloodborne_host_rules.cpp'),
-                                '-o', str(exe)]
+                                '-o', str(exe), '-lfmt']
             built = subprocess.run(build, capture_output=True, text=True, timeout=60)
             self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
             result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)
