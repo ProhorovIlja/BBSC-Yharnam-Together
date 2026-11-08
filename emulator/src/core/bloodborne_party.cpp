@@ -6629,6 +6629,13 @@ bool AreaMissesDownedPlayer(s32 entity, bool down, bool in_void) {
     return entity == LocalPlayerEntity && down && !in_void;
 }
 
+bool MemberStandsOnMap(std::span<const MemberVitals> board, std::string_view member, u32 map) {
+    return map != 0 && !member.empty() &&
+           std::ranges::any_of(board, [&](const MemberVitals& known) {
+               return known.member == member && known.map == map && known.vital == Vital::Up;
+           });
+}
+
 bool SomeoneElseStands(std::span<const MemberVitals> board, std::string_view self, u32 map) {
     return map != 0 && std::ranges::any_of(board, [&](const MemberVitals& member) {
                return member.member != self && member.map == map && member.vital == Vital::Up;
