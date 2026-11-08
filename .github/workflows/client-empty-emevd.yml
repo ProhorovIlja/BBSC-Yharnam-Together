@@ -1,0 +1,44 @@
+name: Client mod event parsing (synthetic EMEVD only)
+
+on:
+  push:
+    branches:
+      - experiment/client-mod-empty-emevd-test-v1
+  pull_request:
+    paths:
+      - 'tools/re/party_boss_events.py'
+      - 'tools/re/tests/test_event_patch_validation.py'
+      - '.github/workflows/client-empty-emevd.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-empty-emevd-test
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify no server, runtime or proprietary game files changed
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          git diff --name-only origin/main HEAD | tee /tmp/changed.txt
+          if grep -vE '^(tools/re/party_boss_events\.py|tools/re/tests/test_event_patch_validation\.py|\.github/workflows/client-empty-emevd\.yml)$' /tmp/changed.txt; then
+            echo 'Unexpected game/server/client source modification' >&2
+            exit 1
+          fi
+      - name: Syntax, synthetic empty-event and existing validation tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile tools/re/party_boss_events.py \
+            tools/re/tests/test_event_patch_validation.py
+          python3 -m unittest discover -s tools/re/tests \
+            -p 'test_event_patch_validation.py' -v
+          python3 -m unittest discover -s tools/re/tests \
+            -p 'test_party_boss_events.py' -v
