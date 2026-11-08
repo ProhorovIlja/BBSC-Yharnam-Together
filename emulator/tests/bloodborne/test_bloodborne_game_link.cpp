@@ -205,17 +205,17 @@ TEST(GameLink, AThreeOrFiveHunterPartyKeepsEachRejoinStreamSeparate) {
             // Old host state is never delivered after the guest's game restarted.
             host_to_guest.Send(PacketClass::Reliable, Packet(0x31, 2), 50);
             host_to_guest.Flush(50);
-            host_to_guest.Send(PacketClass::Reliable, Packet(0x42, u8{30 + member}), 60'000);
-            host_to_guest.Send(PacketClass::Reliable, Packet(0x29, u8{40 + member}), 60'010);
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x42, static_cast<u8>(30 + member)), 60'000);
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x29, static_cast<u8>(40 + member)), 60'010);
 
             GameLinkPeer new_guest{id, static_cast<u32>(member + 20)};
             EXPECT_TRUE(Carry(host_to_guest, new_guest, 60'010).empty())
                 << "old instance packet accepted in a " << int(team_size) << "-hunter party";
-            new_guest.Send(PacketClass::Reliable, Packet(0x42, u8{50 + member}), 60'020);
+            new_guest.Send(PacketClass::Reliable, Packet(0x42, static_cast<u8>(50 + member)), 60'020);
             EXPECT_EQ(Marks(Carry(new_guest, host_to_guest, 60'020)),
-                      (std::vector<u8>{u8{50 + member}}));
+                      (std::vector<u8>{static_cast<u8>(50 + member)}));
             EXPECT_EQ(Marks(Carry(host_to_guest, new_guest, 60'030)),
-                      (std::vector<u8>{u8{30 + member}, u8{40 + member}}))
+                      (std::vector<u8>{static_cast<u8>(30 + member), static_cast<u8>(40 + member)}))
                 << "member " << int(member) << " of party " << int(team_size);
             Carry(new_guest, host_to_guest, 60'040); // ack the new stream
             EXPECT_EQ(host_to_guest.Unacked(), 0u) << "stuck reliable resend";
