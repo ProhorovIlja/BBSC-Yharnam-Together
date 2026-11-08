@@ -107,6 +107,9 @@ RUN sh /usr/local/bin/collect-runtime.sh /bin-out/shadnet /opt/qt /out
 # Optional isolated test stage; default runtime remains byte-identical otherwise.
 FROM build AS verification-tests
 ARG BUILD_JOBS=2
+# CMake's password_accounts test refers to the source-tree fixture by absolute path.
+# This COPY affects only the verification stage, not the default runtime image.
+COPY server/data/common-passwords.txt /src/server/data/common-passwords.txt
 RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
     cmake --build build --target \
         test_admission test_admin test_server_link test_watchdog \
