@@ -12,10 +12,10 @@ import re
 import sys
 from pathlib import Path
 
-PRODUCT = 'Yharnam Together: Bloodborne Seamless Co-op'
-COMPANY = 'Yharnam Together'
-DESCRIPTION = 'Yharnam Together launcher'
-COPYRIGHT = 'GPL-2.0-or-later, https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together'
+PRODUCT = 'BBSC: Yharnam Together TEST'
+COMPANY = 'BBSC: Yharnam Together TEST'
+DESCRIPTION = 'BBSC: Yharnam Together TEST launcher'
+COPYRIGHT = 'GPL-2.0-or-later, https://github.com/ProhorovIlja/BBSC-Yharnam-Together'
 
 
 def numbers(version):

@@ -64,6 +64,29 @@ class TestEdition(unittest.TestCase):
                          "if (PORT_DIR / 'portable.txt').is_file()"):
             self.assertIn(required, launcher)
 
+    def test_launcher_version_resource_and_release_audit_are_test_only(self):
+        import tempfile
+        import sys
+        sys.path.insert(0, str(ROOT / "bbport" / "packaging" / "windows"))
+        sys.path.insert(0, str(ROOT / "tools" / "release"))
+        import version_info
+        import check_release
+        content = version_info.text("1.4.0-test.1")
+        self.assertIn("BBSC: Yharnam Together TEST", content)
+        self.assertIn("ProhorovIlja/BBSC-Yharnam-Together", content)
+        self.assertNotIn("Amanises-Yharnam-Together", content)
+        self.assertEqual(check_release.LAUNCHER_PRODUCT, "BBSC: Yharnam Together TEST")
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / "BLauncher.exe"
+            marker = "VS_VERSION_INFO".encode("utf-16-le")
+            original = "Yharnam Together: Bloodborne Seamless Co-op".encode("utf-16-le")
+            file.write_bytes(marker + original)
+            self.assertTrue(check_release.launcher_problems(file))
+            file.write_bytes(marker + check_release.LAUNCHER_PRODUCT.encode("utf-16-le"))
+            self.assertEqual(check_release.launcher_problems(file), [])
+            file.write_bytes(file.read_bytes() + b"UPX0\x00")
+            self.assertTrue(check_release.launcher_problems(file))
+
 
 if __name__ == "__main__":
     unittest.main()

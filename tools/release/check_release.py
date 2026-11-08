@@ -50,7 +50,8 @@ PLAYER_SUFFIXES = (".db", ".log", ".pyc", ".bak", ".old", ".dmp")
 PLAYER_FOLDERS = {"user", "savedata", "__pycache__", "db", "out", "game", "coop-game"}
 # BLauncher.exe's version resource (package.sh's version_info.py). Unsigned, without one and packed with
 # UPX it was flagged by Defender's machine learning as Trojan:Win32/Bearfoos.A!ml (v1.3.0, 2026-10-26).
-LAUNCHER_PRODUCT = "Yharnam Together"
+# An official upstream launcher must not accidentally be staged for our TEST release.
+LAUNCHER_PRODUCT = "BBSC: Yharnam Together TEST"
 UPX_SECTIONS = (b"UPX0\0", b"UPX1\0")
 
 
