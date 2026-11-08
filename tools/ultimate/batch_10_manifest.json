@@ -1,0 +1,45 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B10-2026-11-08",
+  "parent_pr": 41,
+  "parent_batch": "B09-2026-11-08",
+  "status": "EXPERIMENTAL_CROSS_PLATFORM_BUILD_SCRIPT_ERROR_REPORTING_ONLY",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_full_build": true,
+  "source": {
+    "path": "bbport/build.sh",
+    "parent_blob_sha1": "b29868dc2501ee4b377398dd55bc8af9d55b9081",
+    "candidate_blob_sha1": "f885272c0087ae184f0e2fba11bba4e619614cbe"
+  },
+  "test": {
+    "path": "tools/ultimate/test_batch_10_build_failure.py",
+    "blob_sha1": "48358f6a71f7caa0879627b8fc88bd93e9c5c640"
+  },
+  "changed_files": [
+    ".github/workflows/ultimate-batch-10-build-diagnostics.yml",
+    "bbport/build.sh",
+    "docs/ULTIMATE_BATCH_10.md",
+    "tools/ultimate/batch_10_manifest.json",
+    "tools/ultimate/test_batch_10_build_failure.py"
+  ],
+  "root_risk": "set -euo pipefail can exit bbport/build.sh inside a failed Ninja branch when grep -v ^[ matches zero non-progress lines, hiding the explicit build-failed marker and confusing CI diagnosis.",
+  "improvement": [
+    "one bounded production shell reporter used in Windows full client/GPU/play and Linux bbgpu Ninja failure paths",
+    "up to eight first error lines and twelve nonprogress lines, 600 characters per printed line; missing log and no compiler diagnostic explicitly recorded",
+    "all grep/awk pipeline error reporting is best effort and cannot swallow the intentional nonzero Ninja failure exit",
+    "no CMake compiler, flags, GPU renderer, network or game state modifications"
+  ],
+  "test_coverage": [
+    "executes exactly extracted shell function with Bash set -euo pipefail and synthetic [N/M] only log",
+    "asserts reporter preserves explicit failed-Ninja exit, handles missing log and bounds diagnostic output",
+    "preserves existing B06-B09 source test coverage but avoids another full Windows engine compilation"
+  ],
+  "known_limits": [
+    "this fixes observability, NOT the unverified reason Windows #31 runs stopped near 432/433",
+    "full integrated Windows native 1.4.0 binaries still require a separate gate; old 1.3 successful CI does not establish 1.4 success",
+    "no real game, graphical hardware, five hunter online or personal save testing",
+    "no credentials, Fornex server changes, installable ZIP or release"
+  ]
+}

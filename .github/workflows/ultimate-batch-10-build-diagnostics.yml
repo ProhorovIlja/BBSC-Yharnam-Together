@@ -1,0 +1,79 @@
+name: Ultimate B10 bounded native build failure diagnostics (no engine rebuild)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-10-build-diagnostics.yml'
+      - 'bbport/build.sh'
+      - 'docs/ULTIMATE_BATCH_10.md'
+      - 'tools/ultimate/batch_10_manifest.json'
+      - 'tools/ultimate/test_batch_10_build_failure.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b10-build-fail-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell-reporter-and-inherited-guest-metadata-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Restrict B09 to B10 to five safe build-tooling files
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-09-windows-savedata-fault-tests-20261108:refs/remotes/origin/b09
+          git diff --name-only origin/b09 HEAD > /tmp/b10-paths.txt
+          cat /tmp/b10-paths.txt
+          if grep -vE '^(\.github/workflows/ultimate-batch-10-build-diagnostics\.yml|bbport/build\.sh|docs/ULTIMATE_BATCH_10\.md|tools/ultimate/batch_10_manifest\.json|tools/ultimate/test_batch_10_build_failure\.py)$' /tmp/b10-paths.txt; then
+            echo 'Unexpected game, server, player save, binary or deploy source modification' >&2
+            exit 1
+          fi
+          test "$(wc -l < /tmp/b10-paths.txt)" -eq 5
+      - name: Verify production build script and exact regression source identities
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          m=json.loads(Path("tools/ultimate/batch_10_manifest.json").read_text())
+          assert m["batch_id"]=="B10-2026-11-08" and m["parent_pr"]==41
+          assert all(m[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_full_build"))
+          for source in (m["source"],m["test"]):
+              key="candidate_blob_sha1" if "candidate_blob_sha1" in source else "blob_sha1"
+              data=Path(source["path"]).read_bytes()
+              actual=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
+              assert actual==source[key], f"{source['path']}: {actual} != {source[key]}"
+          print("B10_BUILD_SOURCE_HASHES_PASS")
+          PY
+          bash -n bbport/build.sh
+      - name: Execute actual build failure reporter under Bash pipefail, no Ninja build
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_10_build_failure.py' -v
+          echo 'B10_SILENT_NINJA_REPORTER_REGRESSION_PASS'
+      - name: Inherit B06-B09 real production C++ guest-world metadata tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_metadata_atomic_replace.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_order.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_retry.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_progress_slot_baselines.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_world_lamps_regression.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_02.py' -v
+          echo 'B01_TO_B10_TARGETED_SOURCE_REGRESSIONS_PASS'
+      - name: Enforce no full build or production run
+        run: |
+          echo 'NO_NINJA_BUILD_OR_WINDOWS_CLIENT_ENGINE, NO_GAMEPLAY, NO_FORNEX'
+          echo 'NO_PUBLIC_RELEASE, NO_REAL_SAVES, NO_LINKER_FIX_CLAIM'
