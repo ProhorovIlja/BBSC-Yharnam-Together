@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - experiment/ultimate-github-wide-source-sweep-20261108
+      - experiment/ultimate-issue-screenshot-regression-intake-20261108
   pull_request:
     paths:
       - 'tools/ultimate/source_sweep.py'
@@ -28,9 +29,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --depth=1 origin experiment/client-3d-map-folder-sync-pr537-20261108:refs/remotes/origin/source-base
+          git fetch --depth=1 origin experiment/ultimate-integrated-client-test-20261108:refs/remotes/origin/source-base
           git diff --name-only refs/remotes/origin/source-base HEAD > /tmp/ultimate-audit-paths.txt
-          if grep -Ev '^(tools/ultimate/source_sweep\.py|tools/ultimate/test_source_sweep\.py|\.github/workflows/ultimate-source-sweep\.yml)$' /tmp/ultimate-audit-paths.txt; then
+          if grep -Ev '^(tools/ultimate/source_sweep\.py|tools/ultimate/test_source_sweep\.py|docs/ULTIMATE_BUG_ISSUE_BACKLOG\.md|\.github/workflows/ultimate-windows-test\.yml|\.github/workflows/ultimate-source-sweep\.yml)$' /tmp/ultimate-audit-paths.txt; then
             echo 'Unexpected runtime, game or server edit' >&2
             exit 1
           fi
@@ -39,7 +40,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile tools/ultimate/source_sweep.py tools/ultimate/test_source_sweep.py
           python3 -m unittest discover -s tools/ultimate -p 'test_source_sweep.py' -v
-      - name: Bounded read-only GitHub search, branches and PR metadata
+      - name: Bounded read-only GitHub search, branches, PRs and Issues
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -47,7 +48,7 @@ jobs:
           python3 tools/ultimate/source_sweep.py \
             --output-dir '${{ runner.temp }}/ultimate-source-audit' \
             --max-requests 85 --search-pages 2 --inspect-repos 10 \
-            --branch-pages 1 --pr-pages 1
+            --branch-pages 1 --pr-pages 1 --issue-pages 2
       - name: Upload limited public metadata report (no private files)
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
