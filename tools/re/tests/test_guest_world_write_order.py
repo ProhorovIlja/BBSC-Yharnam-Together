@@ -78,6 +78,7 @@ class GuestWorldWriteOrder(unittest.TestCase):
 #include <vector>
 #include <unistd.h>
 using u64 = std::uint64_t;
+using u32 = std::uint32_t;
 namespace fmt {
     template <class A, class B>
     std::string format(const char*, A a, B b) {
