@@ -2,6 +2,31 @@
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
 mkdir -p out
+# Keep failed Ninja jobs diagnosable even when their log has only "[N/M]"
+# progress lines (e.g. a linker killed by Windows memory pressure). With
+# set -euo pipefail, an unguarded grep returning 1 used to abort this script
+# *before* it could print the build-failed marker.
+report_bbport_build_failure() {
+    local description="$1" logfile="$2"
+    echo "BBPORT_NATIVE_BUILD_FAILURE: $description" >&2
+    if [[ -f "$logfile" ]]; then
+        echo 'FIRST_COMPILER_OR_LINKER_ERRORS_MAX_8:' >&2
+        awk '
+            /(^FAILED:|error:|fatal error:|undefined symbol|undefined reference|ninja: build stopped|[Kk]illed|out of memory|[Ss]ignal [0-9])/ && matched < 8 {
+                matched++
+                print substr($0, 1, 600)
+            }
+            END { if (matched == 0) print "NO_COMPILER_DIAGNOSTIC_IN_LOG" }
+        ' "$logfile" >&2 || true
+        echo 'NONPROGRESS_LOG_TAIL_MAX_12:' >&2
+        grep -v '^\[' "$logfile" | tail -n 12 | cut -c 1-600 >&2 || true
+    else
+        echo 'BUILD_LOG_MISSING' >&2
+    fi
+    echo "Full local runner log: $logfile" >&2
+    return 0
+}
+
 # Kaniel 2026-11-04: BB_PRODUCTION=1 (make-release.ps1) builds a release: no cheats, save editor,
 # debug menu or camera, or autoplay (CMake BB_PRODUCTION). Always passed, so a dev build after a
 # release build is a dev build again. out/build-mode.txt says which this is (make-release checks it).
@@ -29,8 +54,8 @@ MINGW*|MSYS*)
         -DCMAKE_CXX_COMPILER=clang++ >/dev/null
     echo "GPU library and loader: LTO ${BB_LTO:-OFF}"
     if ! ninja -C out/gpu bb-probe bb-gpu-capabilities bb-play > out/gpu-build.log 2>&1; then
-        grep -v '^\[' out/gpu-build.log | tail -40 >&2
-        echo 'Build failed (full log: out/gpu-build.log)' >&2; exit 1
+        report_bbport_build_failure 'Windows client/GPU/play targets' out/gpu-build.log
+        exit 1
     fi
     cp out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe out/gpu/bb-play.exe out/
     echo "$build_mode" > out/build-mode.txt
@@ -80,8 +105,8 @@ cmake -S gpu -B out/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO="$pg
 echo "GPU library: PGO $pgo, LTO ${BB_LTO:-ON}"
 # A failed GPU build must stop here: an older libbbgpu.so would otherwise be used silently.
 if ! ninja -C out/gpu bbgpu > out/gpu-build.log 2>&1; then
-    grep -v '^\[' out/gpu-build.log | tail -40 >&2
-    echo 'GPU library build failed (full log: out/gpu-build.log)' >&2; exit 1
+    report_bbport_build_failure 'Linux GPU library' out/gpu-build.log
+    exit 1
 fi
 # Optional DLSS (NVIDIA RTX): DLSS_SDK_ROOT=<github.com/NVIDIA/DLSS checkout> builds the bridge
 # (gpu/dlss_bridge, the only code using NVIDIA's SDK) and puts it next to bb-probe with NVIDIA's
