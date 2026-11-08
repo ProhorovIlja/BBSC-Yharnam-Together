@@ -30,7 +30,11 @@ class GuestMetadataAtomicReplacement(unittest.TestCase):
             "\n}", 1
         )[0]
         self.assertIn("ReplaceGuestMetadataFile(GuestProgressFile(),", pickup)
-        self.assertIn("ReplaceGuestMetadataFile(path, text)", world)
+        self.assertIn("CommitLatestGuestWorldSnapshot(state, revision, path, text)", world)
+        latest_commit = text.split("bool CommitLatestGuestWorldSnapshot(", 1)[1].split(
+            "\nvoid SaveGuestWorldChanges()", 1
+        )[0]
+        self.assertIn("ReplaceGuestMetadataFile(path, text)", latest_commit)
         self.assertIn("ReplaceGuestMetadataFile(", owner)
         self.assertIn("GuestOwnerFile(),", owner)
         self.assertIn("ReplaceGuestMetadataFile(GuestConfirmedFile(),", confirmed)
