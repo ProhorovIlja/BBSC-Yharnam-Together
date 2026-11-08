@@ -1,0 +1,48 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B03-2026-11-08",
+  "previous_batch": "B02-2026-11-08",
+  "previous_pr": 33,
+  "status": "EXPERIMENTAL_SOURCE_FIX_NO_REAL_SAVE_OR_GAMEPLAY_VERIFICATION",
+  "full_build": "DEFERRED_UNTIL_INTEGRATION_MILESTONE",
+  "no_deploy": true,
+  "no_credentials": true,
+  "no_player_saves": true,
+  "no_game_assets": true,
+  "fix": {
+    "area": "guest deferred boss rewards and NPC gifts during item manager map-load unavailability",
+    "file": "emulator/src/core/bloodborne_flags_store.cpp",
+    "before_blob": "311373c0b6dcb569af925568f0416de91e66ddaa",
+    "source_blob": "9b04fe7e697e0dda18283fffb35df9576a92a11c",
+    "test_path": "tools/re/tests/test_deferred_rewards_retries.py",
+    "test_blob": "fae9490eb21f8c87f5591921300dfdfc12ee2f3e",
+    "change": "guard item-manager availability before draining due item-lot or gift queues; retry at 250 ms bounded poll; preserve queued award and post-award flags until manager exists",
+    "risks": [
+      "session or character changes while a reward remains queued require actual-game tests",
+      "MapItemMan may become invalid during an item award after initial validation",
+      "full game source compilation still pending from earlier B01 compiler blocker",
+      "a true award function failure after vtable check is not detectable here"
+    ],
+    "checks": [
+      "compile actual production C++ queue-drain helper",
+      "synthetic five-boss-lot + five-NPC-gift readiness, exact once, not-yet-due preservation",
+      "source contract verifies both production award paths check manager before drain"
+    ]
+  },
+  "other_repositories": {
+    "CLSAMG22/BBSC#46": "Crown of Illusions / Celestial Dial event-reward tables rely on a different bbsc core; YT uses dynamic item lot hook and deferred awards. Need private 1.09 game data and event/lot validation before adapting.",
+    "CLSAMG22/BBSC#47": "dead guest stuck after session end: needs map to YT's own leave/DBNO logic before adaptation.",
+    "deadinside28/bloodborne_pc#418": "wipe spectating restart fix implemented in alternative bbnet20 module; compare against existing YT state before port.",
+    "Supermedo/bloodborne_pc#161": "outside-folder backups belong to different launcher saves architecture; no blind cherry-pick."
+  },
+  "release_gates": [
+    "test with actual Bloodborne 1.09 in a non-production sandbox",
+    "boss kill/map unload while 8s deferred reward pending",
+    "gift from NPC while menu/load item manager unavailable",
+    "verified zero duplicates and no wrong-slot awards on leave/rejoin",
+    "2/3/5 co-op, wipe and host transfer",
+    "server/client Link v4 and build fingerprint",
+    "zero loss of personal save or team-world flags",
+    "owner-approved staging and rollback"
+  ]
+}
