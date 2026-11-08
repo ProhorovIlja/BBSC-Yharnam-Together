@@ -1290,6 +1290,8 @@ void ReportCoopTime(s64 now_ms);
 // The worker that takes read-only co-op work off the game's thread (bloodborne_coop_worker.h).
 CoopWorker& CoopOffMain();
 bool OffMainOn(OffMainPart part);
+// Only called on the co-op worker's idle callback. Does no game-memory reads.
+void RetryFailedGuestWorldWritesOnWorker();
 void InstallPartyDeath(u64 base, u64 image_size);
 void ApplyHealingFountainHostAvailability(const GuestRegisterSnapshot& registers);
 u64 GetSummonManager();
