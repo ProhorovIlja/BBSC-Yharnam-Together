@@ -115,7 +115,10 @@ struct Samples {
 struct Totals {
   quint64 packets_sent = 0;
   quint64 packets_received = 0;
-  quint64 packets_lost = 0; // gaps in the sequence numbers
+  // Historical key "packets_lost" actually counts gaps in the per-peer
+  // sequence. The server deliberately suppresses channels (e.g. 0x05
+  // enemy HP from a non-owner); gaps are NOT proof of UDP transport loss.
+  quint64 packets_lost = 0;
   quint64 bytes_sent = 0;
   quint64 bytes_received = 0;
   quint64 datagrams_sent = 0;
@@ -281,7 +284,7 @@ private:
     std::fprintf(stderr,
                  "[%5.0fs] games %zu linked %d playing %d | packets out %.0f/s "
                  "in %.0f/s "
-                 "lost %llu | relay p50 %.2f ms p99 %.2f ms max %.2f ms | ping "
+                 "seq gaps %llu | relay p50 %.2f ms p99 %.2f ms max %.2f ms | ping "
                  "p50 %.2f ms "
                  "p99 %.2f ms\n",
                  (now_us - started_us) / 1e6, games.size(), linked, playing,
@@ -315,7 +318,8 @@ private:
         {"seconds", seconds},
         {"packets_sent", static_cast<double>(totals.packets_sent)},
         {"packets_received", static_cast<double>(totals.packets_received)},
-        {"packets_lost", static_cast<double>(totals.packets_lost)},
+        {"packets_lost", static_cast<double>(totals.packets_lost)}, // legacy name
+        {"sequence_gaps_total", static_cast<double>(totals.packets_lost)},
         {"datagrams_sent", static_cast<double>(totals.datagrams_sent)},
         {"datagrams_received", static_cast<double>(totals.datagrams_received)},
         {"bytes_sent", static_cast<double>(totals.bytes_sent)},
@@ -676,6 +680,8 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
     load.totals.relay_us.Add(now_us - static_cast<s64>(sent));
     load.window_relay.Add(now_us - static_cast<s64>(sent));
     u32 &last = heard_seq[game_frame->sender];
+    // Includes intentional server-side native-channel filtering. Do not
+    // classify this aggregate as socket drops or packet transport loss.
     if (seq > last + 1 && last != 0) {
       load.totals.packets_lost += seq - last - 1;
     }
