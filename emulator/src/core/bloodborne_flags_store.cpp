@@ -1120,10 +1120,47 @@ std::map<s32, bool>& GuestWorldChanges() {
     return *guest_world;
 }
 
+// A queued world snapshot can be overtaken by the synchronous fallback when
+// CoopWorker's queue is full or the off-main switch changes. Guard the
+// *destination*, not just the worker queue: a stale callback may execute last.
+struct GuestWorldWriteState {
+    std::atomic<u64> newest_revision{0};
+    std::mutex commit_mutex;
+};
+
+std::mutex guest_world_writer_index_mutex;
+std::map<std::filesystem::path, std::shared_ptr<GuestWorldWriteState>> guest_world_writer_states;
+
+std::shared_ptr<GuestWorldWriteState> GuestWorldWriteStateFor(
+    const std::filesystem::path& path) {
+    std::scoped_lock lock{guest_world_writer_index_mutex};
+    auto& state = guest_world_writer_states[path];
+    if (!state) {
+        state = std::make_shared<GuestWorldWriteState>();
+    }
+    return state;
+}
+
+bool CommitLatestGuestWorldSnapshot(
+    const std::shared_ptr<GuestWorldWriteState>& state, u64 revision,
+    const std::filesystem::path& path, std::string_view text) {
+    // A fallback write and the worker's write must not overtake each other
+    // after their freshness check. The producer never takes this disk mutex.
+    std::scoped_lock lock{state->commit_mutex};
+    if (state->newest_revision.load(std::memory_order_acquire) != revision) {
+        return true; // Older snapshot; keep the newer writer's result.
+    }
+    return ReplaceGuestMetadataFile(path, text);
+}
+
 void SaveGuestWorldChanges() {
-    // The disk can take long: 66 ms on the game's thread in a rig run. The worker writes in order.
-    const auto write = [path = GuestWorldFile(), text = FormatWorldChanges(*guest_world)] {
-        if (!ReplaceGuestMetadataFile(path, text)) {
+    // Worker paths and queue-full synchronous fallback must share the same
+    // per-file revision. Registration is short, with no disk IO on this path.
+    const std::filesystem::path path = GuestWorldFile();
+    const auto state = GuestWorldWriteStateFor(path);
+    const u64 revision = state->newest_revision.fetch_add(1, std::memory_order_acq_rel) + 1;
+    const auto write = [state, revision, path, text = FormatWorldChanges(*guest_world)] {
+        if (!CommitLatestGuestWorldSnapshot(state, revision, path, text)) {
             LOG_WARNING(Debug, "Bloodborne party: guest world update failed; old file kept");
         }
     };

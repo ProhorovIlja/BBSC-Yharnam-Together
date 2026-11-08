@@ -20,6 +20,9 @@ concurrency:
 
 jobs:
   cpp-atomic-replacement-and-inherited-tests:
+    # B06 exact-source hashes and allowlist are specific to the B05 parent.
+    # Newer batches rerun B06 functional fixtures without its obsolete hashes.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-05-guest-progress-slot-state-20261108')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
