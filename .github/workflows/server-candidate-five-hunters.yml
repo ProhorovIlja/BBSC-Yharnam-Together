@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: shadnet-integrated-candidate-five-hunters
+  group: shadnet-integrated-candidate-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
