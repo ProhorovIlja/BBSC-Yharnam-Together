@@ -866,6 +866,7 @@ void ForgetSlotIfNewCharacter() {
             GuestOwnerFile(),
             fmt::format("{}\n", other ? progress_now : std::max(progress_now, progress_kept)))) {
         LOG_WARNING(Debug, "Bloodborne party: guest owner metadata update failed; old file kept");
+        return; // Do not clear this slot while its ownership record is uncommitted.
     }
     if (!ForgetsSlotLists(progress_now, progress_kept, IsNewCharacterInSlot(confirmed, set_now))) {
         return;
