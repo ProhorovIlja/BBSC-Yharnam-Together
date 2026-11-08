@@ -330,6 +330,8 @@ int ServerStats() {
   CHECK(stats["players"].toInt() == 1);
   CHECK(stats["worlds"].toInt() == 1);
   CHECK(stats["link_load"].toDouble() == 0.25);
+  CHECK(stats.contains("world_sync_failures"));
+  CHECK(stats["world_sync_failures"].toInt() == 0);
   CHECK(stats.contains("hellos_refused") && stats.contains("floods"));
   CHECK(stats.contains("bans") && stats["bans"].toInt() == 0);
   // Link version 4: the server's public key, what the launcher pins.

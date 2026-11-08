@@ -330,6 +330,11 @@ public:
     int KeptWorlds() const {
         return static_cast<int>(kept.size());
     }
+    // Private operational metric: failed journal fsync attempts since startup.
+    // In-memory-only test services do not own a writer and return zero.
+    quint64 WorldSyncFailures() const {
+        return writer ? writer->SyncFailures() : 0;
+    }
 
     // Cheat watch (coop/cheat_watch.h): the players something was found of since the server
     // started, each with its findings (the admin's `suspects`). Every finding is also a log line
