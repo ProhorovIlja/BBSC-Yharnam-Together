@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/ultimate-windows-smoke.yml'
+      - 'bbport/tests/test_launcher_auth.py'
+      - 'bbport/tests/test_launcher_look.py'
   workflow_dispatch:
 
 permissions:
@@ -39,11 +41,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not verify changed files' }
           foreach ($path in $paths) {
             Write-Host "AUDIT_PATH $path"
-            if ($path -ne '.github/workflows/ultimate-windows-smoke.yml') {
+            if ($path -notin @('.github/workflows/ultimate-windows-smoke.yml', 'bbport/tests/test_launcher_auth.py', 'bbport/tests/test_launcher_look.py')) {
               throw "Unexpected production, server, game or launcher source change: $path"
             }
           }
-          if ($paths.Count -ne 1) { throw 'Expected the new smoke workflow only' }
+          if ($paths.Count -ne 3) { throw 'Expected only the smoke workflow and two test adapters' }
+      - name: Install pinned test image support and discover OpenSSL fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check Pillow==11.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install Pillow for Windows Tk tests' }
+          $known = @('C:\Program Files\Git\usr\bin\openssl.exe', 'C:\Program Files\Git\mingw64\bin\openssl.exe', 'C:\Program Files\OpenSSL-Win64\bin\openssl.exe')
+          $openSsl = $known | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $openSsl) {
+            $command = Get-Command openssl.exe -ErrorAction SilentlyContinue
+            if ($command) { $openSsl = $command.Source }
+          }
+          if (-not $openSsl) { throw 'Cannot execute actual HTTPS fixture tests: no OpenSSL binary found' }
+          & $openSsl version
+          if ($LASTEXITCODE -ne 0) { throw 'OpenSSL self-test failed' }
+          "BBSC_TEST_OPENSSL=$openSsl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'HTTPS_FIXTURE_OPENSSL_DISCOVERED'
       - name: Verify Windows Python, Tk and release entry source
         shell: pwsh
         run: |
