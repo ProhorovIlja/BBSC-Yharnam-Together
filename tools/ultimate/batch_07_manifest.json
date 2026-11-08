@@ -1,0 +1,69 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B07-2026-11-08",
+  "parent_pr": 38,
+  "parent_batch": "B06-2026-11-08",
+  "status": "EXPERIMENTAL_PRODUCTION_CPP_ASYNC_WORLD_SNAPSHOT_FENCE",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_full_build": true,
+  "source": {
+    "path": "emulator/src/core/bloodborne_flags_store.cpp",
+    "parent_blob_sha1": "e3af38f9fa0da25a441b209d9abdc59084274003",
+    "candidate_blob_sha1": "16163ccfcb3f6a395a81585a6d8ecc187d730dbd",
+    "test_path": "tools/re/tests/test_guest_world_write_order.py",
+    "test_blob_sha1": "75c82f31f3ad4c03823a09861c47a585a97bc8bf",
+    "modified_inherited_test_path": "tools/re/tests/test_guest_metadata_atomic_replace.py",
+    "modified_inherited_test_blob_sha1": "6ad0018c1a21ef51a7ab267a50fef12a2f648821"
+  },
+  "risk": "When the worker's write queue is full, SaveGuestWorldChanges runs a newer snapshot directly. A queued older worker closure could then run later and replace the newer file with stale content.",
+  "mitigation": [
+    "Per destination path, a revision counter increments before worker Post/fallback selection.",
+    "Worker and fallback use the same closure and shared state. Commit lock serializes their check and staging/rename to prevent an old write after a new commit.",
+    "Stale callbacks do not touch disk; separate save slots have distinct state.",
+    "Common path-index lock is held only during registration; not during disk writes, preserving ordinary game-thread latency.",
+    "Inherited B06 atomic staged file replacement remains in force."
+  ],
+  "testing": [
+    "actual production C++ guard and B06 file replace compiled in synthetic fixture; newest-before-old, multiple stale callbacks, two-slot separation and invalid destination are exercised",
+    "static assertions prove revision issued before Post and fallback uses same closure",
+    "inherits B06 staged file IO failure injection; B05 owner baseline, B04 reward owner, B03 reward retry, B02 lamp, B01 source contracts"
+  ],
+  "known_limits": [
+    "Pending last job may be lost on abrupt TerminateProcess/shutdown; the co-op worker is intentionally process-lifetime and does not flush on exit.",
+    "If the newest disk commit fails, the old on-disk world may remain, but this alone does not retry a new snapshot.",
+    "A full or switched-off worker queue can still force synchronous file IO as in B06; no new unbounded sleeps or background scan added.",
+    "No native Windows/NTFS test yet; production build #31 remains blocked.",
+    "No generalizable benchmark of BBHost versus BBPort and no real 5-player test.",
+    "Does not implement Supermedo's separate personal-world host-flag repair; GPL source ZIP release metadata was checked, archive bytes not inspected."
+  ],
+  "related_issues": [
+    22,
+    23,
+    35,
+    9
+  ],
+  "external_research": [
+    {
+      "source": "Supermedo/bloodborne_pc",
+      "tag": "windows-v1.9.8.3",
+      "finding": "release reports guest personal-world progress fix; 15.5 MB GPL source ZIP confirmed via release metadata, direct archive access unavailable"
+    },
+    {
+      "source": "Supermedo/bloodborne_pc",
+      "tag": "windows-v1.9.8.4",
+      "finding": "source mirror says seamless source unchanged from 1.9.8.3; relay change otherwise unrelated"
+    },
+    {
+      "source": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "commit": "6b2163d72bb7154238a0b6527c1a4286a6fe96a9",
+      "finding": "co-op worker implementation reference; queue accepts max 8 waiting jobs and fallback exists in fork"
+    },
+    {
+      "source": "droogie/bbhost",
+      "finding": "independent full runtime, still requires full protocol, performance, and save comparison"
+    }
+  ],
+  "policy": "Do not merge without source and gameplay validation; targeted CI only; no Fornex or live user data changes."
+}
