@@ -5,6 +5,7 @@ No game files, game memories, accounts or live server. This is not a real
 Bloodborne/Link4 five-player gameplay test.
 """
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -59,7 +60,7 @@ class MemberDataSlotGuardTest(unittest.TestCase):
         c_end = cpp.index("\nbool OwnDataWatch::Observe(", c_start)
         real_source = cpp[c_start:c_end]
         self.assertIn("MemberDataRequestReady", real_source)
-        compiler = shutil.which("g++") or shutil.which("clang++") or shutil.which("c++")
+        compiler = shutil.which("clang++") or shutil.which("g++") or shutil.which("c++")
         if not compiler:
             self.skipTest("No C++20 compiler available")
         program = r"""
@@ -112,7 +113,7 @@ int main() {
 """.replace("class_placeholder", real_class).replace("source_placeholder", real_source)
         with tempfile.TemporaryDirectory(prefix="bbsc-b12-") as td:
             path = Path(td) / "member_guard.cpp"
-            binary = Path(td) / "member_guard"
+            binary = Path(td) / ("member_guard.exe" if os.name == "nt" else "member_guard")
             path.write_text(program, encoding="utf-8")
             built = subprocess.run(
                 [compiler, "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
