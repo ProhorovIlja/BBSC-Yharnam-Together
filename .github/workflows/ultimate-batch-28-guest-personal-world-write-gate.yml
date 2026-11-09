@@ -1,0 +1,106 @@
+name: "Ultimate B28 gate guest personal story writes before applying team world"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-28-guest-personal-world-write-gate.yml'
+      - 'emulator/src/core/bloodborne_server_world.cpp'
+      - 'emulator/src/core/team_world_file.h'
+      - 'emulator/tests/bloodborne/test_team_world_file.cpp'
+      - 'docs/ULTIMATE_BATCH_28.md'
+      - 'tools/ultimate/batch_28_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b28-guest-world-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-exact-personal-world-guard:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-27-world-load-reconnect-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Validate only six changed files and SHA-locked actual source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-27-world-load-reconnect-20261109:refs/remotes/origin/b27
+          git diff --name-only origin/b27 HEAD >/tmp/b28-changed.txt
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_28_manifest.json').read_text())
+          actual=set(Path('/tmp/b28-changed.txt').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==6 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B28-2026-11-09' and m['parent_pr']==59
+          assert all(m['safety'].values())
+          for item in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',item['path']],text=True).strip()
+              assert sha==item['git_blob_sha1'],(item['path'],sha)
+          print('B28_EXACT_SIX_FILE_SHA_PINS_PASS')
+          PY
+      - name: Verify real guest-save gate before writing host flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('emulator/src/core/bloodborne_server_world.cpp').read_text()
+          writer=s.split('bool WriteWholeFile(const std::filesystem::path& path,',1)[1].split('struct WorldStore',1)[0]
+          assert 'TeamWorldFile::WriteWholeFileChecked(path, text)' in writer
+          capture=s.split("// This save's own world aside first, block by block",1)[1].split("std::vector<u32> TeamWorldBlocksForGuest",1)[0]
+          gate="if (!WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(own))) {"
+          assert capture.count(gate)==1
+          assert capture.index(gate) < capture.index("const size_t changed = SetWorldFlags(*store, target)")
+          assert capture.index(gate) < capture.index("team_world_taken = true;")
+          restore=s.split('// Alone again: this save\'s own world back',1)[1].split('if (!due)',1)[0]
+          assert 'else if (!WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(*own)))' in restore
+          assert '#include "core/team_world_file.h"' in s
+          print('B28_REAL_GAME_PERSONAL_PROGRESS_BACKUP_REQUIRED_BEFORE_BORROWED_WORLD_PASS')
+          PY
+
+  portable-real-file-writer:
+    needs: source-exact-personal-world-guard
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Compile and run actual C++20 personal-world writer on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Iemulator/src \
+            emulator/tests/bloodborne/test_team_world_file.cpp \
+            -o /tmp/bbsc-b28-personal-world
+          timeout 30s /tmp/bbsc-b28-personal-world
+      - name: Enable native Microsoft C++20 build environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile and run actual C++20 personal-world writer on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_team_world_file.cpp /Fe:${{ runner.temp }}\bbsc-b28-personal-world.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\bbsc-b28-personal-world.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: No game binaries, player saves, Fornex, or installer touched
+        shell: bash
+        run: echo B28_REAL_CROSS_PLATFORM_FILE_GUARD_ONLY_NO_GAME_NO_SAVES_NO_DEPLOY_NO_RELEASE
