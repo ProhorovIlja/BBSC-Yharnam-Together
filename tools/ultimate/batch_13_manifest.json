@@ -40,6 +40,7 @@
     }
   ],
   "changed_paths": [
+    ".github/workflows/ultimate-batch-12-member-data-slot-guard.yml",
     ".github/workflows/ultimate-batch-13-insight-owner.yml",
     "emulator/src/core/bloodborne_party.h",
     "emulator/src/core/bloodborne_re_internal.h",
@@ -67,5 +68,10 @@
     "source inspection in cumulative B12 1.4.0 branch",
     "upstream YT #508 open; current flag per-player rules existing, shop stock direct cause unknown",
     "prior B04/05 deferred item owner generation already present in shared production source"
-  ]
+  ],
+  "legacy_ci_scope_fix": {
+    "path": ".github/workflows/ultimate-batch-12-member-data-slot-guard.yml",
+    "original_pr": 44,
+    "behavior": "original B11-to-B12 exact diff gate is restricted to PR with B11 base; descendants have own exact parent source gates"
+  }
 }
