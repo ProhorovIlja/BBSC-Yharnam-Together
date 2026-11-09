@@ -1,0 +1,70 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B32-2026-11-09",
+  "parent_pr": 65,
+  "parent_branch": "experiment/ultimate-batch-31-npc-story-world-coverage-20261109",
+  "related_issues": [
+    63,
+    64,
+    66,
+    22,
+    9
+  ],
+  "status": "RETRY_ONLY_GAME_UNCONFIRMED_NPC_QUEST_WRITES_CURRENT_HOST_WORLD",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-32-npc-story-write-retry.yml",
+    "docs/ULTIMATE_BATCH_32.md",
+    "emulator/src/core/bloodborne_server_world.cpp",
+    "emulator/src/core/bloodborne_team.cpp",
+    "emulator/src/core/bloodborne_team.h",
+    "emulator/tests/bloodborne/test_bloodborne_team.cpp",
+    "tools/re/tests/test_npc_story_write_retry.py",
+    "tools/ultimate/batch_32_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "emulator/src/core/bloodborne_team.h",
+      "git_blob_sha1": "d693b301bfa0b2a07b09a7d2905634c8e4f6f546"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_team.cpp",
+      "git_blob_sha1": "d96230eb125701016d9455d57adc63df3b78eaab"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_server_world.cpp",
+      "git_blob_sha1": "fa159388bed1bcdaedebe0ba7ae0637fa15d20d4"
+    },
+    {
+      "path": "emulator/tests/bloodborne/test_bloodborne_team.cpp",
+      "git_blob_sha1": "b34208ea00444c1f86246281a496a110f81eaa42"
+    },
+    {
+      "path": "tools/re/tests/test_npc_story_write_retry.py",
+      "git_blob_sha1": "d67bcb6dc0200d1afa315e93cda8db3147ba7263"
+    }
+  ],
+  "native_tests": [
+    "exact production IsTeamStoryFlag + TeamStoryToFollow + TeamStoryRetriesForWorld C++20 compiled and executed on Ubuntu GCC and Windows MSVC",
+    "game call-site source proof that EventFlagOn after native SetFlag is checked",
+    "game-unconfirmed writes held only with current session generation, valid host block, exact desired state",
+    "bounded 512 retry entries and no unbounded duplicate set",
+    "already applied story flag clears without native re-award",
+    "stale host transitions and missing blocks invalidate pending writes",
+    "per-player Iosefka dialogue, map NPC actors and time-of-day excluded",
+    "in-tree Bloodborne TeamWorld GTest new cases and preserved older B31 source-exact test"
+  ],
+  "safety": {
+    "no_fornex_writes": true,
+    "no_player_saves": true,
+    "no_private_assets": true,
+    "no_public_release": true,
+    "no_full_emulator_rebuild": true
+  },
+  "limits": [
+    "No 1.09 game actor/quest replay or full client linkage performed by this CI",
+    "Native SetEventFlag readback is not persistent save confirmation; flags may change asynchronously",
+    "B32 retries only in-memory and only until team/world/load context changes, with 512 bounded entries",
+    "Reports #63 Henryk/Eileen #64 clinic new hunter and #66 Amelia skull not closed by this change",
+    "No five-physical-computer gameplay proof"
+  ]
+}
