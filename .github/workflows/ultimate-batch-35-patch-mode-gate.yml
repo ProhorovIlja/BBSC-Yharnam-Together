@@ -1,0 +1,93 @@
+name: "Ultimate B35 built-in patch mode: offline allowed, online/co-op denied"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-35-patch-mode-gate.yml'
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/scripts/patches.py'
+      - 'bbport/tests/test_patch_mode_guard.py'
+      - 'bbport/tests/test_patches.py'
+      - 'docs/ULTIMATE_BATCH_35.md'
+      - 'tools/ultimate/batch_35_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b35-patch-mode-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verified-production-patch-mode:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-34-offline-edited-save-cheat-watch-baseline-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact B34-to-B35 seven-file diff and pinned source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-34-offline-edited-save-cheat-watch-baseline-20261109:refs/remotes/origin/b34
+          git diff --name-only origin/b34 HEAD >/tmp/b35-diff
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_35_manifest.json').read_text())
+          actual=set(Path('/tmp/b35-diff').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==7 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['parent_pr']==81 and m['batch_id']=='B35-2026-11-09'
+          assert all(m['safety'].values())
+          for entry in m['pinned_blobs']:
+              actual_sha=subprocess.check_output(['git','hash-object',entry['path']],text=True).strip()
+              assert entry['git_blob_sha1']==actual_sha,(entry['path'],actual_sha)
+          print('B35_EXACT_SEVEN_FILES_AND_FOUR_PINNED_BLOBS_PASS')
+          PY
+      - name: Static audit that online cannot silently reenable built-in cheat names
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          patch=Path('bbport/scripts/patches.py').read_text()
+          launcher=Path('bbport/launcher/bbport_launcher_win.py').read_text()
+          coop=Path('bbport/launcher/bbport_coop.py').read_text()
+          assert "env.get('BB_ONLINE')=='1' or env.get('SHADPS4_BLOODBORNE_SEAMLESS_COOP')=='1'" in patch
+          assert 'names=filter_online_dev_patches(names)' in patch
+          assert "external=[entry for entry in external if entry[0] in allowed]" in patch
+          assert "env.pop(old, None)" in launcher and "'BB_SHADNET_SERVER_KEY'" in launcher
+          assert "'SHADPS4_BLOODBORNE_SEAMLESS_COOP': '1'" in coop
+          print('B35_REAL_GAME_LAUNCH_ONLINE_GUARD_PATHS_VERIFIED')
+          PY
+
+  actual-python-patch-selector-regressions:
+    needs: verified-production-patch-mode
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit test the ACTUAL built-in patch compiler and online/co-op markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s bbport/tests -p 'test_patch_mode_guard.py' -v
+          cd bbport/tests
+          python -m unittest test_patches.DebugPatchTests.test_offline_release_allows_cheats_online_release_and_dev_disable_them -v
+      - name: No game binaries, external mod trust, real saves or service deployment
+        shell: bash
+        run: echo B35_TESTED_BUILTIN_CHEAT_PATCH_SELECTION_ONLY_NOT_FULL_ANTICHEAT_OR_RELEASE
