@@ -1,0 +1,62 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B38-2026-11-09",
+  "parent_pr": 88,
+  "parent_branch": "experiment/ultimate-batch-37-hunters-online-directory-summary-20261109",
+  "status": "MULTI_GLOBAL_SERVER_PROFILES_ISOLATED_ACCOUNTS_KEYS_AND_COUNTER",
+  "related_issues": [
+    89,
+    85,
+    24,
+    84,
+    9
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-38-global-server-profiles.yml",
+    "bbport/launcher/bbport_coop.py",
+    "bbport/launcher/bbport_launcher_win.py",
+    "bbport/tests/test_global_server_profiles.py",
+    "docs/ULTIMATE_BATCH_38.md",
+    "tools/ultimate/batch_38_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/launcher/bbport_coop.py",
+      "git_blob_sha1": "502aaa601c2dd282b20db912eeb1f53a9ed97a09"
+    },
+    {
+      "path": "bbport/launcher/bbport_launcher_win.py",
+      "git_blob_sha1": "b890412591aa7abfce620e9ff222e5e54e1df49f"
+    },
+    {
+      "path": "bbport/tests/test_global_server_profiles.py",
+      "git_blob_sha1": "a937d37cd780cd00608951b645498e41c23efbd9"
+    }
+  ],
+  "proof": [
+    "real production launcher Global choice dropdown, Add server and Remove server UI",
+    "HTTPS-only URL normalized and rejects userinfo/insecure HTTP/URL query/fragment/invalid ports",
+    "multiple custom dedicated Global servers stored in user/coop.json with no short cap; built-in Seamless Hunt always present",
+    "account name per server; existing server_ids and server_keys pin per URL preserved",
+    "auth response captures target URL to prevent an old asynchronous reply writing to new server",
+    "switch blocked during active game/auth, passwords and recovery code cleared on switching",
+    "B37 Hunters Online clears stale count and polls selected global server",
+    "real module tests on Windows and Ubuntu, no actual network or game files"
+  ],
+  "limitations": [
+    "custom servers need valid trusted HTTPS cert and compatible global account+shadnet API to log in",
+    "no automatic downloading/replacing launcher/game assets or patches from an untrusted server",
+    "local server population still unknown; need real server-side member counter",
+    "actual GUI interaction/real Windows login not tested",
+    "regional CUSA 1.09 eboot and DLC matrix still pending",
+    "no automatic switching during active game or ongoing auth by design"
+  ],
+  "safety": {
+    "no_fornex": true,
+    "no_credentials": true,
+    "no_user_saves": true,
+    "no_private_game_assets": true,
+    "no_installer": true,
+    "no_live_server_restarts": true
+  }
+}
