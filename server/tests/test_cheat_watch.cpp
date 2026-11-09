@@ -237,7 +237,7 @@ int main() {
     // must remain acceptable when logging in, restarting or reconnecting.
     CheatWatch watch;
     CharacterSheet saved = Hunter();
-    saved.level = 700;
+    saved.level = 701; // intentionally mismatched: attributes sum to level 700
     saved.attributes = {120, 130, 140, 145, 115, 100};
     saved.echoes = 1'200'000'000;
     saved.insight = 400;
