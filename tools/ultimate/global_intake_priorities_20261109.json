@@ -1,0 +1,227 @@
+{
+  "schema": "bbsc-global-intake-priority-v1",
+  "created_utc": "2026-11-09",
+  "basis": "GitHub PR metadata and changed-file lists inspected 2026-11-09, linked to separate general repo snapshots; not proof of code patch correctness or gameplay",
+  "policy": {
+    "missions": [
+      "playable",
+      "native"
+    ],
+    "no_auto_merge": true,
+    "no_auto_deploy": true,
+    "do_not_bundle_proprietary_assets": true,
+    "prioritize_repro_and_compatibility": true
+  },
+  "priorities": [
+    {
+      "title": "YT upstream GPU #543",
+      "source_repo": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "pr_number": 543,
+      "source_url": "https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/543",
+      "mission": "playable",
+      "status": "already_in_B01_source",
+      "evidence": "Null vertex shader fetch, 9 files; do not import twice",
+      "gate": "Windows/NVIDIA and AMD/Intel real-game render tests before promotion"
+    },
+    {
+      "title": "YT fifth hunter rig #486",
+      "source_repo": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "pr_number": 486,
+      "source_url": "https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/486",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "five-player rig budget, client join and open-team test details",
+      "gate": "source baseline and network packet-count limits; real 5-player join/invasion DBNO"
+    },
+    {
+      "title": "YT launcher Windows trust #539",
+      "source_repo": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "pr_number": 539,
+      "source_url": "https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/539",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "truststore unification; compare existing #13/#27 TLS work",
+      "gate": "fresh Windows signup/login/recovery, certificate and no bypass"
+    },
+    {
+      "title": "CLS delayed BBport loader #48",
+      "source_repo": "CLSAMG22/BBSC",
+      "pr_number": 48,
+      "source_url": "https://github.com/CLSAMG22/BBSC/pull/48",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "wait for BBPort loader to stabilize before patching; test described on 1.9.7",
+      "gate": "version-gated loader handshake and patch ordering, no arbitrary sleeps"
+    },
+    {
+      "title": "CLS dead guest leave #47",
+      "source_repo": "CLSAMG22/BBSC",
+      "pr_number": 47,
+      "source_url": "https://github.com/CLSAMG22/BBSC/pull/47",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "grey screen for dead guest stranded when session ends",
+      "gate": "dead guest state exit, DBNO, party wipe, reconnect and save integrity"
+    },
+    {
+      "title": "CLS boss follow-up reward #46",
+      "source_repo": "CLSAMG22/BBSC",
+      "pr_number": 46,
+      "source_url": "https://github.com/CLSAMG22/BBSC/pull/46",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "Logarius Crown and m35 Celestial Dial reward event rows; branch closed not merged",
+      "gate": "compare B03/B04 item owner and durable reward flow, private game test"
+    },
+    {
+      "title": "visy hostile NPC team #13",
+      "source_repo": "visy/bloodborne_pc_windows_port",
+      "pr_number": 13,
+      "source_url": "https://github.com/visy/bloodborne_pc_windows_port/pull/13",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "hostile NPC team 27->23 for guests across additional EMEVD events",
+      "gate": "NPC attackable by guest, no host-world event leakage, full game and DLC cases"
+    },
+    {
+      "title": "visy CGNAT #16",
+      "source_repo": "visy/bloodborne_pc_windows_port",
+      "pr_number": 16,
+      "source_url": "https://github.com/visy/bloodborne_pc_windows_port/pull/16",
+      "mission": "playable",
+      "status": "candidate_design_review",
+      "evidence": "UPnP external address classified against STUN public to avoid false open-port claim",
+      "gate": "NAT security, no public direct hosts by default, relay fallback"
+    },
+    {
+      "title": "visy open-party #26",
+      "source_repo": "visy/bloodborne_pc_windows_port",
+      "pr_number": 26,
+      "source_url": "https://github.com/visy/bloodborne_pc_windows_port/pull/26",
+      "mission": "playable",
+      "status": "requires_security_review",
+      "evidence": "opt-in passwordless LAN/VPN parties; warns link encryption does not protect other subnet users",
+      "gate": "default off, auth threat model, no public P2P invitation downgrade"
+    },
+    {
+      "title": "deadinside command publish #440",
+      "source_repo": "deadinside28/bloodborne_pc",
+      "pr_number": 440,
+      "source_url": "https://github.com/deadinside28/bloodborne_pc/pull/440",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "GPU queue count/generation publication ordering",
+      "gate": "base version, TSAN/ASAN CPU fixture and real GPU stress"
+    },
+    {
+      "title": "deadinside sampler lifetime #442",
+      "source_repo": "deadinside28/bloodborne_pc",
+      "pr_number": 442,
+      "source_url": "https://github.com/deadinside28/bloodborne_pc/pull/442",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "delay Vulkan sampler destruction until render completes",
+      "gate": "GPU synchronization, no use-after-free and vendor testing"
+    },
+    {
+      "title": "Lantern signaling #89",
+      "source_repo": "Awakenchan/LanternEngine",
+      "pr_number": 89,
+      "source_url": "https://github.com/Awakenchan/LanternEngine/pull/89",
+      "mission": "playable",
+      "status": "candidate_design_review",
+      "evidence": "moves peer resolution/room leave off render thread",
+      "gate": "protocol/room callback semantics and real p95/p99 frametime on YT"
+    },
+    {
+      "title": "droogie BBHost signaling #217",
+      "source_repo": "droogie/bbhost",
+      "pr_number": 217,
+      "source_url": "https://github.com/droogie/bbhost/pull/217",
+      "mission": "playable",
+      "status": "independent_runtime_benchmark",
+      "evidence": "signaling handshake and peer lifecycle changes may break old clients",
+      "gate": "same game 1.09/protocol, NAT/relay, 5-player continuity, server interoperability"
+    },
+    {
+      "title": "droogie BBHost GPU #218",
+      "source_repo": "droogie/bbhost",
+      "pr_number": 218,
+      "source_url": "https://github.com/droogie/bbhost/pull/218",
+      "mission": "playable",
+      "status": "independent_runtime_benchmark",
+      "evidence": "upscaler and draw-ahead performance, draft runtime branch",
+      "gate": "p50/p95/p99 frame/memory/VRAM, driver and crash A/B"
+    },
+    {
+      "title": "droogie zoom plugin #227",
+      "source_repo": "droogie/bbhost",
+      "pr_number": 227,
+      "source_url": "https://github.com/droogie/bbhost/pull/227",
+      "mission": "playable",
+      "status": "do_not_cherry_pick_whole_pr",
+      "evidence": "PR stacks on #223 and #218; large cumulative diff includes unrelated changes",
+      "gate": "derive isolated commit for camera if plugin needed, avoid duplicate graphics/code"
+    },
+    {
+      "title": "Supermedo RecompLauncher #169",
+      "source_repo": "Supermedo/bloodborne_pc",
+      "pr_number": 169,
+      "source_url": "https://github.com/Supermedo/bloodborne_pc/pull/169",
+      "mission": "both",
+      "status": "candidate_design_review",
+      "evidence": "headless preparation and Windows launch integration",
+      "gate": "sandboxed updates, license, DLL closure, native vs hosted runtime semantics"
+    },
+    {
+      "title": "Supermedo offline Chalice #168",
+      "source_repo": "Supermedo/bloodborne_pc",
+      "pr_number": 168,
+      "source_url": "https://github.com/Supermedo/bloodborne_pc/pull/168",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "offline Chalice glyph access",
+      "gate": "local persistence, offline data rights, online protocol isolation"
+    },
+    {
+      "title": "shadPS4 NP Matching #5679",
+      "source_repo": "shadps4-emu/shadPS4",
+      "pr_number": 5679,
+      "source_url": "https://github.com/shadps4-emu/shadPS4/pull/5679",
+      "mission": "playable",
+      "status": "candidate_diff_review",
+      "evidence": "suspend NP callbacks until matching function returns",
+      "gate": "callback thread reentrancy and version-specific backend API"
+    },
+    {
+      "title": "shadPS4 raw buffer sync #5280",
+      "source_repo": "shadps4-emu/shadPS4",
+      "pr_number": 5280,
+      "source_url": "https://github.com/shadps4-emu/shadPS4/pull/5280",
+      "mission": "playable",
+      "status": "candidate_design_review",
+      "evidence": "buffer reads may need a rendered image resolve",
+      "gate": "only after shadPS4 GPU code version match; no blind graphics regressions"
+    },
+    {
+      "title": "Nightwatch Native+ HDR #10",
+      "source_repo": "vladtepes22/NightwatchCoop",
+      "pr_number": 10,
+      "source_url": "https://github.com/vladtepes22/NightwatchCoop/pull/10",
+      "mission": "playable",
+      "status": "do_not_cherry_pick_whole_pr",
+      "evidence": "over 2000 files in PR; include only isolated HDR module if compatible",
+      "gate": "GPU driver/HDR display and game shader tests, license/NOTICE"
+    },
+    {
+      "title": "Our truly native AOT #84",
+      "source_repo": "ProhorovIlja/bloodborne_pc_windows_port",
+      "pr_number": 84,
+      "source_url": "https://github.com/ProhorovIlja/bloodborne_pc_windows_port/pull/84",
+      "mission": "native",
+      "status": "evidence_only",
+      "evidence": "private Bloodborne FDE/Win64 AOT experiments, not a standalone executable",
+      "gate": "whole game Windows native ABI and full assets/runtime without original ELF at launch"
+    }
+  ]
+}
