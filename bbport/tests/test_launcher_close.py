@@ -37,8 +37,12 @@ class LauncherCloseTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def start(self, body):
-        return launcher.start_game(stand_in(self.dir, body),
-                                    {**os.environ, 'PYTHONIOENCODING': 'utf-8'}, self.log)
+        # The real launcher intentionally prepends a Vulkan overlay diagnostic
+        # to last_run.log. These tests isolate game stdout ordering, so replace
+        # *only that source line* in the stand-in fixture, not in production.
+        with mock.patch.object(launcher.bbport_support, 'overlay_log_line', return_value=''):
+            return launcher.start_game(stand_in(self.dir, body),
+                                       {**os.environ, 'PYTHONIOENCODING': 'utf-8'}, self.log)
 
     def test_output_goes_to_the_file_with_no_pipe(self):
         process = self.start("say('one'); say('two')\n")
