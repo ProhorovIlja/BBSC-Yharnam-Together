@@ -11,6 +11,7 @@ on:
       - 'server/src/client_session.h'
       - 'server/src/link_server.cpp'
       - 'server/src/webapi_server.cpp'
+      - 'server/tests/test_bloodborne_world.cpp'
       - 'tools/ultimate/batch_39_manifest.json'
   workflow_dispatch:
 
@@ -31,7 +32,7 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Nine paths and six immutable production Git blob SHA identities against B38
+      - name: Ten paths and seven immutable production Git blob SHA identities against B38
         shell: bash
         run: |
           set -euo pipefail
@@ -43,13 +44,13 @@ jobs:
           m=json.loads(Path('tools/ultimate/batch_39_manifest.json').read_text())
           actual=set(Path('/tmp/b39-diff').read_text().splitlines())
           expected=set(m['changed_paths'])
-          assert len(expected)==9 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert len(expected)==10 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
           assert m['parent_pr']==90 and m['batch_id']=='B39-2026-11-09'
           assert all(m['safety'].values())
           for p in m['pinned_blobs']:
               sha=subprocess.check_output(['git','hash-object',p['path']],text=True).strip()
               assert sha==p['git_blob_sha1'],(p['path'],sha)
-          print('B39_EXACT_NINE_PATHS_SIX_SOURCE_SHA_PINS_PASS')
+          print('B39_EXACT_TEN_PATHS_SEVEN_SOURCE_SHA_PINS_PASS')
           PY
       - name: Real source guarantees aggregate link count, no player identity exposure
         shell: bash
@@ -61,6 +62,9 @@ jobs:
           w=Path('server/src/webapi_server.cpp').read_text()
           p=Path('bbport/launcher/bbport_coop.py').read_text()
           ui=Path('bbport/launcher/bbport_launcher_win.py').read_text()
+          test=Path('server/tests/test_bloodborne_world.cpp').read_text()
+          assert 'BloodborneCoop::Suspicion::Info);' in test
+          assert 'BloodborneCoop::Suspicion::Certain);' in test
           assert 'std::atomic<int> linkMembers{0};' in h
           assert 'm_shared->linkMembers.store(static_cast<int>(m_link.Members())' in l
           assert 'shared->linkMembers.load(std::memory_order_relaxed)' in w
