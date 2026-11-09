@@ -17,7 +17,8 @@
     "reviewed_pr_metadata_items": 21,
     "code_imports_from_this_batch": 0,
     "existing_deduplicated_source": "YT #543 already adopted in B01",
-    "states": "discovered candidates NOT integrated or tested on the game"
+    "states": "discovered candidates NOT integrated or tested on the game",
+    "source_location_review": "CLS #48 bbsc_mod.cpp, CLS #47 stranded guest functions, visy #13 NPC header absent in this YT 1.4.0 source tree; designated as design candidates, not direct cherry-picks"
   },
   "files": [
     {
@@ -30,11 +31,11 @@
     },
     {
       "path": "tools/ultimate/global_intake_priorities_20261109.json",
-      "blob": "b587f0b1361537085706681dc62c83636970d785"
+      "blob": "93a51bb62f71415e37d821771941556355117da3"
     },
     {
       "path": "docs/ULTIMATE_GLOBAL_SOURCE_INTAKE_20261109.md",
-      "blob": "2b064554e6dced9e0375ef08e043edb1b57ad959"
+      "blob": "5e35c91820fa979ce9f6cb77fa207cd0d1229308"
     },
     {
       "path": "tools/ultimate/test_global_intake_20261109.py",
