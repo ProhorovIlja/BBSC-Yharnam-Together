@@ -116,11 +116,16 @@ MINGW*|MSYS*)
             echo "WINDOWS_NATIVE_TARGET_MISSING_OR_EMPTY: $exe" >&2
             exit 46
         fi
-        printf 'WINDOWS_NATIVE_TARGET_READY: %s bytes=%s\n' "$exe" "$(wc -c < "out/gpu/$exe")"
+        printf 'WINDOWS_NATIVE_TARGET_READY: %s (nonempty)\n' "$exe"
     done
     bbsc_win_phase=copy-native-outputs
     echo 'WINDOWS_NATIVE_COPY_BEGIN'
-    if cp -- out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe out/gpu/bb-play.exe out/; then
+    # MSYS2 CLANG64 does not guarantee coreutils cp/wc/cmp on minimal runners.
+    # CMake is mandatory earlier in this *same* build and its -E commands
+    # work identically on Windows and Linux. Avoid an undeclared dependency.
+    if cmake -E copy_if_different \
+        out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe \
+        out/gpu/bb-play.exe out/; then
         echo 'WINDOWS_NATIVE_COPY_COMMAND_PASS'
     else
         windows_copy_rc=$?
@@ -129,7 +134,7 @@ MINGW*|MSYS*)
     fi
     bbsc_win_phase=verify-copied-outputs
     for exe in bb-probe.exe bb-gpu-capabilities.exe bb-play.exe; do
-        if ! cmp -s "out/gpu/$exe" "out/$exe"; then
+        if ! cmake -E compare_files "out/gpu/$exe" "out/$exe"; then
             echo "WINDOWS_NATIVE_COPIED_OUTPUT_MISMATCH: $exe" >&2
             exit 47
         fi
