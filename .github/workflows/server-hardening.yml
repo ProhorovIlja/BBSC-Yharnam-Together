@@ -24,6 +24,9 @@ concurrency:
 
 jobs:
   server-only-regressions:
+    # Original main-only strict source gate, not the combined B01-B15 head.
+    # The cumulative branch has a separate no-deploy server + client test gate.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feature/server-1.4.0-hardening-pr540-v1') || (github.event_name == 'pull_request' && github.head_ref == 'feature/server-1.4.0-hardening-pr540-v1')
     name: Admission / shared NAT / encrypted link / watchdog
     runs-on: ubuntu-24.04
     timeout-minutes: 20
