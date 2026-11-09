@@ -667,6 +667,31 @@ std::vector<std::pair<s32, bool>> TeamStoryToFollow(const WorldFlags& before,
     return follow;
 }
 
+std::vector<std::pair<s32, bool>> TeamStoryRetriesForWorld(
+    std::span<const std::pair<s32, bool>> pending, const WorldFlags& current,
+    u32 flags_per_block) {
+    std::vector<std::pair<s32, bool>> retry;
+    if (flags_per_block == 0 || current.blocks.empty()) {
+        return retry;
+    }
+    for (const auto& [flag, desired] : pending) {
+        if (!IsTeamStoryFlag(flag) || flag < 0) {
+            continue;
+        }
+        const u32 block = static_cast<u32>(flag) / flags_per_block;
+        if (!std::binary_search(current.blocks.begin(), current.blocks.end(), block)) {
+            continue; // the host no longer describes this map's NPC/story flags
+        }
+        if (std::binary_search(current.on.begin(), current.on.end(), flag) != desired) {
+            continue; // later host transition superseded the failed write
+        }
+        retry.emplace_back(flag, desired);
+    }
+    std::ranges::sort(retry);
+    retry.erase(std::unique(retry.begin(), retry.end()), retry.end());
+    return retry;
+}
+
 bool KeptChangeYieldsToTeam(s32 flag, std::optional<s64> kept_ms, s64 now_ms,
                             std::span<const u32> team_blocks, u32 flags_per_block) {
     if (flags_per_block == 0 || flag < 0 || !IsTeamStoryFlag(flag)) {

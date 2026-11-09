@@ -413,6 +413,62 @@ TEST(TeamWorld, NpcStoryChangesSurviveHostWorldBlockExpansionAndContraction) {
               (std::vector<std::pair<s32, bool>>{{1121, true}, {1205, true}, {1300, false}}));
 }
 
+// B32: even when the host's story snapshot did NOT change since the last
+// tick, an NPC/event flag rejected by the native game function must be
+// retried. An older retry must never overrule a later host quest stage or a
+// block that no longer belongs to the team's reported world.
+TEST(TeamWorld, RejectedNpcQuestFlagsRetryOnlyWhileTheHostStillWantsThem) {
+    WorldFlags host;
+    host.blocks = {1, 6, 9};
+    host.on = {1100, 1121, 6749, 9401};
+    const std::vector<std::pair<s32, bool>> rejected{
+        {1100, true}, {1100, true}, {1121, true}, {1205, false},
+        {2301, true}, {6749, true}, {72410300, true}, {9801, true},
+        {12410001, true}};
+    EXPECT_EQ(TeamStoryRetriesForWorld(rejected, host, 1000),
+              (std::vector<std::pair<s32, bool>>{
+                  {1100, true}, {1121, true}, {1205, false}}))
+        << "global NPC flags only, matching exact host value and known block";
+    EXPECT_TRUE(TeamStoryRetriesForWorld(rejected, host, 0).empty());
+    EXPECT_TRUE(TeamStoryRetriesForWorld(rejected, WorldFlags{}, 1000).empty());
+
+    WorldFlags advanced = host;
+    advanced.on = {1100, 6749, 9401}; // later host stage has cleared 1121
+    EXPECT_EQ(TeamStoryRetriesForWorld(rejected, advanced, 1000),
+              (std::vector<std::pair<s32, bool>>{{1100, true}, {1205, false}}));
+    advanced.blocks.erase(advanced.blocks.begin()); // old global block gone
+    EXPECT_TRUE(TeamStoryRetriesForWorld(rejected, advanced, 1000).empty());
+}
+
+// B32: an unsuccessful attempt to apply a host NPC story flag is not an
+// acknowledgment. The same host world with an unchanged snapshot must
+// keep the unconfirmed flag as an explicit retry until EventFlagOn confirms.
+TEST(TeamWorld, AnUnconfirmedStoryFlagSurvivesAnUnchangedHostReport) {
+    WorldFlags before;
+    before.blocks = {1};
+    before.on = {1100};
+    WorldFlags host = before;
+    host.on.push_back(1121);
+    const auto delta = TeamStoryToFollow(before, host, 1000);
+    ASSERT_EQ(delta, (std::vector<std::pair<s32, bool>>{{1121, true}}));
+
+    bool native_game_accepted = false;
+    std::vector<std::pair<s32, bool>> pending;
+    // First native write was ignored: the next host snapshot is identical.
+    for (const auto& item : delta) {
+        if (!native_game_accepted) {
+            pending.push_back(item);
+        }
+    }
+    EXPECT_TRUE(TeamStoryToFollow(host, host, 1000).empty());
+    EXPECT_EQ(TeamStoryRetriesForWorld(pending, host, 1000), delta);
+    native_game_accepted = true;
+    if (native_game_accepted) {
+        pending.clear(); // post-call flag confirmation, not a guessed ACK
+    }
+    EXPECT_TRUE(TeamStoryRetriesForWorld(pending, host, 1000).empty());
+}
+
 // Kaniel's playtest 2026-10-24: the team world's sync set the host's current altar view
 // (92900000-92905999) on a guest ("-92900000 ..." in krolebord's log), which read as a ritual
 // there and went to the team as an altar record. The view is each game's own: not captured into

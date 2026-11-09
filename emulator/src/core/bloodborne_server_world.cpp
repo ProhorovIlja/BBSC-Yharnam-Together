@@ -133,6 +133,17 @@ WorldFlags team_world_reported;
 s64 team_world_reported_ms = 0;
 // A guest: the team world its game last took or followed (TeamStoryToFollow's `before`).
 WorldFlags team_story_followed;
+// Actual in-game SetEventFlag can be ignored during an NPC event/scene
+// transition. Keep only the *unconfirmed* story writes, scoped to this
+// team's world, and retry on the next 2-second FollowTeamStory tick.
+std::vector<std::pair<s32, bool>> team_story_retries; // team_mutex
+u64 team_story_context_generation = 0;                // team_mutex
+constexpr size_t MaxPendingTeamStoryRetries = 512;
+void ResetTeamStoryTracking() { // team_mutex must be held
+    team_story_followed = {};
+    team_story_retries.clear();
+    ++team_story_context_generation;
+}
 constexpr s64 TeamWorldReportMs = 10'000;
 // A load held for the team's world after the Start gives up waiting after this long.
 constexpr s64 TeamWorldWaitMs = 10'000;
@@ -1566,7 +1577,7 @@ bool HoldTitleLoadForTeam(u32 slot, bool fresh) {
             // for the team's world (TeamWorldWaitMs at most) so the save takes it as it loads.
             team_party = decision.start->party();
             team_world.reset();
-            team_story_followed = {}; // never compare quest states across different worlds
+            ResetTeamStoryTracking(); // never compare quest states across different worlds
             team_session.reset();
             team_world_wait_ms = SteadyMilliseconds();
             new_party = true;
@@ -1609,7 +1620,7 @@ bool HoldTitleLoadForTeam(u32 slot, bool fresh) {
         team_world_due = decision.start.has_value();
         team_world_taken = false;
         team_world_blocks.clear();
-        team_story_followed = {}; // every freshly loaded save needs its own baseline
+        ResetTeamStoryTracking(); // every freshly loaded save needs its own baseline
         team_host = decision.start && decision.start->host() == me;
         personal_world_due = !decision.start.has_value();
         team_world_reported = {};
@@ -1939,7 +1950,7 @@ void LeaveTeamInPlay(u64 manager) {
         team_world_due = false;
         team_world_taken = false;
         team_world_blocks.clear();
-        team_story_followed = {};
+        ResetTeamStoryTracking();
         team_host = false;
         personal_world_due = true;
         team_join = {};
@@ -2044,7 +2055,7 @@ void AdoptTeamInPlay(const bbcoop::TeamStart& start) {
         team_world_due = true;
         team_world_taken = false;
         team_world_blocks.clear();
-        team_story_followed = {}; // new team/world must not inherit the old NPC-story delta
+        ResetTeamStoryTracking(); // new team/world must not inherit the old NPC-story delta
         team_host = start.host() == me;
         personal_world_due = false;
         team_world_reported = {};
@@ -2910,7 +2921,11 @@ void ApplyTeamWorldOnLoad(bool trip) {
         team_world_blocks.insert(block.id);
     }
     if (!team_host) {
+        // A real map load replaces the transient in-memory story baseline.
+        // Never replay an earlier failed write into this newly loaded scene.
         team_story_followed = target;
+        team_story_retries.clear();
+        ++team_story_context_generation;
     }
     team_world_taken = true;
     LOG_INFO(Debug,
@@ -3045,43 +3060,77 @@ void FollowTeamStory(s64 now_ms) {
     }
     checked_ms = now_ms;
     std::vector<std::pair<s32, bool>> follow;
+    u64 expected_context = 0;
+    u32 flags_per_block = 0;
     {
         std::scoped_lock lock{team_mutex};
         if (team_host || !team_world_taken || !team_world || !team_world->exists() ||
             !InPartySession()) {
-            team_story_followed = {};
+            ResetTeamStoryTracking();
             return;
         }
         const u64 global = GetGlobalState();
         if (global < 0x10000 || TryRead<u8>(global, 0x08).value_or(1) != 0) {
             return; // loading: the load takes it, or the next check
         }
-        // A partially loaded game flag store must not seed the NPC-story
-        // baseline: the next readable tick needs a real geometry + snapshot.
-        const u32 flags_per_block = ReadFlagStore().flags_per_block;
+        flags_per_block = ReadFlagStore().flags_per_block;
         if (flags_per_block == 0) {
-            return;
+            return; // never seed or replay NPC deltas without valid block geometry
         }
         WorldFlags target = WorldFlagsOf(*team_world);
         if (team_story_followed.blocks.empty()) {
             team_story_followed = std::move(target);
-            return;
+            team_story_retries.clear();
+            return; // a newly taken map's load is the authority for this baseline
         }
-        // Keep NPC/quest deltas for blocks the host reported both before and
-        // after it loaded a different map. A missing block is NOT authority
-        // to spawn or despawn an NPC in the live guest's map.
+        // A host map transition must not hide changes in already-known NPC
+        // blocks, and a failed game write must not disappear after the delta
+        // baseline advances. Pending writes are checked against CURRENT host
+        // world flags before replay, so newer host events supersede old ones.
         follow = TeamStoryToFollow(team_story_followed, target, flags_per_block);
+        const auto retry = TeamStoryRetriesForWorld(team_story_retries, target, flags_per_block);
+        follow.insert(follow.end(), retry.begin(), retry.end());
+        std::ranges::sort(follow);
+        follow.erase(std::unique(follow.begin(), follow.end()), follow.end());
         team_story_followed = std::move(target);
+        team_story_retries.clear();
+        expected_context = team_story_context_generation;
     }
     using SetFlag = void PS4_SYSV_ABI (*)(u64, s32, bool);
+    std::vector<std::pair<s32, bool>> unconfirmed;
     std::string which;
     for (const auto& [flag, on] : follow) {
         if (EventFlagOn(flag) == on) {
-            continue;
+            continue; // already applied on this game's actor/event flag store
         }
         reinterpret_cast<SetFlag>(image_base + PartyGhostSetEventFlagOffset)(0, flag, on);
+        if (EventFlagOn(flag) != on) {
+            // This game did not take the NPC/quest flag. A successful native
+            // function call alone is not proof. Retry, never mark it delivered.
+            unconfirmed.emplace_back(flag, on);
+        }
         if (which.size() < 300) {
             which += fmt::format(" {}{}", on ? "" : "-", flag);
+        }
+    }
+    if (!unconfirmed.empty()) {
+        std::scoped_lock lock{team_mutex};
+        if (expected_context == team_story_context_generation && !team_host &&
+            team_world_taken && team_world && team_world->exists() && InPartySession()) {
+            // A new server report might have changed this flag while the
+            // native game function was running. Only requeue if the current
+            // host still demands the EXACT same value in a covered block.
+            const auto valid = TeamStoryRetriesForWorld(
+                unconfirmed, WorldFlagsOf(*team_world), flags_per_block);
+            for (const auto& item : valid) {
+                if (team_story_retries.size() < MaxPendingTeamStoryRetries) {
+                    team_story_retries.push_back(item);
+                }
+            }
+            std::ranges::sort(team_story_retries);
+            team_story_retries.erase(
+                std::unique(team_story_retries.begin(), team_story_retries.end()),
+                team_story_retries.end());
         }
     }
     if (!which.empty()) {

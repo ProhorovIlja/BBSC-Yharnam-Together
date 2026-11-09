@@ -1,0 +1,104 @@
+name: "Ultimate B32 retry NPC quest flags rejected by game"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-32-npc-story-write-retry.yml'
+      - 'docs/ULTIMATE_BATCH_32.md'
+      - 'emulator/src/core/bloodborne_server_world.cpp'
+      - 'emulator/src/core/bloodborne_team.cpp'
+      - 'emulator/src/core/bloodborne_team.h'
+      - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
+      - 'tools/re/tests/test_npc_story_write_retry.py'
+      - 'tools/re/tests/test_npc_story_block_coverage.py'
+      - 'tools/ultimate/batch_32_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b32-npc-retry-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-production-npc-flag-retry:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-31-npc-story-world-coverage-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exact B31 to B32 file delta, manifest and real production SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-31-npc-story-world-coverage-20261109:refs/remotes/origin/b31
+          git diff --name-only origin/b31 HEAD > /tmp/b32-changed.txt
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_32_manifest.json').read_text())
+          expected=set(m['changed_paths'])
+          actual=set(Path('/tmp/b32-changed.txt').read_text().splitlines())
+          assert len(expected)==9 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B32-2026-11-09' and m['parent_pr']==65
+          assert all(m['safety'].values())
+          for pin in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',pin['path']],text=True).strip()
+              assert sha==pin['git_blob_sha1'],(pin['path'],sha)
+          print('B32_EXACT_NINE_FILES_REAL_PRODUCTION_SHA_PASS')
+          PY
+      - name: Confirm native-game write is read back and failed NPC flag is retried
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          game=Path('emulator/src/core/bloodborne_server_world.cpp').read_text()
+          code=Path('emulator/src/core/bloodborne_team.cpp').read_text()
+          header=Path('emulator/src/core/bloodborne_team.h').read_text()
+          gtest=Path('emulator/tests/bloodborne/test_bloodborne_team.cpp').read_text()
+          part=game.split('void FollowTeamStory(s64 now_ms) {',1)[1].split('bool IsTeamScreenVerb(',1)[0]
+          assert 'TeamStoryRetriesForWorld(team_story_retries, target, flags_per_block)' in part
+          assert part.index('reinterpret_cast<SetFlag>(image_base + PartyGhostSetEventFlagOffset)') < part.index('if (EventFlagOn(flag) != on)')
+          assert part.index('if (EventFlagOn(flag) != on)') < part.index('unconfirmed.emplace_back(flag, on)')
+          assert 'expected_context == team_story_context_generation' in part
+          assert 'MaxPendingTeamStoryRetries' in part
+          assert game.count('ResetTeamStoryTracking();')>=5
+          assert 'TeamStoryRetriesForWorld(' in header and 'TeamStoryRetriesForWorld(' in code
+          assert 'RejectedNpcQuestFlagsRetryOnlyWhileTheHostStillWantsThem' in gtest
+          print('B32_GAME_SETFLAG_READBACK_CURRENT_HOST_ONLY_RETRY_CONTRACT_PASS')
+          PY
+
+  real-cpp-story-retry:
+    needs: exact-production-npc-flag-retry
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure Microsoft native C++20 compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile exact real NPC quest write retry helper on Windows and Linux
+        shell: bash
+        run: python -m unittest discover -s tools/re/tests -p 'test_npc_story_write_retry.py' -v
+      - name: Retest prior B31 overlapping NPC world block coverage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python -m unittest discover -s tools/re/tests -p 'test_npc_story_block_coverage.py' -v
+      - name: No real game saves, host server, full client builds or releases
+        shell: bash
+        run: echo B32_SYNTHETIC_GAME_FLAG_RETRY_ONLY_NO_FORNEX_NO_REAL_SAVES_NO_INSTALLER
