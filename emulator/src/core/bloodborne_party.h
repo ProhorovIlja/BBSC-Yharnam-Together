@@ -1168,6 +1168,10 @@ std::span<const EncounterInsight> EncounterInsights();
 // whose defeat event went on while this guest is in a session and whose found flag is off.
 class EncounterInsightWatch {
 public:
+    void Reset() {
+        seen.clear();
+    }
+
     template <typename FlagOn>
     std::vector<EncounterInsight> Tick(bool guest, bool in_session, FlagOn flag_on) {
         std::vector<EncounterInsight> award;
@@ -1189,6 +1193,75 @@ public:
 private:
     std::map<s32, bool> seen; // defeat event -> its flag at the last tick of this session
 };
+// The game gives encounter Insight one point at a time, after its event flag has
+// already been marked. Keep the remaining points tied to the *save character*, not
+// to the currently loaded player pointer. Switching to another hunter must never
+// send the previous hunter's Insight to that one. Switching back in the same process
+// resumes the previous hunter's pending points; reusing a slot with a new character
+// generation invalidates the replaced character's old pending points.
+class EncounterInsightPayout {
+public:
+    bool ObserveOwner(int slot, u64 generation) {
+        const std::pair<int, u64> next{slot, generation};
+        if (owner == next) {
+            return false;
+        }
+        owner = next;
+        if (slot >= 0) {
+            for (auto it = pending.begin(); it != pending.end();) {
+                if (it->first.first == slot && it->first.second != generation) {
+                    it = pending.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+        return true;
+    }
+
+    bool Add(s32 points) {
+        if (!owner || owner->first < 0 || points <= 0) {
+            return false;
+        }
+        constexpr s32 MaxPending = 200; // all 20 bosses fit; cap repeated bad event posts
+        auto& due = pending[*owner];
+        due += std::min(points, MaxPending - due);
+        return true;
+    }
+
+    s32 Remaining() const {
+        if (!owner || owner->first < 0) {
+            return 0;
+        }
+        const auto it = pending.find(*owner);
+        return it == pending.end() ? 0 : it->second;
+    }
+
+    bool CanPay(s64 now_ms) const {
+        return Remaining() > 0 &&
+               (last_payment_ms < 0 ||
+                (now_ms >= last_payment_ms && now_ms - last_payment_ms >= 300));
+    }
+
+    bool Paid(s64 now_ms) {
+        if (!CanPay(now_ms)) {
+            return false;
+        }
+        auto it = pending.find(*owner);
+        --it->second;
+        if (it->second == 0) {
+            pending.erase(it);
+        }
+        last_payment_ms = now_ms;
+        return true;
+    }
+
+private:
+    std::optional<std::pair<int, u64>> owner;
+    std::map<std::pair<int, u64>, s32> pending;
+    s64 last_payment_ms = -1;
+};
+
 // SHADPS4_BLOODBORNE_TRACE_FLAG: a flag the flag tracer watches in a session (diagnostics).
 std::optional<s32> TracedFlagSetting(const char* setting);
 struct FlagBit {
