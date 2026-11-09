@@ -47,6 +47,47 @@ TEST(BloodborneMemberData, DataSeenBeforeTheRequestIsNotTrusted) {
     EXPECT_EQ(wait.Tick(1001, true, 0x1F), Action::Create) << "the answer";
 }
 
+TEST(BloodborneMemberData, VisibleNameWithoutMemberDataSlotDoesNotSendOrCreate) {
+    MemberDataWait wait;
+    const auto tick = [&](s64 ms, std::optional<s32> slot, u64 parts, u8 bits) {
+        return wait.Tick(ms, MemberDataRequestReady(true, slot, parts), bits);
+    };
+    EXPECT_EQ(tick(0, std::nullopt, 0, 0x1F), Action::None);
+    EXPECT_EQ(tick(6000, std::nullopt, 0, 0x1F), Action::None)
+        << "a visible name with missing network slot cannot request or create";
+    EXPECT_EQ(wait.Requests(), 0);
+    EXPECT_EQ(tick(7000, 0, 0, 0x1F), Action::None)
+        << "no writable received-parts byte is available";
+    EXPECT_EQ(tick(8000, 0, 0x10000, 0x1F), Action::None);
+    EXPECT_EQ(tick(9000, 0, 0x10000, 0x1F), Action::Request)
+        << "wait until the actual per-member slot is usable, then request afresh";
+    EXPECT_EQ(tick(9001, 0, 0x10000, 0x1F), Action::Create)
+        << "only response bytes received after the request may create a body";
+}
+
+TEST(BloodborneMemberData, LosingSlotDuringJoinCannotUseOldDataOnReturn) {
+    MemberDataWait wait;
+    EXPECT_EQ(wait.Tick(0, MemberDataRequestReady(true, 2, 0x20000), 0), Action::None);
+    EXPECT_EQ(wait.Tick(1000, MemberDataRequestReady(true, 2, 0x20000), 0), Action::Request);
+    EXPECT_EQ(wait.Tick(1050, MemberDataRequestReady(true, 2, 0), 0x1F), Action::None);
+    EXPECT_EQ(wait.Tick(2000, MemberDataRequestReady(true, 2, 0x20000), 0x1F), Action::None);
+    EXPECT_EQ(wait.Tick(3000, MemberDataRequestReady(true, 2, 0x20000), 0x1F), Action::Request)
+        << "stale parts after a disappeared slot must be requested again";
+    EXPECT_EQ(wait.Tick(3001, MemberDataRequestReady(true, 2, 0x20000), 0x1F), Action::Create);
+    EXPECT_EQ(wait.Requests(), 2);
+}
+
+TEST(BloodborneMemberData, OnlyTheFourRemoteSlotsAreRequestable) {
+    for (s32 slot = 0; slot < 4; ++slot) {
+        EXPECT_TRUE(MemberDataRequestReady(true, slot, 0x10000));
+    }
+    EXPECT_FALSE(MemberDataRequestReady(true, -1, 0x10000));
+    EXPECT_FALSE(MemberDataRequestReady(true, 4, 0x10000));
+    EXPECT_FALSE(MemberDataRequestReady(false, 0, 0x10000));
+    EXPECT_FALSE(MemberDataRequestReady(true, std::nullopt, 0x10000));
+    EXPECT_FALSE(MemberDataRequestReady(true, 0, 0));
+}
+
 TEST(BloodborneMemberData, AnUnansweredRequestIsRepeated) {
     MemberDataWait wait;
     wait.Tick(0, true, 0);
