@@ -262,6 +262,12 @@ int main() {
     CHECK(Has(changed, "save-editor-active"));
     CHECK(LevelOf(changed, "save-editor-active") == Suspicion::Likely);
     CHECK(!Has(changed, "level-apart"));
+    // Legitimate edited stats were accepted at login, but a *new* unexplained
+    // level mutation while connected is still reported as active.
+    saved.level = 702;
+    auto active_level_change = watch.Sheet(saved);
+    CHECK(Has(active_level_change, "level-apart"));
+    CHECK(LevelOf(active_level_change, "level-apart") == Suspicion::Certain);
     // A new session uses the current saved state as its own starting point.
     watch.StartOver();
     CHECK(!Has(watch.Sheet(saved), "save-editor-active"));
