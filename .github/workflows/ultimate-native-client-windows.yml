@@ -8,6 +8,7 @@ on:
       - 'docs/ULTIMATE_BATCH_16.md'
       - 'tools/ultimate/batch_16_manifest.json'
       - 'tools/ultimate/test_batch_16_windows_finalization.py'
+      - 'tools/ultimate/test_batch_14_windows_native_resources.py'
   workflow_dispatch:
 
 permissions:
@@ -27,18 +28,18 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Restrict to exact B15-to-B16 five-path finalization change
+      - name: Restrict to exact B15-to-B16 six-path source/test finalization change
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin \
             experiment/ultimate-batch-15-server-client-history-merge-20261109:refs/remotes/origin/b15
           git diff --name-only origin/b15 HEAD >/tmp/b16-diff.txt
           cat /tmp/b16-diff.txt
-          if grep -vE '^(bbport/build\.sh|\.github/workflows/ultimate-native-client-windows\.yml|docs/ULTIMATE_BATCH_16\.md|tools/ultimate/batch_16_manifest\.json|tools/ultimate/test_batch_16_windows_finalization\.py)$' /tmp/b16-diff.txt; then
+          if grep -vE '^(bbport/build\.sh|\.github/workflows/ultimate-native-client-windows\.yml|docs/ULTIMATE_BATCH_16\.md|tools/ultimate/batch_16_manifest\.json|tools/ultimate/test_batch_16_windows_finalization\.py|tools/ultimate/test_batch_14_windows_native_resources\.py)$' /tmp/b16-diff.txt; then
             echo 'Unexpected runtime, game assets or deployment change' >&2
             exit 1
           fi
-          test "$(wc -l </tmp/b16-diff.txt)" -eq 5
+          test "$(wc -l </tmp/b16-diff.txt)" -eq 6
       - name: Pin actual production Windows build shell and test identities
         run: |
           set -euo pipefail
@@ -47,7 +48,7 @@ jobs:
           import hashlib,json
           m=json.loads(Path("tools/ultimate/batch_16_manifest.json").read_text())
           assert m["batch_id"]=="B16-2026-11-09" and m["parent_pr"]==47
-          assert len(m["changed_paths"])==5
+          assert len(m["changed_paths"])==6
           assert all(m[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_public_release"))
           for item in m["pinned_blobs"]:
               b=Path(item["path"]).read_bytes()
@@ -95,13 +96,14 @@ jobs:
             'bbport/build.sh',
             'docs/ULTIMATE_BATCH_16.md',
             'tools/ultimate/batch_16_manifest.json',
-            'tools/ultimate/test_batch_16_windows_finalization.py'
+            'tools/ultimate/test_batch_16_windows_finalization.py',
+            'tools/ultimate/test_batch_14_windows_native_resources.py'
           )
           foreach ($item in $paths) {
             Write-Host "B16_SOURCE_PATH $item"
             if ($item -notin $allowed) { throw "Unexpected file in cumulative Windows integration: $item" }
           }
-          if ($paths.Count -ne $allowed.Count) { throw "Expected 5 exact B16 paths, got $($paths.Count)" }
+          if ($paths.Count -ne $allowed.Count) { throw "Expected 6 exact B16 paths, got $($paths.Count)" }
 
       - uses: msys2/setup-msys2@v2
         with:
