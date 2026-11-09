@@ -18,6 +18,7 @@
     "server/src/client_session.h",
     "server/src/link_server.cpp",
     "server/src/webapi_server.cpp",
+    "server/tests/test_bloodborne_world.cpp",
     "tools/ultimate/batch_39_manifest.json"
   ],
   "pinned_blobs": [
@@ -44,6 +45,10 @@
     {
       "path": "bbport/tests/test_local_hunters_online.py",
       "git_blob_sha1": "74bbf7600eba39afa1b3a3d3aa5a3ad407699f00"
+    },
+    {
+      "path": "server/tests/test_bloodborne_world.cpp",
+      "git_blob_sha1": "0ab87ef6d462bf894c29ba55631680d1f7b6e4ae"
     }
   ],
   "proof": [
@@ -54,7 +59,8 @@
     "old server/timeout/invalid/negative count produces unknown (dash) not zero",
     "zero reported only for signed-in WebAPI with explicitly valid zero member count",
     "UI 45s background polling and stale host URL isolation",
-    "Windows/Ubuntu production Python test module and full Qt/protobuf server Docker build plus existing CTest suites"
+    "Windows/Ubuntu production Python test module and full Qt/protobuf server Docker build plus existing CTest suites",
+    "integrated real world test expects offline-edited baseline level mismatch to be informational, still requires active no-death cheat patch Certain"
   ],
   "limitations": [
     "local WebAPI 31315 must be reachable; cannot test UDP game transport by successful HTTP status alone",
