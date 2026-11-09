@@ -4279,9 +4279,112 @@ class Launcher:
                                   _('Hunters from everywhere, quick match, your account on any PC.',
                                     'Охотники со всего мира, быстрый подбор, ваш аккаунт на любом ПК.'))
         chosen.grid(row=1, column=0, columnspan=2, sticky='we', pady=(px(8), 0))
+        self.build_coop_global_profiles(chosen.extra)
         self.build_coop_accounts(chosen.extra)
-        # The server's address may come later (a test server): the view follows the choice.
+        # The selected server's account and reachable shard follow this choice.
         self.coop_server_type.trace_add('write', lambda *_a: self.coop_auth_follows())
+
+    def build_coop_global_profiles(self, parent):
+        """Saved HTTPS Global servers: choose, add or remove with separate accounts."""
+        tk, px = self.tk, self.px
+        frame = tk.Frame(parent, bg=CARD)
+        frame.pack(fill='x', pady=(px(8), 0))
+        self.label(frame, _('Global server / region', 'Глобальный сервер / регион'),
+                   'small', MUTED).pack(anchor='w', pady=(0, px(4)))
+        line = tk.Frame(frame, bg=CARD)
+        line.pack(fill='x')
+        self.coop_profile_choice = tk.StringVar()
+        self.coop_profile_menu = self.ttk.Combobox(
+            line, textvariable=self.coop_profile_choice, state='readonly', width=48)
+        self.coop_profile_menu.pack(side='left', fill='x', expand=True)
+        self.coop_profile_menu.bind('<<ComboboxSelected>>', self.coop_profile_chosen)
+        self.button(line, _('Add server', 'Добавить сервер'),
+                    self.coop_profile_add, width=px(144)).pack(side='left', padx=(px(8), 0))
+        self.button(line, _('Remove', 'Удалить'),
+                    self.coop_profile_remove, width=px(94)).pack(side='left', padx=(px(6), 0))
+        self.note(frame, _('Each HTTPS server has its own account and session. '
+                           'The same game and character saves are kept.',
+                           'Каждый HTTPS-сервер имеет собственный аккаунт и сессию. '
+                           'Игра и сохранения персонажей остаются теми же.'), top=8)
+        self.coop_profile_refresh()
+
+    def coop_profile_refresh(self):
+        urls = bbport_coop.global_profiles(self.coop)
+        self.coop_profile_urls = urls
+        options = [f'{bbport_coop.profile_label(self.coop, url)}  |  {url}'
+                   for url in urls]
+        self.coop_profile_menu.configure(values=options)
+        current = bbport_coop.profile_url(bbport_coop.global_url(self.coop))
+        self.coop_profile_choice.set(options[urls.index(current)] if current in urls else options[0])
+
+    def coop_profile_busy(self):
+        return bool(self.coop_auth_busy or self.coop_busy or self.process or self.installing)
+
+    def coop_profile_chosen(self, _event=None):
+        if self.coop_profile_busy():
+            self.coop_profile_refresh()
+            self.coop_say(_('Stop the game or finish sign-in before changing servers.',
+                            'Завершите игру или вход, прежде чем сменить сервер.'), CAUTION)
+            return
+        try:
+            selected = self.coop_profile_menu.current()
+            url = self.coop_profile_urls[selected] if selected >= 0 else ''
+            self.coop.update(bbport_coop.select_global_profile(self.coop, url))
+        except (ValueError, IndexError):
+            self.coop_profile_refresh()
+            return
+        self.coop_auth_clear()
+        self.coop_auth_code = ''
+        self.coop_auth_view = ('signed_in' if bbport_coop.is_signed_in_global(self.coop)
+                               else 'sign_in')
+        self.coop_auth_show()
+        self.coop_profile_refresh()
+        self.hunters_last_key = None  # next poll uses the selected global server
+        self.hunters_next_poll = 0.0
+        if self.hunters_status is not None:
+            self.hunters_status.configure(text=_('Hunters Online: —', 'Охотников онлайн: —'), fg=MUTED)
+        self.coop_auth_saved_settings()
+
+    def coop_profile_add(self):
+        if self.coop_profile_busy():
+            return
+        from tkinter import simpledialog
+        url = simpledialog.askstring(_('Add Global server', 'Добавить глобальный сервер'),
+                                     _('HTTPS server address (for example https://example.org):',
+                                       'HTTPS-адрес сервера (например https://example.org):'),
+                                     parent=self.root)
+        if url is None:
+            return
+        try:
+            self.coop.update(bbport_coop.add_global_profile(self.coop, url))
+            # Selecting the added URL also switches its account view and
+            # invalidates any old server's occupancy count.
+            url = bbport_coop.profile_url(url)
+            self.coop_profile_refresh()
+            self.coop_profile_menu.current(self.coop_profile_urls.index(url))
+            self.coop_profile_chosen()
+        except ValueError as error:
+            self.messagebox.showerror('Bloodborne', str(error))
+
+    def coop_profile_remove(self):
+        if self.coop_profile_busy():
+            return
+        index = self.coop_profile_menu.current()
+        if index < 0:
+            return
+        url = self.coop_profile_urls[index]
+        if url == bbport_coop.GLOBAL_SERVER:
+            self.messagebox.showinfo('Bloodborne', _(
+                'The built-in Seamless Hunt server stays in the list.',
+                'Встроенный сервер Seamless Hunt остаётся в списке.'))
+            return
+        if not self.messagebox.askyesno('Bloodborne', _(
+                'Remove this server and its locally stored login/key? The remote account is not deleted.',
+                'Удалить сервер и сохранённые локально данные входа/ключ? Аккаунт на сервере останется.')):
+            return
+        self.coop.update(bbport_coop.remove_global_profile(self.coop, url))
+        self.coop_profile_refresh()
+        self.coop_profile_chosen()
 
     # --- Global: the server's own accounts (bbport_auth.py) ----------------------------------------
     # Views: 'sign_in' and 'create' (two tabs), 'forgot', 'code' (the recovery code, once), 'signed_in',
@@ -4500,11 +4603,14 @@ class Launcher:
         self.coop_auth_busy = True
         self.coop_auth_action.configure(text=_('Working…', 'Подождите…'), state='disabled')
         bbport_auth.run_thread(call, lambda account, failed: self.ui_calls.put(
-            lambda: self.coop_auth_answered(view, account, failed)), *args)
+            lambda: self.coop_auth_answered(view, account, failed, url)), *args)
         del args
 
-    def coop_auth_answered(self, view, account, failed):
+    def coop_auth_answered(self, view, account, failed, requested_url=None):
         self.coop_auth_busy = False
+        if requested_url is not None and bbport_coop.server_key(requested_url) != bbport_coop.server_key(
+                bbport_coop.global_url(self.coop)):
+            return  # an old async sign-in must never overwrite a new server's account
         if failed is not None:
             text = _(failed.text())
             if len(failed.args) > 1:
