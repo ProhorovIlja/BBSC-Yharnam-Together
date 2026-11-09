@@ -1,0 +1,65 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B17-2026-11-09",
+  "parent_pr": 48,
+  "parent_branch": "experiment/ultimate-batch-16-windows-output-finalization-20261109",
+  "status": "EXPERIMENTAL_SERVER_HELLO_BUCKET_MEMORY_AND_RATELIMIT_ISOLATION",
+  "scope": "server admission C++ only; do not restart live server or repackage Windows client",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-15-integrated-server.yml",
+    ".github/workflows/ultimate-batch-17-admission-hello-budget.yml",
+    "docs/ULTIMATE_BATCH_17.md",
+    "server/src/admission.cpp",
+    "server/src/admission.h",
+    "server/tests/test_admission.cpp",
+    "tools/ultimate/batch_17_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "server/src/admission.cpp",
+      "blob_sha1": "83d1806433f8677fdbafb5fd53134326fad786ee"
+    },
+    {
+      "path": "server/src/admission.h",
+      "blob_sha1": "613d7168e70ac2c5bdba6997d77a159bccb04780"
+    },
+    {
+      "path": "server/tests/test_admission.cpp",
+      "blob_sha1": "417750b30e2fda7d5dda5e3d5ae344830e4af06e"
+    },
+    {
+      "path": ".github/workflows/ultimate-batch-15-integrated-server.yml",
+      "blob_sha1": "7073e5d871102bac0db57e874f29da6780a64cec"
+    }
+  ],
+  "provenance": "Real combined server source review: Guard::AllowHello previously called hellos.clear() when >100k unique addresses, resetting all active hello token buckets.",
+  "properties": [
+    "100000-entry fixed memory cap",
+    "at most one 100k scan per 10 seconds under saturation",
+    "remove only buckets unused for at least 120 seconds",
+    "existing active bucket never reset by a different IP",
+    "reject new unknown IP while all buckets at capacity, retaining existing limits",
+    "normal no-ban policy and counter retained",
+    "original 5-player proto, link, world/savedata and authentication untouched"
+  ],
+  "tests": [
+    "compile actual server/src/admission.cpp with Qt6 C++20 and run 100000-IP regression plus existing guards",
+    "compile real server_link encrypted packets and watchdog tests",
+    "run inherited B12 member-data and B13 boss-Insight source fixtures",
+    "verify exact seven-file B16-to-B17 diff and Git blob pins"
+  ],
+  "safety": {
+    "no_live_deploy": true,
+    "no_private_game_data": true,
+    "no_player_saves": true,
+    "no_new_full_windows_build": true,
+    "no_release": true
+  },
+  "limitations": [
+    "Synthetic 100k source-address flood, not a real Internet DDoS replay or peak-load benchmark",
+    "If map reaches capacity with all entries recently active, unknown new addresses fail closed until old entries retire",
+    "IPv6 / network address mapping and live operator metrics not separately validated",
+    "Real five-player game and Windows 1.09 launcher client/server not yet integrated/released",
+    "Standalone eboot-free native PC port remains separate"
+  ]
+}
