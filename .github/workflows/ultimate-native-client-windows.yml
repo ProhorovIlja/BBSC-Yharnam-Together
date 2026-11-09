@@ -1,9 +1,15 @@
-name: Ultimate TEST native Windows BBPort engine compile (no game or release)
+name: "Ultimate B14 cumulative Windows client: source, link and PE verification (no game)"
 
 on:
   pull_request:
     paths:
       - '.github/workflows/ultimate-native-client-windows.yml'
+      - '.github/workflows/ultimate-batch-10-build-diagnostics.yml'
+      - 'bbport/build.sh'
+      - 'docs/ULTIMATE_BATCH_14.md'
+      - 'tools/ultimate/batch_14_manifest.json'
+      - 'tools/ultimate/test_batch_14_windows_native_resources.py'
+      - 'tools/ultimate/test_batch_10_build_failure.py'
   workflow_dispatch:
 
 permissions:
@@ -14,7 +20,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-fixtures:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-13-insight-character-ownership-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Restrict to exact B13-to-B14 seven-path source change
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-13-insight-character-ownership-20261109:refs/remotes/origin/b13
+          git diff --name-only origin/b13 HEAD >/tmp/b14-diff.txt
+          cat /tmp/b14-diff.txt
+          if grep -vE '^(bbport/build\.sh|\.github/workflows/ultimate-native-client-windows\.yml|\.github/workflows/ultimate-batch-10-build-diagnostics\.yml|docs/ULTIMATE_BATCH_14\.md|tools/ultimate/batch_14_manifest\.json|tools/ultimate/test_batch_14_windows_native_resources\.py|tools/ultimate/test_batch_10_build_failure\.py)$' /tmp/b14-diff.txt; then
+            echo 'Unexpected runtime, game assets or deployment change' >&2
+            exit 1
+          fi
+          test "$(wc -l </tmp/b14-diff.txt)" -eq 7
+      - name: Pin actual production Windows build shell and test identities
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          m=json.loads(Path("tools/ultimate/batch_14_manifest.json").read_text())
+          assert m["batch_id"]=="B14-2026-11-09" and m["parent_pr"]==45
+          assert len(m["changed_paths"])==7
+          assert all(m[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_public_release"))
+          for item in m["pinned_blobs"]:
+              b=Path(item["path"]).read_bytes()
+              sha=hashlib.sha1(b"blob "+str(len(b)).encode()+b"\0"+b).hexdigest()
+              assert sha==item["git_blob_sha1"],f'{item["path"]}: {sha} != {item["git_blob_sha1"]}'
+          print("B14_EXACT_PRODUCTION_SOURCE_PINS_PASS")
+          PY
+      - name: Compile inherited reward/join code and execute exact build resource controls
+        run: |
+          set -euo pipefail
+          bash -n bbport/build.sh
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_14_windows_native_resources.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_10_build_failure.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_encounter_insight_owner.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_member_data_slot_guard.py' -v
+          echo 'B14_INHERITED_REAL_SOURCE_FIXTURES_PASS'
+
   build-engine:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-13-insight-character-ownership-20261109')
+    needs: source-fixtures
     runs-on: windows-2022
     timeout-minutes: 55
     steps:
@@ -28,17 +83,28 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - name: Strict no-source-change safety gate
+      - name: Verify exact B13-to-B14 integration source scope
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          git fetch --no-tags --depth=1 origin 'experiment/ultimate-frozen-launcher-windows-ci-20261108:refs/remotes/origin/engine_parent'
-          if ($LASTEXITCODE -ne 0) { throw 'Parent source branch unavailable' }
-          $paths = @(git diff --name-only refs/remotes/origin/engine_parent HEAD)
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot validate changed files' }
-          if ($paths.Count -ne 1 -or $paths[0] -ne '.github/workflows/ultimate-native-client-windows.yml') {
-            throw "Native client build probe changes game/production sources: $($paths -join ', ')"
+          git fetch --no-tags --depth=1 origin 'experiment/ultimate-batch-13-insight-character-ownership-20261109:refs/remotes/origin/b13'
+          if ($LASTEXITCODE -ne 0) { throw 'B13 baseline unavailable' }
+          $paths = @(git diff --name-only refs/remotes/origin/b13 HEAD)
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compare cumulative source' }
+          $allowed = @(
+            '.github/workflows/ultimate-native-client-windows.yml',
+            '.github/workflows/ultimate-batch-10-build-diagnostics.yml',
+            'bbport/build.sh',
+            'docs/ULTIMATE_BATCH_14.md',
+            'tools/ultimate/batch_14_manifest.json',
+            'tools/ultimate/test_batch_14_windows_native_resources.py',
+            'tools/ultimate/test_batch_10_build_failure.py'
+          )
+          foreach ($item in $paths) {
+            Write-Host "B14_SOURCE_PATH $item"
+            if ($item -notin $allowed) { throw "Unexpected file in cumulative Windows integration: $item" }
           }
+          if ($paths.Count -ne $allowed.Count) { throw "Expected 7 exact B14 paths, got $($paths.Count)" }
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -99,7 +165,15 @@ jobs:
           set -euo pipefail
           export BB_PRODUCTION=1
           export BB_LTO=OFF
+          export BB_BUILD_JOBS=2
+          export BB_WINDOWS_NO_DEBUG_SYMBOLS=1
+          # Three deterministic phases: network/archive, GPU library, final EXEs.
+          # Avoid overlap of large network translation units and final linker.
+          export BB_WINDOWS_STAGED_LINK=1
           export CMAKE_BUILD_PARALLEL_LEVEL=2
+          # The *production* build.sh now passes BB_BUILD_JOBS to the real
+          # Ninja invocation and keeps RelWithDebInfo -O2, omitting -g only
+          # in opt-in CI. This avoids the old exported Bash function shim.
           cd bbport
           mkdir -p out
           # Full CMake + clang build is deliberately bounded to diagnostics only:
@@ -108,20 +182,98 @@ jobs:
             echo 'WINDOWS_NATIVE_CLIENT_BUILD_FAILED (bounded last 65 lines):'
             tail -n 65 out/ultimate-native-build.log || true
             if test -f out/gpu-build.log; then
-              echo 'GPU_COMPILER_ERRORS (bounded last 55 lines):'
-              tail -n 55 out/gpu-build.log || true
+              echo 'GPU_FIRST_LINK_OR_COMPILER_FAILURES (at most 5 errors, bounded context):'
+              # Ninja's failing target/first linker diagnostic can occur long
+              # before the 55-line tail. Read only local CI log and emit short
+              # fragments, not full compiler output, paths, credentials or dumps.
+              awk '
+                BEGIN { matches=0; after=0; have=0 }
+                /(^FAILED:|ld\\.lld: error:|lld-link: error:|clang: error:|undefined reference|undefined symbol:|collect2: error:|fatal error:|error:|ninja: build stopped|CMake Error)/ {
+                  if (matches < 5) {
+                    matches++
+                    printf "DIAGNOSTIC %d at build-log line %d\\n", matches, NR
+                    if (have) print "PREVIOUS: " substr(previous, 1, 350)
+                    print substr($0, 1, 600)
+                    after=5
+                    next
+                  }
+                }
+                {
+                  if (after > 0 && matches <= 5) {
+                    print substr($0, 1, 600)
+                    after--
+                  }
+                  previous=$0
+                  have=1
+                }
+                END { if (matches == 0) print "NO_MATCHING_ERROR_LINE_IN_GPU_LOG" }
+              ' out/gpu-build.log | head -n 80
+              echo 'GPU_BUILD_TAIL (last 15 non-sensitive lines):'
+              tail -n 15 out/gpu-build.log | cut -c 1-600
+              # The previous 2 Windows attempts ended near [432/433] with
+              # no FAILED/error line in the captured GPU log. Retry *only*
+              # the unfinished Ninja targets once on the same runner so we
+              # can distinguish missing final targets from lost error output.
+              # Never treat a failed first build as a passing release.
+              echo 'GPU_BOUNDED_INCREMENTAL_DIAGNOSTIC_RETRY_JOBS_2'
+              if timeout 180s ninja -j 2 -C out/gpu -v bb-probe bb-gpu-capabilities bb-play >out/gpu-retry.log 2>&1; then
+                echo 'GPU_INCREMENTAL_RETRY_PASSED_BUT_INITIAL_BUILD_FAILED'
+              else
+                echo 'GPU_INCREMENTAL_RETRY_NONZERO'
+                grep -nEm 8 'FAILED:|error:|undefined|ninja:|killed|cannot allocate|out of memory|signal' out/gpu-retry.log | cut -c 1-550 || true
+              fi
+              echo 'GPU_RETRY_LOG_TAIL_MAX_12'
+              tail -n 12 out/gpu-retry.log | cut -c 1-550 || true
+              for exe in out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe out/gpu/bb-play.exe; do
+                if test -s "$exe"; then
+                  echo "AFTER_RETRY_EXISTS: $(basename "$exe")"
+                else
+                  echo "AFTER_RETRY_MISSING: $(basename "$exe")"
+                fi
+              done
             fi
             exit 1
           fi
           echo 'WINDOWS_NATIVE_CLIENT_BUILD_FINISHED'
           tail -n 12 out/ultimate-native-build.log
           test "$(tr -d '\r\n' <out/build-mode.txt)" = production
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          # Verify actual CMAKE_C_FLAGS_RELWITHDEBINFO and
+          # CMAKE_CXX_FLAGS_RELWITHDEBINFO, not just workflow flags.
+          cache = Path("out/gpu/CMakeCache.txt").read_text(errors="replace")
+          for lang in ("C", "CXX"):
+              name = f"CMAKE_{lang}_FLAGS_RELWITHDEBINFO"
+              pattern = rf"(?m)^{name}:[^=]+=-O2 -g0 -DNDEBUG$"
+              assert re.search(pattern, cache), f"missing actual optimized low-memory build flag: {name}"
+          print("WINDOWS_ACTUAL_C_AND_CXX_LOW_DEBUG_CACHE_PASS")
+          PY
           for exe in bb-probe.exe bb-gpu-capabilities.exe bb-play.exe; do
             test -s "out/$exe" || { echo "Missing native executable: $exe"; exit 1; }
             magic=$(head -c 2 "out/$exe" | od -An -t x1 | tr -d '[:space:]')
             test "$magic" = 4d5a || { echo "Not a Windows PE executable: $exe"; exit 1; }
             sha256sum "out/$exe"
           done
+          python - <<'PY'
+          from pathlib import Path
+          import struct
+          for name in ("bb-probe.exe", "bb-gpu-capabilities.exe", "bb-play.exe"):
+              path = Path("out") / name
+              with path.open("rb") as exe:
+                  assert exe.read(2) == b"MZ", f"{name}: not an MZ executable"
+                  exe.seek(0x3c)
+                  pe_offset = struct.unpack("<I", exe.read(4))[0]
+                  assert 0x40 <= pe_offset < path.stat().st_size-26, f"{name}: invalid PE offset"
+                  exe.seek(pe_offset)
+                  assert exe.read(4) == bytes((0x50, 0x45, 0, 0)), f"{name}: missing PE signature"
+                  machine = struct.unpack("<H", exe.read(2))[0]
+                  assert machine == 0x8664, f"{name}: not AMD64 (machine={machine:#x})"
+                  exe.seek(pe_offset + 24)
+                  optional_magic = struct.unpack("<H", exe.read(2))[0]
+                  assert optional_magic == 0x20b, f"{name}: not PE32+"
+              print("VALID_AMD64_PE32_PLUS", name)
+          PY
           echo 'BBPORT_PRODUCTION_WINDOWS_PE_BUILD_PASS_NO_GAME'
 
       - name: Verify no game payload or public artifacts were produced

@@ -49,13 +49,59 @@ MINGW*|MSYS*)
             git -C gpu/third_party/fsr-vulkan apply "$PWD/$patch"
         fi
     done
+    # CI / RAM-limited Windows runners can avoid generating huge DWARF/PDB inputs.
+    # Keep the same -O2 optimization as RelWithDebInfo; opt-in leaves ordinary
+    # developers' debuggable builds unchanged. Proven in the older YT 1.3 CI.
+    windows_cmake_flags=()
+    if [[ ${BB_WINDOWS_NO_DEBUG_SYMBOLS:-0} == 1 ]]; then
+        windows_cmake_flags=(
+            '-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -g0 -DNDEBUG'
+            '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -g0 -DNDEBUG'
+        )
+        echo 'Windows low-memory build: RelWithDebInfo optimization -O2, debug symbols disabled'
+    fi
+    # CMAKE_BUILD_PARALLEL_LEVEL does NOT affect direct Ninja invocation.
+    # Require an explicit, bounded positive job count when one is configured.
+    windows_ninja_args=()
+    if [[ -n ${BB_BUILD_JOBS:-} ]]; then
+        if [[ ! ${BB_BUILD_JOBS} =~ ^[1-9][0-9]?$ ]] || (( BB_BUILD_JOBS > 32 )); then
+            echo 'BB_BUILD_JOBS must be an integer from 1 to 32' >&2
+            exit 2
+        fi
+        windows_ninja_args=(-j "$BB_BUILD_JOBS")
+    fi
     cmake -S gpu -B out/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO=off \
         -DBB_LTO="${BB_LTO:-OFF}" -DBB_PRODUCTION="$production" -DCMAKE_C_COMPILER=clang \
-        -DCMAKE_CXX_COMPILER=clang++ >/dev/null
+        -DCMAKE_CXX_COMPILER=clang++ "${windows_cmake_flags[@]}" >/dev/null
     echo "GPU library and loader: LTO ${BB_LTO:-OFF}"
-    if ! ninja -C out/gpu bb-probe bb-gpu-capabilities bb-play > out/gpu-build.log 2>&1; then
-        report_bbport_build_failure 'Windows client/GPU/play targets' out/gpu-build.log
-        exit 1
+    # CLANG64 CI has repeatedly stopped silently near the last bbnet/archive/link
+    # work of a 433-task mixed build, while the remaining five jobs linked on a
+    # second Ninja invocation. Separating net, GPU and EXE stages prevents both
+    # heavyweight library build and final links from competing for runner memory.
+    # Opt-in: normal developer builds retain their original single Ninja call.
+    if [[ ${BB_WINDOWS_STAGED_LINK:-0} == 1 ]]; then
+        : > out/gpu-build.log
+        for stage in net gpu final; do
+            case "$stage" in
+                net)   windows_targets=(bbnet) ;;
+                gpu)   windows_targets=(bbgpu) ;;
+                final) windows_targets=(bb-probe bb-gpu-capabilities bb-play) ;;
+            esac
+            echo "WINDOWS_NINJA_STAGE_BEGIN: $stage"
+            if ninja "${windows_ninja_args[@]}" -C out/gpu "${windows_targets[@]}" >> out/gpu-build.log 2>&1; then
+                echo "WINDOWS_NINJA_STAGE_PASS: $stage"
+            else
+                windows_ninja_rc=$?
+                echo "WINDOWS_NINJA_STAGE_FAILED: $stage rc=$windows_ninja_rc" >&2
+                report_bbport_build_failure "Windows $stage stage" out/gpu-build.log
+                exit "$windows_ninja_rc"
+            fi
+        done
+    else
+        if ! ninja "${windows_ninja_args[@]}" -C out/gpu bb-probe bb-gpu-capabilities bb-play > out/gpu-build.log 2>&1; then
+            report_bbport_build_failure 'Windows client/GPU/play targets' out/gpu-build.log
+            exit 1
+        fi
     fi
     cp out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe out/gpu/bb-play.exe out/
     echo "$build_mode" > out/build-mode.txt

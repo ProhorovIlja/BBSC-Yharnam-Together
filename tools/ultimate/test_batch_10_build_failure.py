@@ -79,9 +79,15 @@ class BuildFailureReporting(unittest.TestCase):
 
     def test_both_platform_ninja_failure_paths_call_exact_helper(self):
         script = self.source
-        win = script.split(
-            "if ! ninja -C out/gpu bb-probe bb-gpu-capabilities bb-play", 1
-        )[1].split("\n    fi", 1)[0]
+        # The actual production Ninja invocation may include optional job
+        # limits before -C. Match the required *targets and error branch*, not
+        # a stale command-line spelling from B10.
+        targets = "bb-probe bb-gpu-capabilities bb-play > out/gpu-build.log 2>&1; then"
+        target_at = script.index(targets)
+        branch_at = script.rfind("if ! ninja ", 0, target_at)
+        self.assertNotEqual(branch_at, -1)
+        win = script[branch_at:script.index("\n    fi", target_at)]
+        self.assertIn(" -C out/gpu " + targets, win)
         linux = script.split("if ! ninja -C out/gpu bbgpu", 1)[1].split("\nfi", 1)[0]
         self.assertIn("report_bbport_build_failure 'Windows client/GPU/play targets'", win)
         self.assertIn("report_bbport_build_failure 'Linux GPU library'", linux)

@@ -19,6 +19,9 @@ concurrency:
 
 jobs:
   shell-reporter-and-inherited-guest-metadata-tests:
+    # The exact B09->B10 allowlist is valid only on its original parent PR.
+    # All later integrated heads run their own strict parent-to-head source gates.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-09-windows-savedata-fault-tests-20261108')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
