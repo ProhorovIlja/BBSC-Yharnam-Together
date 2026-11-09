@@ -9,6 +9,7 @@ on:
       - 'docs/ULTIMATE_BATCH_14.md'
       - 'tools/ultimate/batch_14_manifest.json'
       - 'tools/ultimate/test_batch_14_windows_native_resources.py'
+      - 'tools/ultimate/test_batch_10_build_failure.py'
   workflow_dispatch:
 
 permissions:
@@ -28,18 +29,18 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Restrict to exact B13-to-B14 six-path source change
+      - name: Restrict to exact B13-to-B14 seven-path source change
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin \
             experiment/ultimate-batch-13-insight-character-ownership-20261109:refs/remotes/origin/b13
           git diff --name-only origin/b13 HEAD >/tmp/b14-diff.txt
           cat /tmp/b14-diff.txt
-          if grep -vE '^(bbport/build\.sh|\.github/workflows/ultimate-native-client-windows\.yml|\.github/workflows/ultimate-batch-10-build-diagnostics\.yml|docs/ULTIMATE_BATCH_14\.md|tools/ultimate/batch_14_manifest\.json|tools/ultimate/test_batch_14_windows_native_resources\.py)$' /tmp/b14-diff.txt; then
+          if grep -vE '^(bbport/build\.sh|\.github/workflows/ultimate-native-client-windows\.yml|\.github/workflows/ultimate-batch-10-build-diagnostics\.yml|docs/ULTIMATE_BATCH_14\.md|tools/ultimate/batch_14_manifest\.json|tools/ultimate/test_batch_14_windows_native_resources\.py|tools/ultimate/test_batch_10_build_failure\.py)$' /tmp/b14-diff.txt; then
             echo 'Unexpected runtime, game assets or deployment change' >&2
             exit 1
           fi
-          test "$(wc -l </tmp/b14-diff.txt)" -eq 6
+          test "$(wc -l </tmp/b14-diff.txt)" -eq 7
       - name: Pin actual production Windows build shell and test identities
         run: |
           set -euo pipefail
@@ -48,7 +49,7 @@ jobs:
           import hashlib,json
           m=json.loads(Path("tools/ultimate/batch_14_manifest.json").read_text())
           assert m["batch_id"]=="B14-2026-11-09" and m["parent_pr"]==45
-          assert len(m["changed_paths"])==6
+          assert len(m["changed_paths"])==7
           assert all(m[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_public_release"))
           for item in m["pinned_blobs"]:
               b=Path(item["path"]).read_bytes()
@@ -96,13 +97,14 @@ jobs:
             'bbport/build.sh',
             'docs/ULTIMATE_BATCH_14.md',
             'tools/ultimate/batch_14_manifest.json',
-            'tools/ultimate/test_batch_14_windows_native_resources.py'
+            'tools/ultimate/test_batch_14_windows_native_resources.py',
+            'tools/ultimate/test_batch_10_build_failure.py'
           )
           foreach ($item in $paths) {
             Write-Host "B14_SOURCE_PATH $item"
             if ($item -notin $allowed) { throw "Unexpected file in cumulative Windows integration: $item" }
           }
-          if ($paths.Count -ne $allowed.Count) { throw "Expected 6 exact B14 paths, got $($paths.Count)" }
+          if ($paths.Count -ne $allowed.Count) { throw "Expected 7 exact B14 paths, got $($paths.Count)" }
 
       - uses: msys2/setup-msys2@v2
         with:
