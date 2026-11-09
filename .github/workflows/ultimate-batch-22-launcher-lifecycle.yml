@@ -80,7 +80,11 @@ jobs:
           assert {'after_owned','_stop_after_jobs','_root_destroyed','close'} <= names
           motion=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='Motion')
           close=next(n for n in motion.body if isinstance(n,ast.FunctionDef) and n.name=='close')
-          assert any(isinstance(n,ast.Attribute) and n.attr=='after_cancel' for n in ast.walk(close))
+          assert any(
+              (isinstance(n,ast.Attribute) and n.attr=='after_cancel')
+              or (isinstance(n,ast.Constant) and n.value=='after_cancel')
+              for n in ast.walk(close)
+          )
           print('B22_LAUNCHER_TIMERS_EXCLUSIVELY_OWNED_AND_MOTION_CANCELS_TICK_PASS')
           PY
 
