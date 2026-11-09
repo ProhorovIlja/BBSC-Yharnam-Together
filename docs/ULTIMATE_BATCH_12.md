@@ -20,7 +20,11 @@ The original upstream Amanises YT 1.4 source was compared for the same call site
 
 - Additional **real GTest C++ cases** in `emulator/tests/bloodborne/test_bloodborne_member_data.cpp`: board name/HP visible without slot, no writable parts byte, slot drops after a request, recovery requires a fresh reply, and all four remote receiving slots in a **five-hunter session**.
 - `tools/re/tests/test_member_data_slot_guard.py` compiles the **actual production** `HasAllMemberData`, `MemberDataRequestReady` and `MemberDataWait::Tick` C++ definitions directly from source and executes synthetic two-guest/invalid-slot/slot-recovery scenarios on Linux and Windows CLANG64. It also verifies exact callsite wiring to guarded received-parts reads and the original network/slot lookup invariants.
-- Dedicated B12 CI checks only the **eight permitted file changes**, pinned source/test Git blobs, production helper compilation on both operating systems and existing B01–B10 source regressions. No full native Windows renderer/game build per patch.
+- Dedicated B12 CI checks only the **nine permitted file changes**, pinned source/test Git blobs, production helper compilation on both operating systems and existing B01–B10 source regressions. No full native Windows renderer/game build per patch.
+
+## Correct legacy CI scoping, without weakening B12 checks
+
+The original `.github/workflows/ultimate-windows-test.yml` belongs to the **main-to-foundation PR #10**. Its exact whitelist compares `main..HEAD` and cannot pass on a cumulative B12 branch with subsequent legitimate runtime changes. Previously it ran on all pull requests whose files matched its broad globs, creating a spurious red check. The workflow is now explicitly restricted to its original `main`-based foundation PR, while preserving its original push and manual triggers; B12 uses a strict **nine-path parent-to-parent gate** and its own Windows/Linux production C++ tests. This scopes an obsolete check, not a bypass of runtime validation.
 
 ## Limitations and remaining release gates
 
