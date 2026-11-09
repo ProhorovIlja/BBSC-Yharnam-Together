@@ -377,6 +377,106 @@ def global_url(settings):
     return (settings.get('global_server') or GLOBAL_SERVER).strip().rstrip('/')
 
 
+# Dedicated Global servers are named profiles rather than a single editable URL.
+# Keep the old global_server key for the game/auth protocol and old settings.
+# A profile is just a URL+display label, NEVER a password or a server public key.
+def profile_url(url):
+    """Canonical, verified-HTTPS-only server URL; reject credentials and URL parameters."""
+    if not isinstance(url,str):
+        return ''
+    return region_url(url)  # this matcher rejects userinfo, query, fragment, invalid port and HTTP
+
+
+def global_profiles(settings):
+    """Unique global HTTPS URLs, built-in and user-added, with legacy migration."""
+    urls=[GLOBAL_SERVER]
+    if isinstance(settings.get('global_servers'),list):
+        urls+=settings['global_servers']
+    urls.append(settings.get('global_server',''))
+    found=[]
+    seen=set()
+    for value in urls:
+        url=profile_url(value)
+        if url and server_key(url) not in seen:
+            seen.add(server_key(url))
+            found.append(url)
+    return found
+
+
+def server_labels_of(saved):
+    labels=saved.get('server_labels') if isinstance(saved,dict) else None
+    if not isinstance(labels,dict):
+        return {}
+    return {server_key(key):value.strip()[:64] for key,value in labels.items()
+            if profile_url(key) and isinstance(value,str) and value.strip() and len(value)<=128}
+
+
+def server_names_of(saved):
+    names=saved.get('server_names') if isinstance(saved,dict) else None
+    if not isinstance(names,dict):
+        return {}
+    return {server_key(key):value[:64] for key,value in names.items()
+            if profile_url(key) and isinstance(value,str) and len(value)<=64}
+
+
+def add_global_profile(settings, url, label=''):
+    url=profile_url(url)
+    if not url:
+        raise ValueError('Global server must be an HTTPS URL with no credentials, query or fragment.')
+    if not isinstance(label,str) or len(label)>64:
+        raise ValueError('Global server name must be at most 64 characters.')
+    copy=dict(settings)
+    copy['global_servers']=global_profiles(copy)
+    if url not in copy['global_servers']:
+        copy['global_servers'].append(url)
+    labels=server_labels_of(copy)
+    if label.strip():
+        labels[server_key(url)]=label.strip()
+    copy['server_labels']=labels
+    return copy
+
+
+def select_global_profile(settings, url):
+    url=profile_url(url)
+    if not url or url not in global_profiles(settings):
+        raise ValueError('Global server is not in the saved profiles.')
+    copy=dict(settings)
+    old=profile_url(global_url(copy))
+    names=server_names_of(copy)
+    if old and copy.get('global_name'):
+        names[server_key(old)]=copy['global_name']
+    copy['global_server']=url
+    copy['server_type']='global'
+    copy['global_name']=names.get(server_key(url),'')
+    copy['server_names']=names
+    return copy
+
+
+def remove_global_profile(settings, url):
+    url=profile_url(url)
+    if not url or url==GLOBAL_SERVER:
+        raise ValueError('The built-in server remains available.')
+    if url not in global_profiles(settings):
+        return dict(settings)
+    copy=dict(settings)
+    copy['global_servers']=[one for one in global_profiles(copy) if one!=url]
+    for field in ('server_labels','server_names','server_ids','server_keys'):
+        values=dict(copy.get(field) or {})
+        values.pop(server_key(url),None)
+        copy[field]=values
+    if profile_url(global_url(copy))==url:
+        copy['global_server']=GLOBAL_SERVER
+        copy['global_name']=server_names_of(copy).get(server_key(GLOBAL_SERVER),'')
+    return copy
+
+
+def profile_label(settings, url):
+    if url==GLOBAL_SERVER:
+        return 'Seamless Hunt'
+    labels=server_labels_of(settings)
+    return labels.get(server_key(url)) or urllib.parse.urlsplit(url).hostname or url
+
+
 # A sign-in's secret starts with when it was issued (unix seconds, hex) and holds 30 days: a day before
 # that the launcher asks for a new sign-in, so a game is not refused half way.
 SECRET_DAYS = 29
@@ -401,6 +501,8 @@ def signed_in_global(settings, account):
     settings['server_ids'] = dict(settings.get('server_ids') or {})
     settings['server_ids'][server_key(global_url(settings))] = [account['id'], account['secret']]
     settings['global_name'] = account.get('name', '')
+    settings['server_names'] = server_names_of(settings)
+    settings['server_names'][server_key(global_url(settings))] = settings['global_name']
     return settings
 
 
@@ -410,6 +512,8 @@ def signed_out_global(settings):
     settings['server_ids'] = {host: pair for host, pair in (settings.get('server_ids') or {}).items()
                               if host != server_key(global_url(settings))}
     settings['global_name'] = ''
+    settings['server_names'] = server_names_of(settings)
+    settings['server_names'].pop(server_key(global_url(settings)), None)
     return settings
 
 
@@ -700,8 +804,17 @@ def read_settings(install):
         settings = {key: str(saved.get(key, default)) for key, default in DEFAULTS.items()}
         settings['server_ids'] = server_ids_of(saved)
         settings['server_keys'] = server_keys_of(saved)
+        settings['global_servers'] = global_profiles(saved)
+        settings['server_labels'] = server_labels_of(saved)
+        settings['server_names'] = server_names_of(saved)
         if not settings['global_name'] and isinstance(saved.get('discord_name'), str):
             settings['global_name'] = saved['discord_name']  # 1.3.2's first builds
+        # Migrate a one-server launcher: its displayed name belongs to its
+        # ORIGINAL server, not to every future Global server.
+        original=profile_url(global_url(settings))
+        if original and settings['global_name'] and server_key(original) not in settings['server_names']:
+            settings['server_names'][server_key(original)] = settings['global_name']
+        settings['global_name'] = settings['server_names'].get(server_key(original),'')
         return settings
     except (OSError, ValueError, AttributeError):
         pass
@@ -722,6 +835,9 @@ def save_settings(install, settings):
         saved['server_ids'] = settings['server_ids']
     if settings.get('server_keys'):
         saved['server_keys'] = settings['server_keys']
+    saved['global_servers'] = global_profiles(settings)
+    saved['server_labels'] = server_labels_of(settings)
+    saved['server_names'] = server_names_of(settings)
     path.write_text(json.dumps(saved, indent=2) + '\n', encoding='utf-8')
 
 
