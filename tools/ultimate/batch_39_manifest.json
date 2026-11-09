@@ -1,0 +1,74 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B39-2026-11-09",
+  "parent_pr": 90,
+  "parent_branch": "experiment/ultimate-batch-38-multi-global-server-profiles-20261109",
+  "status": "LOCAL_SHADNET_LINK_MEMBERS_HTTP_STATUS_PRIVACY_SAFE_HUNTERS_COUNTER",
+  "related_issues": [
+    85,
+    89,
+    9
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-39-local-link-members.yml",
+    "bbport/launcher/bbport_coop.py",
+    "bbport/launcher/bbport_launcher_win.py",
+    "bbport/tests/test_local_hunters_online.py",
+    "docs/ULTIMATE_BATCH_39.md",
+    "server/src/client_session.h",
+    "server/src/link_server.cpp",
+    "server/src/webapi_server.cpp",
+    "tools/ultimate/batch_39_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "server/src/client_session.h",
+      "git_blob_sha1": "b37ce1082fcd8799682beffbc6d2e5c55bc76172"
+    },
+    {
+      "path": "server/src/link_server.cpp",
+      "git_blob_sha1": "811af984254f9c9fa4d0fa35fbcacdaec3cb57c4"
+    },
+    {
+      "path": "server/src/webapi_server.cpp",
+      "git_blob_sha1": "daecb5501a61fb6e65ff34b1e3ee399365f4380c"
+    },
+    {
+      "path": "bbport/launcher/bbport_coop.py",
+      "git_blob_sha1": "fcf1f5e40ef16629c01d2d14614bee23b574c013"
+    },
+    {
+      "path": "bbport/launcher/bbport_launcher_win.py",
+      "git_blob_sha1": "ffe0fcd25fbf71a22c418512535dd8d7fb179b6e"
+    },
+    {
+      "path": "bbport/tests/test_local_hunters_online.py",
+      "git_blob_sha1": "74bbf7600eba39afa1b3a3d3aa5a3ad407699f00"
+    }
+  ],
+  "proof": [
+    "SharedState atomic linkMembers follows LinkServer real Hub::Members after both linked/gone events",
+    "WebAPI GET /status returns aggregate link_members without member IDs, account names or addresses",
+    "local launcher queries user-selected host's bounded HTTP WebAPI /status (no account data or proxy)",
+    "global B37+ B38 HTTPS count remains separate and selected profile-specific",
+    "old server/timeout/invalid/negative count produces unknown (dash) not zero",
+    "zero reported only for signed-in WebAPI with explicitly valid zero member count",
+    "UI 45s background polling and stale host URL isolation",
+    "Windows/Ubuntu production Python test module and full Qt/protobuf server Docker build plus existing CTest suites"
+  ],
+  "limitations": [
+    "local WebAPI 31315 must be reachable; cannot test UDP game transport by successful HTTP status alone",
+    "no TLS on local Radmin VPN WebAPI port; only anonymous aggregate health requested, no passwords or keys",
+    "publicly visible /status exposes only aggregate link membership, not team or account private data",
+    "counts connected game links, not guaranteed activity in a map or unique humans",
+    "no real Fornex server or 2/3/5 game test yet, no private assets/savedata changed"
+  ],
+  "safety": {
+    "no_fornex": true,
+    "no_user_saves": true,
+    "no_credentials": true,
+    "no_game_assets": true,
+    "no_release": true,
+    "no_client_installer": true
+  }
+}
