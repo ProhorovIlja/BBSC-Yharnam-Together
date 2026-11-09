@@ -3,6 +3,7 @@ name: Ultimate B12 member-specific hot-join slot guard (source fixtures only)
 on:
   pull_request:
     paths:
+      - '.github/workflows/ultimate-windows-test.yml'
       - 'emulator/src/core/bloodborne_party.h'
       - 'emulator/src/core/bloodborne_party.cpp'
       - 'emulator/src/core/bloodborne_boards.cpp'
@@ -29,18 +30,18 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Check exact B11-to-B12 eight-file source/test-only delta
+      - name: Check exact B11-to-B12 nine-file source/test and inherited CI delta
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin \
             experiment/ultimate-batch-11-global-source-intake-20261109:refs/remotes/origin/b11
           git diff --name-only origin/b11 HEAD > /tmp/b12-paths.txt
           cat /tmp/b12-paths.txt
-          if grep -vE '^(emulator/src/core/bloodborne_party\.h|emulator/src/core/bloodborne_party\.cpp|emulator/src/core/bloodborne_boards\.cpp|emulator/tests/bloodborne/test_bloodborne_member_data\.cpp|tools/re/tests/test_member_data_slot_guard\.py|tools/ultimate/batch_12_manifest\.json|docs/ULTIMATE_BATCH_12\.md|\.github/workflows/ultimate-batch-12-member-data-slot-guard\.yml)$' /tmp/b12-paths.txt; then
+          if grep -vE '^(\.github/workflows/ultimate-windows-test\.yml|emulator/src/core/bloodborne_party\.h|emulator/src/core/bloodborne_party\.cpp|emulator/src/core/bloodborne_boards\.cpp|emulator/tests/bloodborne/test_bloodborne_member_data\.cpp|tools/re/tests/test_member_data_slot_guard\.py|tools/ultimate/batch_12_manifest\.json|docs/ULTIMATE_BATCH_12\.md|\.github/workflows/ultimate-batch-12-member-data-slot-guard\.yml)$' /tmp/b12-paths.txt; then
             echo 'Unexpected server, private save, game assets, launcher or deployment change' >&2
             exit 1
           fi
-          test "$(wc -l < /tmp/b12-paths.txt)" -eq 8
+          test "$(wc -l < /tmp/b12-paths.txt)" -eq 9
       - name: Validate compiled source identities and no deployment policy
         run: |
           set -euo pipefail
@@ -50,7 +51,7 @@ jobs:
           m=json.loads(Path('tools/ultimate/batch_12_manifest.json').read_text())
           assert m['batch_id']=='B12-2026-11-09' and m['parent_pr']==43
           assert all(m[k] for k in ('no_deploy','no_game_assets','no_live_saves','no_full_build'))
-          assert len(m['changed_paths'])==8
+          assert len(m['changed_paths'])==9
           for row in m['sources']+m['tests']:
               data=Path(row['path']).read_bytes()
               sha=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
