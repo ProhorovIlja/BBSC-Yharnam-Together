@@ -132,6 +132,10 @@ def game_view(env, game, out, data, icons):
     there are Quit to Desktop's texts and the HUD layout)."""
     args = [game, '--out', out, '--mods-dir', env.get('BB_MODS_DIR', data / 'mods'),
             '--config', env.get('BB_MODS_CONFIG', data / 'mods.json'), '--enabled', env.get('BB_MODS_ENABLED', '1')]
+    # Offline with the merged 1.09 co-op game view must NOT load its sibling
+    # CUSA03173-mods event scripts. Keep independently selected user mods.
+    if env.get('BB_IGNORE_LEGACY_GAME_MODS') == '1':
+        args.append('--ignore-legacy')
     layers = [*icons, *party_hud_args(env)]
     view = run_script('mods.py', *args, *layers, capture=True, optional=bool(layers))
     if view is None:
