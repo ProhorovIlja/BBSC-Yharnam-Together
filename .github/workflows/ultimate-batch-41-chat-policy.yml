@@ -1,0 +1,51 @@
+name: "Ultimate B41 C++ server text chat admission policy"
+
+on:
+  pull_request:
+    paths:
+      - 'server/coop/chat_policy.h'
+      - 'server/tests/test_chat_policy.cpp'
+      - 'server/CMakeLists.txt'
+      - '.github/workflows/ultimate-batch-41-chat-policy.yml'
+      - 'docs/ULTIMATE_BATCH_41.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b41-chat-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chat-policy-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and run the actual C++20 server policy, no game or network access
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -Iserver server/tests/test_chat_policy.cpp -o /tmp/test_chat_policy
+          /tmp/test_chat_policy
+          echo B41_TEXT_CHAT_POLICY_SOURCE_TEST_PASS_NO_LIVE_CHAT
+
+  chat-policy-windows:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile and run actual C++20 server policy with MSVC
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /utf-8 /EHsc /W4 /WX /I server server/tests/test_chat_policy.cpp /Fe:chat_test.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\chat_test.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Output "B41_CHAT_POLICY_MSVC_SOURCE_TEST_PASS_NO_LIVE_CHAT"
