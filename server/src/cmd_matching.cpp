@@ -9,6 +9,7 @@
 #include "proto_utils.h"
 #include "shadnet.pb.h"
 #include "signaling_peer_scope.h"
+#include "matching_lifecycle_guard.h"
 
 namespace {
 
@@ -447,6 +448,9 @@ ErrorType ClientSession::CmdContextStart(StreamExtractor& data) {
     if (!decodeProto(req, data) || data.error())
         return ErrorType::Malformed;
 
+    // A second context cannot silently overwrite an active room's lifecycle.
+    if (!MatchingLifecycleGuard::MayEnterRoom(m_matching))
+        return ErrorType::RoomAlreadyJoined;
     m_matching.ctxId = req.ctx_id();
     m_matching.initialized = true;
     {
@@ -467,6 +471,13 @@ ErrorType ClientSession::CmdContextStop(StreamExtractor& data) {
     if (!decodeProto(req, data) || data.error())
         return ErrorType::Malformed;
 
+    // Stop the *room* before stopping its context, so other hunters receive
+    // MemberLeft/owner migration and this seat is released. If an obsolete
+    // room ID no longer exists, retire our local state anyway.
+    if (const uint64_t roomId = MatchingLifecycleGuard::RoomRequiringCleanup(m_matching)) {
+        DoLeaveRoom(roomId);
+        ResetMatchingRoomState(roomId);
+    }
     m_matching.ctxId = 0;
     m_matching.initialized = false;
     {
@@ -485,6 +496,10 @@ ErrorType ClientSession::CmdCreateRoom(StreamExtractor& data, QByteArray& reply)
     shadnet::CreateRoomRequest req;
     if (!decodeProto(req, data) || data.error())
         return ErrorType::Malformed;
+
+    // Creating a second room without leaving the first orphaned its members.
+    if (!MatchingLifecycleGuard::MayEnterRoom(m_matching))
+        return ErrorType::RoomAlreadyJoined;
 
     uint16_t maxSlot = static_cast<uint16_t>(req.max_slots());
     if (maxSlot < 1)
@@ -686,6 +701,10 @@ ErrorType ClientSession::CmdJoinRoom(StreamExtractor& data, QByteArray& reply) {
     shadnet::JoinRoomRequest req;
     if (!decodeProto(req, data) || data.error())
         return ErrorType::Malformed;
+
+    // Do not overwrite a live room reference with a second join.
+    if (!MatchingLifecycleGuard::MayEnterRoom(m_matching))
+        return ErrorType::RoomAlreadyJoined;
 
     uint64_t roomId = req.room_id();
 
@@ -1596,11 +1615,11 @@ void ClientSession::DoLeaveRoom(uint64_t roomId) {
 // ── Disconnect cleanup ────────────────────────────────────────────────────────
 
 void ClientSession::CleanupMatchingOnDisconnect() {
-    if (!m_matching.initialized)
-        return;
-
-    if (m_matching.roomId != 0)
-        DoLeaveRoom(m_matching.roomId);
-
+    // Cleanup must key off actual room ownership, not initialized: ContextStop
+    // used to clear initialized while leaving an occupied room behind.
+    if (const uint64_t roomId = MatchingLifecycleGuard::RoomRequiringCleanup(m_matching)) {
+        DoLeaveRoom(roomId);
+        ResetMatchingRoomState(roomId);
+    }
     qInfo() << "Matching cleanup for" << m_info.npid;
 }
