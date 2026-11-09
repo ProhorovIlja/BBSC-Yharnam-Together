@@ -24,7 +24,7 @@ The B16 Windows Actions workflow also reports the presence of three native EXEs 
 
 `tools/ultimate/test_batch_16_windows_finalization.py` extracts the **exact finalization commands from production Bash** and runs them locally against tiny synthetic files in isolated temporary folders. It checks successful source/destination identity, all three missing-file paths, raw exit code 37 from a mocked failing copy, and corrupted copied data rejection with exit 47. No real game binary is created by these tests. Ubuntu CI runs this plus inherited B10/B12/B13/B14 source and C++ fixtures before the expensive Windows compiler.
 
-The existing `.github/workflows/ultimate-native-client-windows.yml` is scoped precisely to the new **five changed B15→B16 files**, instead of running its B13→B14 allowlist on descendant PRs. After that strict source gate passes, Windows 2022 MSYS2 CLANG64 will repeat a **single** full build on the entire B01–B16 source including server #7/#8. The complete PE32+ and CMakeCache checks remain mandatory. If a first build fails, its overall CI stays RED even if an incremental diagnostic completes.
+The existing `.github/workflows/ultimate-native-client-windows.yml` is scoped precisely to the new **six changed B15→B16 files**, instead of running its B13→B14 allowlist on descendant PRs. After that strict source gate passes, Windows 2022 MSYS2 CLANG64 will repeat a **single** full build on the entire B01–B16 source including server #7/#8. The complete PE32+ and CMakeCache checks remain mandatory. If a first build fails, its overall CI stays RED even if an incremental diagnostic completes.
 
 ## Still OPEN
 
@@ -34,3 +34,7 @@ The existing `.github/workflows/ultimate-native-client-windows.yml` is scoped pr
 - The separate fully **native Windows Bloodborne.exe with no original PS4 ELF/eboot at runtime**.
 
 Fornex, public downloads, account passwords, private Google Drive game files and player saves remain untouched.
+
+## B14 inherited regression adapted
+
+After the B16 source finalization refactor, the previous B14 staged-Ninja fixture still located its loop by the old direct `cp out/gpu/...` anchor. Source CI reported a `ValueError` from that obsolete test selector, not a game/compiler failure. B16 updates the fixture to stop at the new production `bbsc_win_phase=validate-native-outputs` marker. This extra regression file is included in the **six-path B15→B16 diff allowlist**, pinned to its exact Git blob and re-run together with B16's real copy fixtures.
