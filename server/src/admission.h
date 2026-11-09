@@ -108,6 +108,13 @@ private:
         quint64 dropped = 0; // in the strikes' window
     };
 
+    // Do not clear live address buckets on a flood of new addresses: that
+    // resets every active attacker's hello budget. Retire idle entries only
+    // when at capacity, at most one bounded sweep per ten seconds. New unknown
+    // addresses fail closed if every slot remains live.
+    static constexpr qsizetype MaxHelloBuckets = 100'000;
+    static constexpr qint64 HelloBucketIdleMs = 120'000;
+    qint64 next_hello_cleanup_ms = 0;
     Limits limits;
     QHash<quint32, Bucket> hellos;
     QHash<quint32, QList<qint64>> accounts; // when each address made its accounts, the last hour
