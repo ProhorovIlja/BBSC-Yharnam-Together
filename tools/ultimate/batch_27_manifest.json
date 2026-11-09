@@ -1,0 +1,49 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B27-2026-11-09",
+  "parent_pr": 58,
+  "parent_branch": "experiment/ultimate-batch-26-link-identity-takeover-20261109",
+  "status": "WORLD_LOADING_PROGRESS_EXPIRES_PER_GAME_RUN_NOT_PER_WORLD_OR_TEAM",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-27-world-load-reconnect.yml",
+    "server/src/bloodborne_world.cpp",
+    "server/src/bloodborne_world.h",
+    "server/tests/test_bloodborne_world.cpp",
+    "docs/ULTIMATE_BATCH_27.md",
+    "tools/ultimate/batch_27_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "server/src/bloodborne_world.cpp",
+      "git_blob_sha1": "3d48b0716f0a4010cc4eeab86d54d524d9947bd4"
+    },
+    {
+      "path": "server/src/bloodborne_world.h",
+      "git_blob_sha1": "08073547b6322a8edb46585bee97ccfcbb1b77d3"
+    },
+    {
+      "path": "server/tests/test_bloodborne_world.cpp",
+      "git_blob_sha1": "8dd8e53ae2851bd07d28f19be78b17464e3bef7d"
+    }
+  ],
+  "native_tests": [
+    "Real CoopStream+WorldService: transient Quiet retains in-progress load for peers",
+    "Actual server Forget of gone link erases only old run's load before a late player Hello",
+    "Returned hunter publishes new percent; subsequent late member receives only fresh load",
+    "CoopStream restarted on same physical UDP endpoint removes previous run's load",
+    "Unchanged world log, saved return point, session host and owner tests in full 12-suite Docker server verification",
+    "Production source order plus exact six-file Git SHA pins"
+  ],
+  "safety": {
+    "no_fornex_writes": true,
+    "no_proprietary_game_data": true,
+    "no_player_saves": true,
+    "no_public_release": true,
+    "no_windows_client_engine_rebuild": true
+  },
+  "limits": [
+    "No real launched two/three/five-player game",
+    "No direct screenshot parity or visual actor presence",
+    "Docker CI tests create only disposable server, never connect to Fornex"
+  ]
+}
