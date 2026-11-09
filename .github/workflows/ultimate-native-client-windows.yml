@@ -51,7 +51,7 @@ jobs:
           m=json.loads(Path("tools/ultimate/batch_19_manifest.json").read_text())
           assert m["batch_id"]=="B19-2026-11-09" and m["parent_pr"]==50
           assert len(m["changed_paths"])==5
-          assert all(m[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_public_release"))
+          assert all(m["source_safety"].values())
           for item in m["pinned_blobs"]:
               b=Path(item["path"]).read_bytes()
               sha=hashlib.sha1(b"blob "+str(len(b)).encode()+b"\0"+b).hexdigest()
