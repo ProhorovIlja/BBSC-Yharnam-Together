@@ -717,6 +717,11 @@ constexpr u64 BroadcastMemberDataOffset = 0x01781AC0;
 constexpr u32 MemberDataRequestChannel = 0x0A;
 constexpr u8 MemberDataParts = 0x1E;
 bool HasAllMemberData(u8 parts);
+// Waiting join tasks may only request data once this specific remote member
+// has a valid receiving slot and writable parts byte. There are at most four
+// remote slots in a five-hunter session. A visible vitals name alone is not
+// sufficient to make a network call or create its in-game character.
+bool MemberDataRequestReady(bool member_here, std::optional<s32> slot, u64 parts);
 // A member rebuilt after a trip while its data had not come (see RebuildsFromSave) waits for it:
 // once the member has stood on this map a moment, its data is asked for (channel 0x0A) and asked
 // again every few seconds until all its parts are in, then its character is created. The parts
