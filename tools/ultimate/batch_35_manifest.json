@@ -1,0 +1,64 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B35-2026-11-09",
+  "parent_pr": 81,
+  "parent_branch": "experiment/ultimate-batch-34-offline-edited-save-cheat-watch-baseline-20261109",
+  "status": "BUILTIN_CHEAT_PATCHES_OFFLINE_ALLOWED_BUT_ONLINE_GAME_COOP_FILTERED",
+  "related_issues": [
+    69,
+    70,
+    76,
+    26,
+    9
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-35-patch-mode-gate.yml",
+    "bbport/launcher/bbport_launcher_win.py",
+    "bbport/scripts/patches.py",
+    "bbport/tests/test_patch_mode_guard.py",
+    "bbport/tests/test_patches.py",
+    "docs/ULTIMATE_BATCH_35.md",
+    "tools/ultimate/batch_35_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/scripts/patches.py",
+      "git_blob_sha1": "0308260b673b50b217818e866fbe1182316021de"
+    },
+    {
+      "path": "bbport/launcher/bbport_launcher_win.py",
+      "git_blob_sha1": "9c166868f1f69020a96f66e44abc3ffd1912a947"
+    },
+    {
+      "path": "bbport/tests/test_patches.py",
+      "git_blob_sha1": "66983e02276e663945f31dd72b2858260fb3daf6"
+    },
+    {
+      "path": "bbport/tests/test_patch_mode_guard.py",
+      "git_blob_sha1": "7e048f54840bb599f3afb7c6916ffc746151a218"
+    }
+  ],
+  "proof": [
+    "the exact production bbport/scripts/patches.py is imported and tested on Linux and Windows",
+    "build_info production bit no longer universally denies offline cheat patches",
+    "BB_ONLINE=1 or SHADPS4_BLOODBORNE_SEAMLESS_COOP=1 deny known cheats and debug patches in both production and dev builds",
+    "bbport.ini enabled cheat keys cannot survive to online patch output; --extra and external XML with the same known built-in patch names are filtered",
+    "safe built-in camera-distance, ragdoll, graphics and UI tweaks unchanged by known-cheat gate",
+    "non-coop standalone launcher game_environment clears inherited online/co-op auth variables on offline launch",
+    "legacy in-tree DebugPatchTests policy updated and executed"
+  ],
+  "limitations": [
+    "does not yet restore production launcher offline Cheats tab or historic Save editor UI",
+    "co-op release Play path still always runs online, without a separate offline game button",
+    "independently named arbitrary third-party XML patches/mods have not been classified, and may contain gameplay cheats",
+    "only startup built-in patch selection, no dynamic login inside game or out-of-process memory injection defense",
+    "no full game, savedata, Qt server or Windows installer integration tests"
+  ],
+  "safety": {
+    "no_fornex": true,
+    "no_user_saves": true,
+    "no_private_game_assets": true,
+    "no_release": true,
+    "no_full_emulator_rebuild": true
+  }
+}
