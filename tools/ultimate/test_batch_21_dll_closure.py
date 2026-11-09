@@ -128,7 +128,6 @@ class ActualPackagingClosure(TestCase):
     def test_production_package_invokes_closure_after_all_root_bin_dlls(self):
         s = PACKAGER.read_text(encoding="utf-8")
         for text in (
-            "llvm-objdump",
             "verify_runtime_dlls.py",
             "--bin-dir \"$dest/bin\"",
             "--root \"$dest/bin/bb-probe.exe\"",
@@ -141,6 +140,7 @@ class ActualPackagingClosure(TestCase):
         self.assertGreater(s.index("verify_runtime_dlls.py"), s.index("cp out/xess/bin/libxess.dll"))
         self.assertGreater(s.index("verify_runtime_dlls.py"), s.index("cp out/bbport_dlss.dll out/nvngx_dlss.dll"))
         self.assertLess(s.index("verify_runtime_dlls.py"), s.index("if [[ ${BB_PACKAGE_STAGE_ONLY:-} == 1 ]]"))
+        self.assertIn("llvm-objdump", HELPER.read_text())
         self.assertNotIn("BB_GAME_DIR", HELPER.read_text())
         self.assertNotIn("requests.get", HELPER.read_text())
 
