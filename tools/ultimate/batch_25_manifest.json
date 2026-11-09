@@ -1,0 +1,49 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B25-2026-11-09",
+  "parent_pr": 56,
+  "parent_branch": "experiment/ultimate-batch-24-signal-peer-room-scope-20261109",
+  "status": "MATCHING_CONTEXT_STOP_AND_REPEAT_JOIN_DO_NOT_ORPHAN_ROOM_MEMBERS",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-25-room-context-lifecycle.yml",
+    "server/src/cmd_matching.cpp",
+    "server/src/matching_lifecycle_guard.h",
+    "server/tests/test_matching_lifecycle_guard.cpp",
+    "docs/ULTIMATE_BATCH_25.md",
+    "tools/ultimate/batch_25_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "server/src/cmd_matching.cpp",
+      "git_blob_sha1": "0061c30bd6983a433172caff02bc187ae4b8df31"
+    },
+    {
+      "path": "server/src/matching_lifecycle_guard.h",
+      "git_blob_sha1": "3f24dd14d1d8619447e3c04f31f81d8307a8cf3a"
+    },
+    {
+      "path": "server/tests/test_matching_lifecycle_guard.cpp",
+      "git_blob_sha1": "da445382c42bf3b970b37275b43ecfab7e8ed9dc"
+    }
+  ],
+  "tests": [
+    "B24 real Qt6 same-room signaling regression retained",
+    "Real Qt6 five-member room state guard; context stopped but room remains occupied",
+    "Repeat Create/Join/ContextStart blocked before any state overwrite",
+    "ContextStop executes real DoLeaveRoom before marking context stopped",
+    "Disconnect room cleanup regardless initialized",
+    "Source-exact six changed file Git SHA pins"
+  ],
+  "safety": {
+    "no_fornex_writes": true,
+    "no_game_assets": true,
+    "no_player_saves": true,
+    "no_public_release": true,
+    "no_native_engine_rebuild": true
+  },
+  "limitations": [
+    "Source-order and guard-level Qt6 tests, not a real five-person Bloodborne playtest",
+    "No full integrated server build on this change",
+    "No signed Windows installer; no live server reconnect test"
+  ]
+}
