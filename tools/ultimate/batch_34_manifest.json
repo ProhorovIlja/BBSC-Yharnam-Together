@@ -1,0 +1,52 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B34-2026-11-09",
+  "parent_pr": 68,
+  "parent_branch": "experiment/ultimate-batch-33-time-of-day-host-block-coverage-20261109",
+  "status": "ALLOW_OFFLINE_EDITED_SAVE_BASELINE_WHILE_TRACKING_CONNECTED_RUN_EDIT_DELTAS",
+  "related_issues": [
+    69,
+    70,
+    26,
+    9
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-34-edited-save-cheat-watch.yml",
+    "docs/ULTIMATE_BATCH_34.md",
+    "server/coop/cheat_watch.h",
+    "server/tests/test_cheat_watch.cpp",
+    "tools/ultimate/batch_34_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "server/coop/cheat_watch.h",
+      "git_blob_sha1": "607955bec067355d017a5f385aeecdbdb823cae2"
+    },
+    {
+      "path": "server/tests/test_cheat_watch.cpp",
+      "git_blob_sha1": "6773302a4b3459ed79415eb91106699c64a067d6"
+    }
+  ],
+  "native_tests": [
+    "actual current server/tests/test_cheat_watch.cpp links unchanged production CheatWatch header on Ubuntu GCC and Windows MSVC",
+    "offline edited pre-login save attributes, level, echoes, insight, HP allowed as informational baseline, not Certain active cheat",
+    "pre-existing positive save_edit counter never recorded as active editing on first CharacterSheet",
+    "increased in-run save edit counter flagged Likely and reset with StartOver",
+    "active runtime cheat patches still marked Certain and within-run level/stat changes remain monitored",
+    "vanilla clean saves, genuine Doll level-ups, bloodstain, trade credits and server session resets still pass existing tests"
+  ],
+  "limitations": [
+    "only server reporting classification, no ban/refusal behavior changed",
+    "does not yet add Save editor UI or toggle runtime game patches by online state",
+    "cannot cryptographically distinguish active cheating from client fabricated fields",
+    "network validity and hostile peer event authentication are separate future work",
+    "full client/server Qt protobuf build and 1.09 gameplay not performed by this workflow"
+  ],
+  "safety": {
+    "no_live_fornex": true,
+    "no_private_game_files": true,
+    "no_user_saves": true,
+    "no_public_release": true,
+    "no_full_emulator_rebuild": true
+  }
+}
