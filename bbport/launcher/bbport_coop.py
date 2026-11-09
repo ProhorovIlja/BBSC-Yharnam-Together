@@ -1151,7 +1151,8 @@ def offline_game_environment(env,install,root):
                 'BB_CONFIG':str(install/'bbport.ini'),
                 'BB_USER_DIR':str(install/'user'),
                 'BB_GAME_DIR':str(root/'CUSA03173'),
-                'BB_IGNORE_LEGACY_GAME_MODS':'1'})
+                'BB_IGNORE_LEGACY_GAME_MODS':'1',
+                'BB_PARTY_HUD':'0'})
     return env
 
 
