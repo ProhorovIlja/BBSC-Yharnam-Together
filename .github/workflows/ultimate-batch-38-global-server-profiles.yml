@@ -1,0 +1,104 @@
+name: "Ultimate B38 selectable secure Global server profiles"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-38-global-server-profiles.yml'
+      - 'bbport/launcher/bbport_coop.py'
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/tests/test_global_server_profiles.py'
+      - 'docs/ULTIMATE_BATCH_38.md'
+      - 'tools/ultimate/batch_38_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b38-global-server-profiles-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-identity:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-37-hunters-online-directory-summary-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exact six changed source/test/docs/workflow files and pinned blobs against B37
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-37-hunters-online-directory-summary-20261109:refs/remotes/origin/b37
+          git diff --name-only origin/b37 HEAD >/tmp/b38-diff
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_38_manifest.json').read_text())
+          actual=set(Path('/tmp/b38-diff').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==6 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert m['parent_pr']==88 and m['batch_id']=='B38-2026-11-09'
+          assert all(m['safety'].values())
+          for entry in m['pinned_blobs']:
+              actual_sha=subprocess.check_output(['git','hash-object',entry['path']],text=True).strip()
+              assert actual_sha==entry['git_blob_sha1'],(entry['path'],actual_sha)
+          print('B38_SIX_FILE_BASE_DIFF_AND_THREE_BLOB_SHA_PASS')
+          PY
+      - name: Verify URL and authenticated server-selection protection
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          model=Path('bbport/launcher/bbport_coop.py').read_text()
+          ui=Path('bbport/launcher/bbport_launcher_win.py').read_text()
+          assert 'def add_global_profile(settings, url' in model
+          assert 'def select_global_profile(settings, url):' in model
+          assert 'def server_names_of(saved):' in model
+          assert 'global_url(settings)' in model and 'server_key(global_url(settings))' in model
+          assert 'def coop_profile_chosen(self' in ui
+          assert 'self.coop_profile_busy()' in ui
+          assert 'bbport_coop.server_key(requested_url)' in ui
+          assert 'self.hunters_next_poll = 0.0' in ui
+          print('B38_PERSISTENT_HTTPS_PROFILES_AND_AUTH_SWITCH_GUARD_PASS')
+          PY
+
+  profile-regressions-linux:
+    needs: exact-source-identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Real production settings, profile and selected server count Python tests
+        shell: bash
+        run: |
+          python -m unittest discover -s bbport/tests -p 'test_global_server_profiles.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_hunters_online.py' -v
+
+  profile-regressions-windows:
+    needs: exact-source-identity
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Real production settings, profile and selected server count Python tests
+        shell: bash
+        run: |
+          python -m unittest discover -s bbport/tests -p 'test_global_server_profiles.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_hunters_online.py' -v
+      - name: No live credentials, game files or Fornex deployment
+        shell: bash
+        run: echo B38_GLOBAL_PROFILES_TESTED_LOCALLY_NO_PRODUCTION_LAUNCH
