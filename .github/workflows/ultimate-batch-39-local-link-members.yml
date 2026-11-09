@@ -1,0 +1,131 @@
+name: "Ultimate B39 accurate local ShadNet link members in WebAPI and launcher"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-39-local-link-members.yml'
+      - 'bbport/launcher/bbport_coop.py'
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/tests/test_local_hunters_online.py'
+      - 'docs/ULTIMATE_BATCH_39.md'
+      - 'server/src/client_session.h'
+      - 'server/src/link_server.cpp'
+      - 'server/src/webapi_server.cpp'
+      - 'tools/ultimate/batch_39_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b39-local-link-count-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-and-status-contract:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-38-multi-global-server-profiles-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Nine paths and six immutable production Git blob SHA identities against B38
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-38-multi-global-server-profiles-20261109:refs/remotes/origin/b38
+          git diff --name-only origin/b38 HEAD >/tmp/b39-diff
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_39_manifest.json').read_text())
+          actual=set(Path('/tmp/b39-diff').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==9 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert m['parent_pr']==90 and m['batch_id']=='B39-2026-11-09'
+          assert all(m['safety'].values())
+          for p in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',p['path']],text=True).strip()
+              assert sha==p['git_blob_sha1'],(p['path'],sha)
+          print('B39_EXACT_NINE_PATHS_SIX_SOURCE_SHA_PINS_PASS')
+          PY
+      - name: Real source guarantees aggregate link count, no player identity exposure
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          h=Path('server/src/client_session.h').read_text()
+          l=Path('server/src/link_server.cpp').read_text()
+          w=Path('server/src/webapi_server.cpp').read_text()
+          p=Path('bbport/launcher/bbport_coop.py').read_text()
+          ui=Path('bbport/launcher/bbport_launcher_win.py').read_text()
+          assert 'std::atomic<int> linkMembers{0};' in h
+          assert 'm_shared->linkMembers.store(static_cast<int>(m_link.Members())' in l
+          assert 'shared->linkMembers.load(std::memory_order_relaxed)' in w
+          assert 'body.insert("link_members"' in w
+          assert "opener.open(url, timeout=timeout)" in p and 'answer.read(1024)' in p
+          assert 'bbport_coop.local_hunters_online(settings)' in ui
+          assert 'self.hunters_next_poll = now + 45.0' in ui
+          print('B39_LOCAL_PRIVACY_SAFE_STATUS_AND_ASYNC_LAUNCHER_PASS')
+          PY
+
+  local-link-regressions-linux:
+    needs: exact-source-and-status-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run actual co-op module tests for local/global/server profiles
+        shell: bash
+        run: |
+          python -m unittest discover -s bbport/tests -p 'test_local_hunters_online.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_hunters_online.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_global_server_profiles.py' -v
+
+  local-link-regressions-windows:
+    needs: exact-source-and-status-contract
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run actual co-op module tests for local/global/server profiles
+        shell: bash
+        run: |
+          python -m unittest discover -s bbport/tests -p 'test_local_hunters_online.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_hunters_online.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_global_server_profiles.py' -v
+
+  full-server-qt-http-and-world-tests:
+    needs: exact-source-and-status-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+      - name: Fetch only protobuf dependency
+        shell: bash
+        run: git submodule update --init --depth=1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Compile actual Qt6/protobuf ShadNet server and run all in-tree CTest suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build --build-arg BUILD_JOBS=2             -f server/hosting/Dockerfile             --target verification-tests             -t bbsc-ultimate-b39-disposable-server-tests .
+          echo B39_FULL_SERVER_REAL_QT_AND_CTEST_PASS
+      - name: No production restart
+        run: echo B39_CONTAINER_ONLY_NO_FORNEX_NO_USER_SAVE_NO_PRIVATE_GAME_ASSETS
