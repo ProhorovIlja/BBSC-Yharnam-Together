@@ -37,8 +37,12 @@ class LauncherCloseTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def start(self, body):
-        return launcher.start_game(stand_in(self.dir, body),
-                                    {**os.environ, 'PYTHONIOENCODING': 'utf-8'}, self.log)
+        # The real launcher intentionally prepends a Vulkan overlay diagnostic
+        # to last_run.log. These tests isolate game stdout ordering, so replace
+        # *only that source line* in the stand-in fixture, not in production.
+        with mock.patch.object(launcher.bbport_support, 'overlay_log_line', return_value=''):
+            return launcher.start_game(stand_in(self.dir, body),
+                                       {**os.environ, 'PYTHONIOENCODING': 'utf-8'}, self.log)
 
     def test_output_goes_to_the_file_with_no_pipe(self):
         process = self.start("say('one'); say('two')\n")
@@ -228,6 +232,9 @@ class CloseOnPlayTests(unittest.TestCase):
             status=types.SimpleNamespace(configure=lambda **kwargs: None),
             set_running=lambda *args, **kwargs: None, append=lambda text: None, refresh_status=lambda: None,
             coop_watch_line=lambda line: None, coop_game_ended=lambda: None)
+        # Timers are now owned by the Launcher and canceled on Tk teardown.
+        # Keep this minimal stand-in's observable scheduling contract intact.
+        window.after_owned = lambda ms, fn: scheduled.append((ms, fn))
         for line in lines:
             window.output.put(line)
         launcher.Launcher.drain_output(window)

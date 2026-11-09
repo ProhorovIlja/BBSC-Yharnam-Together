@@ -1,0 +1,124 @@
+name: "Ultimate B22 real Windows Tk teardown and after-timer ownership"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-22-launcher-lifecycle.yml'
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/tests/test_launcher_close.py'
+      - 'bbport/tests/test_launcher_timer_lifetime.py'
+      - 'docs/ULTIMATE_BATCH_22.md'
+      - 'tools/ultimate/batch_22_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b22-tk-close-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-and-timer-contract:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-21-runtime-dll-closure-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify six exact B21-to-B22 paths and actual production source Git blobs
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-21-runtime-dll-closure-20261109:refs/remotes/origin/b21
+          git diff --name-only origin/b21 HEAD >/tmp/b22-changed.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          m=json.loads(Path('tools/ultimate/batch_22_manifest.json').read_text())
+          actual=set(Path('/tmp/b22-changed.txt').read_text().splitlines())
+          allowed=set(m['changed_paths'])
+          assert len(allowed)==6 and actual==allowed,(sorted(actual-allowed),sorted(allowed-actual))
+          assert m['batch_id']=='B22-2026-11-09' and m['parent_pr']==53
+          assert all(m['safety'].values())
+          for x in m['pinned_blobs']:
+              b=Path(x['path']).read_bytes()
+              sha=hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+              assert sha==x['git_blob_sha1'],(x['path'],sha,x['git_blob_sha1'])
+          print('B22_EXACT_SIX_SOURCE_BLOBS_AND_SAFETY_PASS')
+          PY
+      - name: Verify no bare root.after outside production Launcher timer-owner method
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bbport/launcher/bbport_launcher_win.py \
+            bbport/tests/test_launcher_close.py bbport/tests/test_launcher_timer_lifetime.py
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          tree=ast.parse(Path('bbport/launcher/bbport_launcher_win.py').read_text())
+          owner=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='Launcher')
+          found=[]
+          for method in owner.body:
+              if not isinstance(method,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                  continue
+              for node in ast.walk(method):
+                  if not isinstance(node,ast.Call) or not isinstance(node.func,ast.Attribute):
+                      continue
+                  if node.func.attr not in ('after','after_idle'):
+                      continue
+                  value=node.func.value
+                  owned_root=(isinstance(value,ast.Attribute) and value.attr=='root'
+                              and isinstance(value.value,ast.Name) and value.value.id=='self')
+                  local_root=isinstance(value,ast.Name) and value.id=='root'
+                  if owned_root or local_root:
+                      found.append((method.name,node.func.attr,node.lineno))
+                      assert method.name=='after_owned',(method.name,node.lineno)
+          assert len(found)==2,found
+          names={n.name for n in owner.body if isinstance(n,ast.FunctionDef)}
+          assert {'after_owned','_stop_after_jobs','_root_destroyed','close'} <= names
+          motion=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='Motion')
+          close=next(n for n in motion.body if isinstance(n,ast.FunctionDef) and n.name=='close')
+          assert any(
+              (isinstance(n,ast.Attribute) and n.attr=='after_cancel')
+              or (isinstance(n,ast.Constant) and n.value=='after_cancel')
+              for n in ast.walk(close)
+          )
+          print('B22_LAUNCHER_TIMERS_EXCLUSIVELY_OWNED_AND_MOTION_CANCELS_TICK_PASS')
+          PY
+
+  actual-windows-tk-teardown:
+    needs: exact-source-and-timer-contract
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Install pinned Tk image support, never package game
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check Pillow==11.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Pillow fixture unavailable' }
+          python -c "import sys, tkinter; assert sys.platform == 'win32'; print('B22_REAL_WINDOWS_TK', tkinter.TkVersion)"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Tk unavailable' }
+      - name: Real Tk root-destroy/callback-cancellation and inherited close-on-game regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PYTHONDONTWRITEBYTECODE = '1'
+          foreach ($pattern in @('test_launcher_timer_lifetime.py', 'test_launcher_close.py', 'test_launcher_lag.py')) {
+            Write-Host "B22_REAL_WINDOWS_TEST $pattern"
+            python -m unittest discover -s bbport/tests -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "B22 Windows Tk/lifecycle regression FAILED: $pattern" }
+          }
+          Write-Host 'B22_REAL_WINDOWS_TK_AFTER_CLOSE_REOPEN_NO_ORPHAN_TIMER_PASS'
+      - name: No proprietary game assets, installer, public artifact or production account
+        run: echo 'B22_NO_PRIVATE_GAMES_NO_INSTALLER_NO_FORNEX_NO_RELEASE_NO_NATIVE_ENGINE_REBUILD'
