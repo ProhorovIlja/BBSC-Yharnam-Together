@@ -296,3 +296,79 @@ TEST(MemberPresence, OneCopyOfAMemberTakesItsPackets) {
     EXPECT_TRUE(takers.Takes(0x4000, 0, 0));
     EXPECT_TRUE(takers.Takes(0x5000, 0, 0));
 }
+
+TEST(BloodborneEncounterInsight, BossInsightStaysWithItsOriginalHunterAcrossSaveSwitch) {
+    Core::Bloodborne::EncounterInsightPayout payout;
+    EXPECT_TRUE(payout.ObserveOwner(0, 1));
+    EXPECT_TRUE(payout.Add(5));
+    EXPECT_EQ(payout.Remaining(), 5);
+    EXPECT_TRUE(payout.CanPay(100));
+    EXPECT_TRUE(payout.Paid(100));
+    EXPECT_EQ(payout.Remaining(), 4);
+
+    EXPECT_TRUE(payout.ObserveOwner(1, 1));
+    EXPECT_EQ(payout.Remaining(), 0) << "no points from slot 0 can reach slot 1";
+    EXPECT_FALSE(payout.CanPay(1000));
+    EXPECT_TRUE(payout.Add(2));
+    EXPECT_EQ(payout.Remaining(), 2);
+    EXPECT_TRUE(payout.Paid(1000));
+
+    EXPECT_TRUE(payout.ObserveOwner(0, 1));
+    EXPECT_EQ(payout.Remaining(), 4) << "slot 0's four points are retained for that hunter";
+    EXPECT_TRUE(payout.Paid(1300));
+    EXPECT_EQ(payout.Remaining(), 3);
+
+    EXPECT_TRUE(payout.ObserveOwner(1, 1));
+    EXPECT_EQ(payout.Remaining(), 1);
+}
+
+TEST(BloodborneEncounterInsight, SameSlotNewCharacterCannotInheritPendingPoints) {
+    Core::Bloodborne::EncounterInsightPayout payout;
+    payout.ObserveOwner(3, 8);
+    EXPECT_TRUE(payout.Add(5));
+    EXPECT_TRUE(payout.ObserveOwner(3, 9))
+        << "generation changes when a different character replaces the save slot";
+    EXPECT_EQ(payout.Remaining(), 0);
+    EXPECT_FALSE(payout.Paid(1000));
+    EXPECT_TRUE(payout.ObserveOwner(3, 8));
+    EXPECT_EQ(payout.Remaining(), 0) << "obsolete generation was destroyed";
+}
+
+TEST(BloodborneEncounterInsight, UnknownCharacterAndEmptyAwardNeverPay) {
+    Core::Bloodborne::EncounterInsightPayout payout;
+    payout.ObserveOwner(-1, 1);
+    EXPECT_FALSE(payout.Add(5));
+    EXPECT_FALSE(payout.CanPay(5000));
+    EXPECT_FALSE(payout.Paid(5000));
+    payout.ObserveOwner(0, 1);
+    EXPECT_FALSE(payout.Add(0));
+    EXPECT_FALSE(payout.Add(-1));
+    EXPECT_FALSE(payout.CanPay(5000));
+}
+
+TEST(BloodborneEncounterInsight, PayoutPacesNativeEffectToOnePointEvery300Milliseconds) {
+    Core::Bloodborne::EncounterInsightPayout payout;
+    payout.ObserveOwner(0, 1);
+    EXPECT_TRUE(payout.Add(5));
+    EXPECT_TRUE(payout.Paid(1000));
+    EXPECT_FALSE(payout.Paid(1299));
+    EXPECT_EQ(payout.Remaining(), 4);
+    EXPECT_TRUE(payout.Paid(1300));
+    EXPECT_EQ(payout.Remaining(), 3);
+    EXPECT_FALSE(payout.Paid(1500));
+    EXPECT_TRUE(payout.Paid(1600));
+    EXPECT_EQ(payout.Remaining(), 2);
+    EXPECT_TRUE(payout.Paid(1900));
+    EXPECT_TRUE(payout.Paid(2200));
+    EXPECT_EQ(payout.Remaining(), 0);
+    EXPECT_FALSE(payout.Paid(2500));
+}
+
+TEST(BloodborneEncounterInsight, DuplicateEventStormCannotOverflowPendingLedger) {
+    Core::Bloodborne::EncounterInsightPayout payout;
+    payout.ObserveOwner(0, 1);
+    for (int i = 0; i < 1000; ++i) {
+        EXPECT_TRUE(payout.Add(5));
+    }
+    EXPECT_EQ(payout.Remaining(), 200);
+}
