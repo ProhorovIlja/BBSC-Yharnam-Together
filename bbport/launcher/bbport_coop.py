@@ -198,6 +198,46 @@ REGION_DOWN_TEXT = "The region's directory {} does not answer: try again in a mi
 REGION_FULL_TEXT = 'No shard of the region {} has room right now: try again in a minute.'
 
 
+def hunters_online(settings, fetch=fetch_json):
+    """Aggregate public directory's ACTIVE shard counts, or None if unavailable.
+
+    A server with a non-directory WebAPI is not known to have zero hunters.
+    Never return player/member names, keys, endpoints or account identifiers.
+    Directory's /v1/shards excludes shards whose heartbeat expired (10 s).
+    The status request is HTTPS and uses the launcher's certificate verifier.
+    """
+    if settings.get('server_type') != 'global':
+        return None
+    url=region_url(global_url(settings))
+    if not url:
+        return None
+    try:
+        answer=fetch(url+'/v1/shards',timeout=5)
+    except (OSError,ValueError,TypeError):
+        return None
+    if not isinstance(answer,dict) or not isinstance(answer.get('shards'),list):
+        return None
+    shards=answer['shards']
+    # Bound untrusted directory results; an enormous/malformed value must not
+    # render a fake online count or stall a launcher window.
+    if len(shards)>512:
+        return None
+    names=set()
+    count=0
+    for shard in shards:
+        if not isinstance(shard,dict):
+            return None
+        name=shard.get('name')
+        players=shard.get('players')
+        if not isinstance(name,str) or not name or name in names or len(name)>128:
+            return None
+        if type(players) is not int or not 0<=players<=100000:
+            return None
+        names.add(name)
+        count+=players
+    return {'hunters':count,'shards':len(shards)}
+
+
 def resolve_region(url, player, fetch=fetch_json):
     """(address, port, key, name) of the shard the game starts on (pick_shard); RuntimeError when the
     directory does not answer or no shard has room."""
