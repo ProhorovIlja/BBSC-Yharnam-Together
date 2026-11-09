@@ -1,0 +1,101 @@
+name: "Ultimate B25 matching context stop, room leave, duplicate room guards"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-25-room-context-lifecycle.yml'
+      - 'server/src/cmd_matching.cpp'
+      - 'server/src/matching_lifecycle_guard.h'
+      - 'server/tests/test_matching_lifecycle_guard.cpp'
+      - 'docs/ULTIMATE_BATCH_25.md'
+      - 'tools/ultimate/batch_25_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b25-room-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-and-lifecycle-contract:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-24-signal-peer-room-scope-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exact six-file B24 to B25 diff and pinned production Git blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-24-signal-peer-room-scope-20261109:refs/remotes/origin/b24
+          git diff --name-only origin/b24 HEAD >/tmp/b25-changed.txt
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_25_manifest.json').read_text())
+          actual=set(Path('/tmp/b25-changed.txt').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==6 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B25-2026-11-09' and m['parent_pr']==56
+          assert all(m['safety'].values())
+          for item in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',item['path']],text=True).strip()
+              assert sha==item['git_blob_sha1'],(item['path'],sha,item['git_blob_sha1'])
+          print('B25_EXACT_SIX_FILES_AND_PRODUCTION_SHA_PINS_PASS')
+          PY
+      - name: Verify lifecycle commands call real leave before clearing state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('server/src/cmd_matching.cpp').read_text()
+          assert '#include "matching_lifecycle_guard.h"' in s
+          def block(a,b):
+              return s.split('ErrorType ClientSession::'+a,1)[1].split('ErrorType ClientSession::'+b,1)[0]
+          ctxstart=block('CmdContextStart','CmdContextStop')
+          ctxstop=block('CmdContextStop','CmdCreateRoom')
+          create=block('CmdCreateRoom','CmdJoinRoom')
+          join=block('CmdJoinRoom','CmdLeaveRoom')
+          cleanup=s.split('void ClientSession::CleanupMatchingOnDisconnect()',1)[1]
+          assert ctxstart.index('MayEnterRoom') < ctxstart.index('m_matching.ctxId = req.ctx_id()')
+          assert ctxstop.index('RoomRequiringCleanup') < ctxstop.index('DoLeaveRoom(roomId)') < ctxstop.index('ResetMatchingRoomState(roomId)') < ctxstop.index('m_matching.initialized = false')
+          assert create.index('MayEnterRoom') < create.index('nextRoomId.fetch_add')
+          assert join.index('MayEnterRoom') < join.index('QWriteLocker lk(&m_shared->matching.roomsLock)')
+          assert 'if (!m_matching.initialized)' not in cleanup
+          assert cleanup.index('RoomRequiringCleanup') < cleanup.index('DoLeaveRoom(roomId)') < cleanup.index('ResetMatchingRoomState(roomId)')
+          print('B25_CONTEXT_STOP_FIRST_LEAVES_ROOM_AND_REJOIN_CANNOT_ORPHAN_PASS')
+          PY
+
+  actual-qt6-five-hunter-regressions:
+    needs: exact-source-and-lifecycle-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install actual Qt6 C++20 dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ pkg-config qt6-base-dev
+      - name: Compile and run actual matching state guard plus inherited B24 peer isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in test_matching_lifecycle_guard test_signaling_peer_scope; do
+            g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src \
+              "server/tests/${name}.cpp" \
+              $(pkg-config --cflags --libs Qt6Core Qt6Network) \
+              -o "/tmp/b25-${name}"
+            timeout 30s "/tmp/b25-${name}"
+          done
+          echo B25_QT6_GUARD_AND_B24_PEER_SCOPE_BOTH_PASS
+      - name: Strict no real service, Fornex, game assets, saves or public release
+        run: echo B25_TEST_ONLY_DRAFT_NO_FORNEX_NO_INSTALLER_NO_GAME_NO_FULL_REBUILD
