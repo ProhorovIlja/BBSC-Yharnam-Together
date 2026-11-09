@@ -1019,6 +1019,11 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
                               QDateTime::currentMSecsSinceEpoch()));
     for (const auto& rpc : result.rpc)
         OnRpc(rpc.from, rpc.online_id, rpc.body);
+    // Keep the WebAPI's read-only local player count equal to the Link
+    // Hub's live membership. Updating after BOTH linked and gone events
+    // prevents stale hunters after a disconnect or a replaced endpoint.
+    m_shared->linkMembers.store(static_cast<int>(m_link.Members()),
+                                std::memory_order_relaxed);
 }
 
 void LinkServer::Apply(const BloodborneWorld::Service::Result& result) {

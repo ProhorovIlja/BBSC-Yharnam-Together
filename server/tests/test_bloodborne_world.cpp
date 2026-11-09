@@ -4648,7 +4648,12 @@ int CheatsAndEditedSavesAreNoted() {
   CHECK(suspect.member == "host");
   CHECK(suspect.findings.contains("cheats"));
   CHECK(suspect.findings.contains("level-mismatch"));
+  // B34: a mismatched saved level may have been edited OFFLINE before
+  // this player connected, and is informational, not proof of a
+  // live cheat. Their active "no death" patch is still Certain.
   CHECK(suspect.findings.at("level-mismatch").level ==
+        BloodborneCoop::Suspicion::Info);
+  CHECK(suspect.findings.at("cheats").level ==
         BloodborneCoop::Suspicion::Certain);
   CHECK(suspect.findings.at("cheats").character == "Hunter");
   // Once a run.

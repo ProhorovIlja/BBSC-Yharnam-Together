@@ -5421,7 +5421,9 @@ class Launcher:
         # Count is only known for a configured global directory. Local-only
         # servers and unresponsive regions show — rather than a fabricated 0.
         settings = dict(self.coop)
-        key = (settings.get('server_type'), bbport_coop.global_url(settings))
+        key = ((settings.get('server_type'), bbport_coop.global_url(settings))
+               if settings.get('server_type') == 'global'
+               else (settings.get('server_type'), settings.get('host_ip', '')))
         if key != self.hunters_last_key:
             self.hunters_last_key = key
             self.hunters_next_poll = 0.0
@@ -5438,7 +5440,9 @@ class Launcher:
     def coop_check_hunters(self, settings, key):
         """Never block Tk with DNS, HTTPS or a slow region directory."""
         try:
-            found = bbport_coop.hunters_online(settings)
+            found = (bbport_coop.hunters_online(settings)
+                     if settings.get('server_type') == 'global'
+                     else bbport_coop.local_hunters_online(settings))
         except Exception:
             found = None
         finally:

@@ -55,10 +55,13 @@ bool WebApiServer::Start(ConfigManager* config, const QString& dbPath, SharedSta
 }
 
 void WebApiServer::RegisterRoutes() {
-    m_http->route("/status", [](const QHttpServerRequest&) {
+    m_http->route("/status", [shared = m_shared](const QHttpServerRequest&) {
         QJsonObject body;
         body.insert("ok", true);
         body.insert("service", "shadnet-webapi");
+        // Aggregate connected UDP Link members, NOT all ShadNet accounts
+        // and NOT individual names, IPs or private game/team metadata.
+        body.insert("link_members", shared->linkMembers.load(std::memory_order_relaxed));
         return QHttpServerResponse{"application/json",
                                    QJsonDocument(body).toJson(QJsonDocument::Compact),
                                    QHttpServerResponse::StatusCode::Ok};

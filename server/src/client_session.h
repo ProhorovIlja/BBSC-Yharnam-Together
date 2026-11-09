@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 shadNet Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -80,6 +81,11 @@ struct SharedState {
     }
     QMutex revokedLock;
     QList<QPair<QString, qint64>> revoked;
+
+    // Current signed-in UDP Link members for the local co-op /status counter.
+    // The LinkServer owns writes; WebAPI reads this aggregate from another
+    // event loop. Do NOT publish member IDs, addresses or account details.
+    std::atomic<int> linkMembers{0};
 
     // Live usage stats for the read-only stats HTTP server
     mutable QReadWriteLock usageLock;

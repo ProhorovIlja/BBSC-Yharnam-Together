@@ -198,6 +198,40 @@ REGION_DOWN_TEXT = "The region's directory {} does not answer: try again in a mi
 REGION_FULL_TEXT = 'No shard of the region {} has room right now: try again in a minute.'
 
 
+def read_local_link_status(url, timeout=4):
+    """Read bounded public local-host status without a proxy or any account secrets.
+
+    This is deliberately HTTP for a user-selected local/Radmin VPN host
+    (WebAPI_PORT); it carries ONLY non-sensitive counts. It is NOT a login,
+    and must never send credentials or learn/pin a game server key.
+    """
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(url, timeout=timeout) as answer:
+        return json.loads(answer.read(1024))
+
+
+def local_hunters_online(settings, fetch=read_local_link_status):
+    """The selected LOCAL ShadNet host's signed-in Link members, else unknown."""
+    if settings.get('server_type') != 'local':
+        return None
+    host=str(settings.get('host_ip','')).strip()
+    # Local Host's IP is a single IPv4 or DNS name. Do not interpret user
+    # supplied arbitrary URL paths, fragments, credentials or custom HTTP.
+    if not valid_host(host) or '://' in host or '/' in host or ':' in host:
+        return None
+    try:
+        response=fetch(f'http://{host}:{WEBAPI_PORT}/status', timeout=4)
+    except (OSError,ValueError,TypeError):
+        return None
+    if not isinstance(response,dict) or response.get('ok') is not True or (
+            response.get('service') != 'shadnet-webapi'):
+        return None
+    count=response.get('link_members')
+    if type(count) is not int or not 0<=count<=100000:
+        return None
+    return {'hunters':count,'shards':1}
+
+
 def hunters_online(settings, fetch=fetch_json):
     """Aggregate public directory's ACTIVE shard counts, or None if unavailable.
 
