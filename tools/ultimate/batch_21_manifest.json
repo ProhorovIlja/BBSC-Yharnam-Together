@@ -1,0 +1,69 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B21-2026-11-09",
+  "parent_pr": 52,
+  "parent_branch": "experiment/ultimate-batch-20-deploy-ci-release-scope-20261109",
+  "status": "EXPERIMENTAL_WIN64_PACKAGE_IMPORT_CLOSURE_NO_RELEASE",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-21-runtime-dll-closure.yml",
+    "bbport/packaging/windows/package.sh",
+    "bbport/packaging/windows/verify_runtime_dlls.py",
+    "docs/ULTIMATE_BATCH_21.md",
+    "tools/ultimate/batch_21_manifest.json",
+    "tools/ultimate/test_batch_21_dll_closure.py"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/packaging/windows/package.sh",
+      "git_blob_sha1": "d63fb08e7d3d3abc744fc0ce2fea3bba9e80b098"
+    },
+    {
+      "path": "bbport/packaging/windows/verify_runtime_dlls.py",
+      "git_blob_sha1": "0ee11bc3107f667efb7215d3172d18f3bbcf231d"
+    },
+    {
+      "path": "tools/ultimate/test_batch_21_dll_closure.py",
+      "git_blob_sha1": "93c08d5ee1362e11a3b0e6386ca322e313336d91"
+    }
+  ],
+  "source_provenance": {
+    "windows_compiler_ci": "https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42602734451",
+    "windows_first_pass_pe32plus": "SUCCESS",
+    "native_exes": [
+      "bb-probe.exe",
+      "bb-gpu-capabilities.exe",
+      "bb-play.exe"
+    ],
+    "upstream_reference": "MSYS2 CLANG64 LLVM toolchain, Microsoft vcpkg applocal.ps1 recursive DLL deployment paradigm"
+  },
+  "production_changes": [
+    "after original ldd scans, run standard-library-only Python PE DLL closure before scripts/zip",
+    "llvm-objdump -p static DLL Name imports, recursively all bundled root runtime DLLs",
+    "copy only missing DLLs from build's /clang64/bin, never PATH or untrusted Windows directory",
+    "preserve already packaged DLL identities, reject unsafe import path names",
+    "fail closed for missing non-system DLL, invalid PE and objdump failure"
+  ],
+  "tests": [
+    "import parser with duplicate and invalid PE",
+    "path traversal and objdump failure rejected",
+    "recursive third-party SDL3 -> libwinpthread closure",
+    "missing non-system import prevents packaging",
+    "local vendor DLL never overwritten",
+    "system Vulkan loader not bundled",
+    "production package.sh actually invokes verifier before assembly"
+  ],
+  "safety": {
+    "no_fornex_deploy": true,
+    "no_private_game_data": true,
+    "no_player_saves": true,
+    "no_upload": true,
+    "no_public_release": true,
+    "no_full_engine_rebuild": true
+  },
+  "limitations": [
+    "Static PE import tables cannot validate dynamic LoadLibrary dependencies or graphics drivers",
+    "PyInstaller _internal, optional ReShade/DLSS/XeSS, PkgTool and user package files require separate runtime gates",
+    "Synthetic CI fixture is not a real package or clean-OS DLL scan",
+    "Separate native no-PS4-ELF Windows port and actual 1.09 five-player game are not yet proven"
+  ]
+}
