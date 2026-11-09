@@ -1,0 +1,81 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B12-2026-11-09",
+  "parent_pr": 43,
+  "parent_batch": "B11-2026-11-09",
+  "status": "EXPERIMENTAL_MEMBER_SPECIFIC_HOT_JOIN_DATA_SLOT_GUARD",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_full_build": true,
+  "bug": "MemberDataWait::Tick advanced for an identity confirmed by vitals board even if MemberDataSlot/MemberDataPartsAddress returned no usable net-sync data slot; allowed SendMemberDataRequest on invalid/missing net and reused stale pre-request parts.",
+  "sources": [
+    {
+      "path": "emulator/src/core/bloodborne_party.h",
+      "blob_sha1": "a69f50de38867e619339a51adc6e54fcec4d33d7"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_party.cpp",
+      "blob_sha1": "419176b5de352a09a70fc85512f307e78357e56f"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_boards.cpp",
+      "blob_sha1": "e21e05361d619b5c81bf9607130e6a399eb29ce6"
+    }
+  ],
+  "tests": [
+    {
+      "path": "emulator/tests/bloodborne/test_bloodborne_member_data.cpp",
+      "blob_sha1": "142c3436cf28ecf13f8ab1691201d5a9aa79aecd"
+    },
+    {
+      "path": "tools/re/tests/test_member_data_slot_guard.py",
+      "blob_sha1": "51c268a704d41878f71194896d0e3282e411e686"
+    }
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-windows-test.yml",
+    "emulator/src/core/bloodborne_party.h",
+    "emulator/src/core/bloodborne_party.cpp",
+    "emulator/src/core/bloodborne_boards.cpp",
+    "emulator/tests/bloodborne/test_bloodborne_member_data.cpp",
+    "tools/re/tests/test_member_data_slot_guard.py",
+    "tools/ultimate/batch_12_manifest.json",
+    "docs/ULTIMATE_BATCH_12.md",
+    ".github/workflows/ultimate-batch-12-member-data-slot-guard.yml"
+  ],
+  "external_upstream": [
+    {
+      "source": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "ref": "main",
+      "path": "emulator/src/core/bloodborne_boards.cpp",
+      "note": "same risk: Tick receives member Here even if parts=0; previous our code already resolves particular board member rather than any member"
+    },
+    {
+      "source": "Google Drive private co-op bug report, 2026-11-01",
+      "note": "describes visible name/HP and invisible character, unproven single cause; no Drive identifiers or personal contents in manifest"
+    },
+    {
+      "source": "other YT, BBHost, shadPS4, Lantern, CLS and visy",
+      "note": "architecture review candidates, not automatically compatible"
+    }
+  ],
+  "test_claims": [
+    "Compiles real production C++ pure helper + waiting state machine against synthetic five-person remote slot cases",
+    "GTest added to actual engine tree but full engine GTest not executed here",
+    "source callsite ensures no request/creation while member's slot absent"
+  ],
+  "limitations": [
+    "No real game observed, no claim fix is confirmed invisible-character root cause",
+    "Network pointer may still change concurrently after address check; actual game calls are not thread sanitized",
+    "No full renderer/client/server Windows compilation or 5-player playtest",
+    "No packet protocol or matchmaking change",
+    "No eboot-free native PC port work in this batch"
+  ],
+  "legacy_ci_scope_fix": {
+    "path": ".github/workflows/ultimate-windows-test.yml",
+    "original_pr": 10,
+    "behavior": "original source whitelist verified main->foundation only; future cumulative PRs use dedicated exact parent diff checks",
+    "scope": "source-tests job runs for push, workflow_dispatch and original PR #10 only"
+  }
+}

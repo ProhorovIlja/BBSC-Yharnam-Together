@@ -856,7 +856,13 @@ void FinishWaitingJoins(bool in_session) {
                                  MemberStandsOnMap(view.board.members, *board_name, map);
         const std::optional<s32> slot = MemberDataSlot(net, member_id);
         const u64 parts = slot ? MemberDataPartsAddress(*slot) : 0;
-        switch (waiting->second.Tick(now, member_here, parts ? ReadValue<u8>(parts, 0) : 0)) {
+        // During a hot join or map transition this hunter's board entry can
+        // arrive before its game's data slot does. Do not request data with a
+        // null/stale net pointer, or advance to Create on a stale parts byte.
+        // MemberDataSlot validates the network object and the *same* identity.
+        const bool member_data_ready = MemberDataRequestReady(member_here, slot, parts);
+        switch (waiting->second.Tick(now, member_data_ready,
+                                     member_data_ready ? ReadValue<u8>(parts, 0) : 0)) {
         case MemberDataWait::Action::None:
             return;
         case MemberDataWait::Action::Request:
