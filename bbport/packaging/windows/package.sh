@@ -159,15 +159,6 @@ ldd "$dest"/bin/*.exe "$dest"/bin/*.dll 2>/dev/null |
             cp "/clang64/bin/$name" "$dest/bin/"
         fi
     done
-# Final PE import closure must be transitive and fail on absent runtime DLLs.
-# ldd's first pass may have resolved the wrong system-installed codec version;
-# recursively inspect every copied CLANG64 DLL and pull only missing imports
-# from the *build toolchain*, never from an arbitrary user's PATH/System32.
-# Uses the already-installed Windows Python venv and CLANG64 llvm-objdump.
-out/pyenv/Scripts/python.exe -I packaging/windows/verify_runtime_dlls.py \
-    --bin-dir "$dest/bin" --clang-dir "$(cygpath -w /clang64/bin)" \
-    --root "$dest/bin/bb-probe.exe" --root "$dest/bin/bb-gpu-capabilities.exe" \
-    --root "$dest/Bloodborne.exe"
 cp -r scripts patches "$dest/"
 # Kaniel 2026-11-04: the build's mode for patches.py and the launcher (scripts/build_info.json; none:
 # a dev build). A release (BB_PRODUCTION=1) offers no cheats or debug tools.
@@ -227,6 +218,16 @@ cp -r "$reshade_src/shaders" "$reshade_src/presets" "$dest/bin/reshade/"
 echo 'Texture files (.png) that effects load go here.' > "$dest/bin/reshade/textures/README.txt"
 echo 'ReShade saves its screenshots here (the key is Print Screen).' > "$dest/bin/reshade/screenshots/README.txt"
 cp "$reshade_src"/licenses/*.txt "$dest/licenses/"
+# B23: run the *one* fail-closed static PE closure after adding optional DLLs.
+# Earlier validation would miss late-staged XeSS and DLSS bridge imports, even
+# though both are shipped beside bb-probe.exe. The helper scans all bin/*.dll
+# in addition to these three explicit launch roots. ReShade, PkgTool and
+# PyInstaller nested runtimes still require separate smoke tests.
+# An unresolved vendor import stops both stage-only and ZIP packaging.
+out/pyenv/Scripts/python.exe -I packaging/windows/verify_runtime_dlls.py \
+    --bin-dir "$dest/bin" --clang-dir "$(cygpath -w /clang64/bin)" \
+    --root "$dest/bin/bb-probe.exe" --root "$dest/bin/bb-gpu-capabilities.exe" \
+    --root "$dest/Bloodborne.exe"
 find "$dest" -name __pycache__ -prune -exec rm -r {} +
 # fsr4vk (GPLv3; experimental FSR 4.1.1) is downloaded by the launcher into <install>\fsr4vk: none of it ships here.
 if [[ -n $(find "$dest" \( -type d -iname fsr4vk -o -iname 'amd_fidelityfx_upscaler_vk*' \)) ]]; then

@@ -125,10 +125,9 @@ class ActualPackagingClosure(TestCase):
             self.assertEqual((copied, edges), (0, 1))
             self.assertEqual((bin_dir / "SDL3.dll").read_bytes(), b"MZ bundled")
 
-    def test_production_package_invokes_closure_before_including_game_scripts(self):
+    def test_production_package_invokes_closure_after_all_root_bin_dlls(self):
         s = PACKAGER.read_text(encoding="utf-8")
         for text in (
-            "llvm-objdump",
             "verify_runtime_dlls.py",
             "--bin-dir \"$dest/bin\"",
             "--root \"$dest/bin/bb-probe.exe\"",
@@ -136,7 +135,12 @@ class ActualPackagingClosure(TestCase):
             "--root \"$dest/Bloodborne.exe\"",
         ):
             self.assertIn(text, s, text)
-        self.assertLess(s.index("verify_runtime_dlls.py"), s.index("cp -r scripts patches"))
+        self.assertEqual(s.count("verify_runtime_dlls.py"), 1)
+        self.assertGreater(s.index("verify_runtime_dlls.py"), s.index("cp -r scripts patches"))
+        self.assertGreater(s.index("verify_runtime_dlls.py"), s.index("cp out/xess/bin/libxess.dll"))
+        self.assertGreater(s.index("verify_runtime_dlls.py"), s.index("cp out/bbport_dlss.dll out/nvngx_dlss.dll"))
+        self.assertLess(s.index("verify_runtime_dlls.py"), s.index("if [[ ${BB_PACKAGE_STAGE_ONLY:-} == 1 ]]"))
+        self.assertIn("llvm-objdump", HELPER.read_text())
         self.assertNotIn("BB_GAME_DIR", HELPER.read_text())
         self.assertNotIn("requests.get", HELPER.read_text())
 
