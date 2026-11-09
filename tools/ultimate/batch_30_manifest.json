@@ -1,0 +1,45 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B30-2026-11-09",
+  "parent_pr": 61,
+  "parent_branch": "experiment/ultimate-batch-29-personal-invasion-recovery-20261109",
+  "status": "NPC_DEATH_DROP_DEDUP_SCOPED_TO_SLOT_AND_CHARACTER_GENERATION",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-30-npc-death-drop-owner.yml",
+    "emulator/src/core/bloodborne_flags_store.cpp",
+    "tools/re/tests/test_npc_death_drop_owner.py",
+    "docs/ULTIMATE_BATCH_30.md",
+    "tools/ultimate/batch_30_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "emulator/src/core/bloodborne_flags_store.cpp",
+      "git_blob_sha1": "05ed3059047a4a18af956baa3703e3dfdac1c1fb"
+    },
+    {
+      "path": "tools/re/tests/test_npc_death_drop_owner.py",
+      "git_blob_sha1": "e8b66b0f848909df477a5a153893fcc71529b2cb"
+    }
+  ],
+  "native_tests": [
+    "exact production DeferredRewardOwner and RefreshNpcDeathDropLedger C++20 compiled and executed GCC Ubuntu",
+    "same exact extracted production helper compiled and executed Windows MSVC",
+    "five hunter synthetic owner switch/reset and same-slot different generation",
+    "unknown-slot hard denial and team-session leave/rejoin reset",
+    "actual grant site checks identity before game inventory and dedup marker after native callback",
+    "inherited B03 MapItemMan unavailable queue and B04 deferred reward owner test suites"
+  ],
+  "safety": {
+    "no_fornex_writes": true,
+    "no_game_assets": true,
+    "no_player_saves": true,
+    "no_public_release": true,
+    "no_full_engine_rebuild": true
+  },
+  "limits": [
+    "no actual game item-grant success proof",
+    "character generation depends on existing new-character detector",
+    "no persistent exactly-once reward journal",
+    "no 2/3/5 real game test"
+  ]
+}
