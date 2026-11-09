@@ -4330,6 +4330,10 @@ class Launcher:
             selected = self.coop_profile_menu.current()
             url = self.coop_profile_urls[selected] if selected >= 0 else ''
             self.coop.update(bbport_coop.select_global_profile(self.coop, url))
+            # coop_changed serializes the radio variable back over self.coop:
+            # keep it in sync or selecting a dedicated server from Local mode
+            # silently reverts to Local on the next settings refresh.
+            self.coop_server_type.set('global')
         except (ValueError, IndexError):
             self.coop_profile_refresh()
             return
