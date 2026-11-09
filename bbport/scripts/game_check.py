@@ -77,19 +77,26 @@ def problem(game, image_hash=None):
     except (OSError, ValueError, IndexError):
         info = {}
     title, version = info.get('TITLE_ID', '?'), info.get('APP_VER', '?')
-    try:
-        image_hash = image_hash or image_sha256(game)
-        if image_hash == SUPPORTED_IMAGE:
-            return ('damaged_files', title, version) if broken_files(game) else None
-    except (OSError, ValueError, IndexError, StopIteration, KeyError):
-        return 'unreadable', title, version
-    if image_hash == LANCE_60FPS_IMAGE:
-        return 'patched_eboot', title, version
+    # A matching 1.09 executable hash alone is NOT enough: an incomplete
+    # update can leave a 1.00/foreign param.sfo beside an otherwise 1.09
+    # eboot, or an SFO copied from a different CUSA. Check retail identity
+    # and patch metadata independently before accepting the loaded image.
     if title not in SUPPORTED_TITLES:
         return 'other_title', title, version
     if version != SUPPORTED_VERSION:
         return 'missing_update', title, version
-    return 'wrong_eboot', title, version
+    try:
+        image_hash = image_hash or image_sha256(game)
+    except (OSError, ValueError, IndexError, StopIteration, KeyError):
+        return 'unreadable', title, version
+    if image_hash == LANCE_60FPS_IMAGE:
+        return 'patched_eboot', title, version
+    if image_hash != SUPPORTED_IMAGE:
+        # Unknown loaded image. May be a region-specific clean variant, a
+        # repack with a baked-in 60 FPS patch, an altered trainer image, or
+        # a partial/mismatched extraction. The digest alone cannot tell.
+        return 'wrong_eboot', title, version
+    return ('damaged_files', title, version) if broken_files(game) else None
 
 
 def explain(kind, title, version):
@@ -99,8 +106,12 @@ def explain(kind, title, version):
         'missing_update': f'{found} bbport needs the 1.09 update merged into the game folder: copy '
                           'everything from the dumped 1.09 update (e.g. CUSA03173-patch) into the '
                           'game folder, replacing files (eboot.bin and sce_sys too).',
-        'wrong_eboot': f'{found} param.sfo is from 1.09 but eboot.bin is not: copy eboot.bin from '
-                       'the dumped 1.09 update into the game folder, replacing the old one.',
+        'wrong_eboot': f'{found} the loaded eboot.bin image does not match a verified clean '
+                       'Bloodborne 1.09 image. It may be a different clean regional executable, '
+                       'a repack with built-in 60 FPS/other edits, or a partial update/dump. '
+                       'Use the original unmodified 1.09 update for this SAME CUSA and compare '
+                       'its loaded image SHA-256. This is NOT proof the region is unsupported '
+                       'or that any particular mod was installed.',
         'patched_eboot': f'{found} This eboot.bin has the 60 fps patch by Lance McDonald applied '
                          'to it, which crashes the game when the gestures menu opens (bbport has its '
                          'own 60 fps): copy eboot.bin from a clean dump of the 1.09 update into the '
