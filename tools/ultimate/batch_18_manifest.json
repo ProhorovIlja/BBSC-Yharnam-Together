@@ -1,0 +1,49 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B18-2026-11-09",
+  "parent_pr": 49,
+  "parent_branch": "experiment/ultimate-batch-17-admission-hello-budget-20261109",
+  "status": "EXPERIMENTAL_SERVER_BOUNDED_ACCOUNT_REGISTRATION_HISTORY",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-18-account-memory.yml",
+    "docs/ULTIMATE_BATCH_18.md",
+    "server/src/admission.cpp",
+    "server/src/admission.h",
+    "server/tests/test_admission.cpp",
+    "tools/ultimate/batch_18_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "server/src/admission.cpp",
+      "git_blob_sha1": "7245362711ba3feed6320ed130deb406ae576f60"
+    },
+    {
+      "path": "server/src/admission.h",
+      "git_blob_sha1": "2685ba1f7ffeb81e5a7bbb95c577a8365556b950"
+    },
+    {
+      "path": "server/tests/test_admission.cpp",
+      "git_blob_sha1": "6b28d6be241e896c61ab1b778da00117cbe53d79"
+    }
+  ],
+  "tests": [
+    "100250 unknown IP eligibility probes create no quota history",
+    "100000 actual account histories fill bounded table",
+    "100001st new recent account fails closed without resetting old quota",
+    "expired one-hour histories are reclaimed once per ten-second capacity cleanup",
+    "Unmade erases final pending reservation and immediately frees IP slot",
+    "inherited 100k hello flood, encryption and watchdog C++ fixture"
+  ],
+  "safety": {
+    "no_live_deploy": true,
+    "no_game_assets": true,
+    "no_private_saves": true,
+    "no_public_release": true,
+    "no_client_build": true
+  },
+  "limitations": [
+    "Not a real 100000 WAN source-IP load benchmark",
+    "Legitimate new source IPs at capacity can be refused until one-hour histories expire",
+    "No impact or proof of full Windows client, actual real game five-hunter, DNS or Fornex changes"
+  ]
+}

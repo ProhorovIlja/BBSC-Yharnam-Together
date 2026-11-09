@@ -60,25 +60,70 @@ bool Guard::AllowHello(quint32 address, qint64 now_ms) {
 }
 
 bool Guard::MayMakeAccount(quint32 address, qint64 now_ms) {
-    QList<qint64>& made = accounts[address];
-    made.erase(std::remove_if(made.begin(), made.end(),
-                              [&](qint64 at) { return now_ms - at > 3'600'000; }),
-               made.end());
-    if (made.size() >= limits.new_accounts_per_hour) {
-        ++counters.accounts_refused;
-        return false;
+    // Reading a quota must not create an empty account record. A failed or
+    // abandoned sign-in can otherwise leave one hash entry per forged source.
+    auto known = accounts.find(address);
+    if (known != accounts.end()) {
+        QList<qint64>& made = known.value();
+        made.erase(std::remove_if(made.begin(), made.end(),
+                                  [&](qint64 at) { return now_ms - at > AccountWindowMs; }),
+                   made.end());
+        if (made.isEmpty()) {
+            known = accounts.erase(known);
+        } else {
+            if (made.size() >= limits.new_accounts_per_hour) {
+                ++counters.accounts_refused;
+                return false;
+            }
+            return true;
+        }
+    }
+    // Retain recent per-IP quotas when the global address table fills up.
+    // Scanning a large hash on every unknown address would itself allow a
+    // denial of service, so only clean once per ten seconds at capacity.
+    if (accounts.size() >= MaxAccountBuckets) {
+        if (now_ms >= next_account_cleanup_ms) {
+            for (auto it = accounts.begin(); it != accounts.end();) {
+                QList<qint64>& made = it.value();
+                made.erase(std::remove_if(made.begin(), made.end(),
+                                          [&](qint64 at) {
+                                              return now_ms - at > AccountWindowMs;
+                                          }),
+                           made.end());
+                if (made.isEmpty()) {
+                    it = accounts.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            next_account_cleanup_ms = now_ms + 10'000;
+        }
+        if (accounts.size() >= MaxAccountBuckets) {
+            ++counters.accounts_refused;
+            return false;
+        }
     }
     return true;
 }
 
 void Guard::Made(quint32 address, qint64 now_ms) {
-    accounts[address].append(now_ms);
+    // Production sign-in calls MayMakeAccount synchronously immediately
+    // before Made. The check reserves capacity without inserting an empty
+    // entry, and accepted new accounts are the only entries that are stored.
+    if (auto found = accounts.find(address); found != accounts.end()) {
+        found.value().append(now_ms);
+    } else if (accounts.size() < MaxAccountBuckets) {
+        accounts.insert(address, QList<qint64>{now_ms});
+    }
 }
 
 void Guard::Unmade(quint32 address) {
     const auto found = accounts.find(address);
     if (found != accounts.end() && !found->isEmpty()) {
         found->removeLast();
+        if (found->isEmpty()) {
+            accounts.erase(found);
+        }
     }
 }
 
