@@ -235,6 +235,8 @@ jobs:
           python - <<'PY'
           import re
           from pathlib import Path
+          # Verify actual CMAKE_C_FLAGS_RELWITHDEBINFO and
+          # CMAKE_CXX_FLAGS_RELWITHDEBINFO, not just workflow flags.
           cache = Path("out/gpu/CMakeCache.txt").read_text(errors="replace")
           for lang in ("C", "CXX"):
               name = f"CMAKE_{lang}_FLAGS_RELWITHDEBINFO"
