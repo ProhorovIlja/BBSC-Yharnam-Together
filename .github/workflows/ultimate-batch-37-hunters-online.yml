@@ -1,0 +1,103 @@
+name: "Ultimate B37 Hunters Online safe directory summary and async launcher UI"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-37-hunters-online.yml'
+      - 'bbport/launcher/bbport_coop.py'
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/tests/test_hunters_online.py'
+      - 'docs/ULTIMATE_BATCH_37.md'
+      - 'tools/ultimate/batch_37_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b37-hunters-online-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-pinned-source:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-36-coop-offline-play-no-coop-event-overlay-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact B36 to B37 six-file diff and SHA-pinned real source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-36-coop-offline-play-no-coop-event-overlay-20261109:refs/remotes/origin/b36
+          git diff --name-only origin/b36 HEAD >/tmp/b37-diff
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_37_manifest.json').read_text())
+          actual=set(Path('/tmp/b37-diff').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==6 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B37-2026-11-09' and m['parent_pr']==83
+          assert all(m['safety'].values())
+          for item in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',item['path']],text=True).strip()
+              assert sha==item['git_blob_sha1'],(item['path'],sha)
+          print('B37_SIX_PATH_DIFF_AND_SHA_PINS_SUCCESS')
+          PY
+      - name: Guard no UI-thread blocking/network TLS verification bypass or false zero
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          c=Path('bbport/launcher/bbport_coop.py').read_text()
+          ui=Path('bbport/launcher/bbport_launcher_win.py').read_text()
+          assert "url=region_url(global_url(settings))" in c
+          assert "fetch(url+'/v1/shards',timeout=5)" in c
+          assert "return None" in c.split('def hunters_online(',1)[1].split('def resolve_region(',1)[0]
+          assert 'threading.Thread(target=self.coop_check_hunters' in ui
+          assert 'self.hunters_next_poll = now + 45.0' in ui
+          assert 'key != self.hunters_last_key' in ui
+          assert 'verify=False' not in c
+          print('B37_GLOBAL_TLS_COUNT_AND_ASYNC_LABEL_GUARDS_SUCCESS')
+          PY
+
+  real-python-hunters-regressions-linux:
+    needs: verify-pinned-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exercise production directory helper and B36 offline source baseline
+        shell: bash
+        run: |
+          python -m unittest discover -s bbport/tests -p 'test_hunters_online.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_coop_offline_sandbox.py' -v
+
+  real-python-hunters-regressions-windows:
+    needs: verify-pinned-source
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exercise production directory helper and B36 offline source baseline
+        shell: bash
+        run: |
+          python -m unittest discover -s bbport/tests -p 'test_hunters_online.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_coop_offline_sandbox.py' -v
+      - name: No private source assets or production deployment
+        shell: bash
+        run: echo B37_ONLY_TEST_DIRECTORY_COUNTER_NOT_FULL_GAME_RUN
