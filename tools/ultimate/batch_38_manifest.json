@@ -26,7 +26,7 @@
     },
     {
       "path": "bbport/launcher/bbport_launcher_win.py",
-      "git_blob_sha1": "b890412591aa7abfce620e9ff222e5e54e1df49f"
+      "git_blob_sha1": "5a2e3f6aac409f25e88eefb0d04f1f53cf1e07ee"
     },
     {
       "path": "bbport/tests/test_global_server_profiles.py",
