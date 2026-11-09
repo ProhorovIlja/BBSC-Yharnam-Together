@@ -34,6 +34,7 @@
     }
   ],
   "changed_paths": [
+    ".github/workflows/ultimate-windows-test.yml",
     "emulator/src/core/bloodborne_party.h",
     "emulator/src/core/bloodborne_party.cpp",
     "emulator/src/core/bloodborne_boards.cpp",
@@ -70,5 +71,11 @@
     "No full renderer/client/server Windows compilation or 5-player playtest",
     "No packet protocol or matchmaking change",
     "No eboot-free native PC port work in this batch"
-  ]
+  ],
+  "legacy_ci_scope_fix": {
+    "path": ".github/workflows/ultimate-windows-test.yml",
+    "original_pr": 10,
+    "behavior": "original source whitelist verified main->foundation only; future cumulative PRs use dedicated exact parent diff checks",
+    "scope": "source-tests job runs for push, workflow_dispatch and original PR #10 only"
+  }
 }
