@@ -1,0 +1,74 @@
+name: Ultimate B11 two-mission global source intake (metadata only)
+
+on:
+  pull_request:
+    paths:
+      - 'tools/ultimate/source_radar_20261109_primary.json'
+      - 'tools/ultimate/source_radar_20261109_adjacent.json'
+      - 'tools/ultimate/global_intake_priorities_20261109.json'
+      - 'docs/ULTIMATE_GLOBAL_SOURCE_INTAKE_20261109.md'
+      - 'tools/ultimate/test_global_intake_20261109.py'
+      - 'tools/ultimate/batch_11_manifest.json'
+      - '.github/workflows/ultimate-batch-11-source-intake.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b11-global-sources-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  global-source-intake-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Guard B10-to-B11 public metadata seven-file diff
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-10-bounded-build-diagnostics-20261108:refs/remotes/origin/b10
+          git diff --name-only origin/b10 HEAD > /tmp/b11-paths.txt
+          cat /tmp/b11-paths.txt
+          if grep -vE '^(tools/ultimate/source_radar_20261109_primary\.json|tools/ultimate/source_radar_20261109_adjacent\.json|tools/ultimate/global_intake_priorities_20261109\.json|docs/ULTIMATE_GLOBAL_SOURCE_INTAKE_20261109\.md|tools/ultimate/test_global_intake_20261109\.py|tools/ultimate/batch_11_manifest\.json|\.github/workflows/ultimate-batch-11-source-intake\.yml)$' /tmp/b11-paths.txt; then
+            echo 'Unexpected game/server/client/launcher/save source or asset change' >&2
+            exit 1
+          fi
+          test "$(wc -l < /tmp/b11-paths.txt)" -eq 7
+      - name: Verify pinned exact catalog and test source blobs
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, hashlib
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_11_manifest.json').read_text())
+          assert m['batch']=='B11-2026-11-09' and m['parent_pr']==42
+          assert m['discovery']['search_queries']==20
+          assert m['discovery']['distinct_candidate_repositories']==241
+          assert m['discovery']['github_coverage_claim'].startswith('bounded partial')
+          assert all(m['safety'].values()) and len(m['changed_paths'])==7
+          for row in m['files']:
+              data=Path(row['path']).read_bytes()
+              sha=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              assert sha==row['blob'],f"{row['path']} {sha} != {row['blob']}"
+          print('B11_SOURCE_RADAR_PINNED_AND_PRIVATE_ASSETS_EXCLUDED')
+          PY
+      - name: Validate all 20 search snapshots and public triage identities
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/ultimate -p 'test_global_intake_20261109.py' -v
+          echo 'B11_GLOBAL_DISCOVERY_METADATA_AND_TWO_MISSIONS_PASS'
+      - name: Inherit B10 native build reporter regression without full rebuild
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_10_build_failure.py' -v
+          echo 'B10_SOURCE_BUILD_DIAGNOSTICS_PASS'
+      - name: Declare unverified gates
+        run: |
+          echo 'THIS IS 241 DISCOVERED REPO CANDIDATES, NOT 241 CODE REVIEWS'
+          echo 'NO PRIVATE GOOGLE_DRIVE_BYTES, GAME FILES, WINDOWS_BUILD, FORNEX, OR RELEASE'
