@@ -1,0 +1,54 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B26-2026-11-09",
+  "parent_pr": 57,
+  "parent_branch": "experiment/ultimate-batch-25-room-context-lifecycle-20261109",
+  "status": "HUB_ONLINE_ID_REPLACEMENT_RETIRES_OLD_VIRTUAL_AND_GLOBAL_SIGNALING_LEASE",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-26-link-identity-handover.yml",
+    "server/src/server_link.cpp",
+    "server/src/link_server.cpp",
+    "server/src/link_server.h",
+    "server/tests/test_server_link.cpp",
+    "docs/ULTIMATE_BATCH_26.md",
+    "tools/ultimate/batch_26_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "server/src/server_link.cpp",
+      "git_blob_sha1": "b947590bd26689a94b1934b2a5d6385e25310926"
+    },
+    {
+      "path": "server/src/link_server.cpp",
+      "git_blob_sha1": "c360e956d7a687ce0512f721dfa7b468804094ca"
+    },
+    {
+      "path": "server/src/link_server.h",
+      "git_blob_sha1": "2cc698369c8ac921df29c0ba7a965e3487452c99"
+    },
+    {
+      "path": "server/tests/test_server_link.cpp",
+      "git_blob_sha1": "140162f7396f95d76c7534fc5909ed64db4a223f"
+    }
+  ],
+  "native_tests": [
+    "full original test_server_link.cpp with encrypted Noise protocol",
+    "new source IP:port reused by another account: stale virtual address blocked",
+    "MemberState Gone on identity replacement",
+    "repeated same account hello no false Gone",
+    "existing virtual same-account port migration",
+    "inherited B24 and B25 source Qt6 guard tests"
+  ],
+  "safety": {
+    "no_fornex_writes": true,
+    "no_game_assets": true,
+    "no_player_saves": true,
+    "no_public_release": true,
+    "no_native_engine_rebuild": true
+  },
+  "limits": [
+    "not a real 2-5 PC game test",
+    "LinkServer Apply lease logic source-checked, not full live server boot",
+    "no Windows packaging build"
+  ]
+}

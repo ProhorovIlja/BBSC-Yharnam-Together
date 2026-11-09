@@ -841,6 +841,22 @@ void Hub::OnHello(const Endpoint& from, const QByteArray& datagram, qint64 now_m
         result.log.append(QStringLiteral("server link: %1 moved from %2 to %3")
                               .arg(QString::fromUtf8(hello->online_id), old.Text(), from.Text()));
     }
+    // A restarted game may reuse the exact UDP source address and port with a
+    // DIFFERENT online ID. Reassigning the Link in-place used to leave the
+    // previous account's by_virtual entry pointing to the new account's link.
+    // A packet for the previous hunter could then reach the replacement.
+    // Retire the old identity and its team presence before giving this socket
+    // a new virtual address. Repeated hellos for the SAME ID keep their link.
+    const auto existing = members.find(from.Key());
+    if (existing != members.end() && existing->online_id != hello->online_id) {
+        const QByteArray previousId = existing->online_id;
+        TellOthers(*existing, MemberState::Gone, now_ms - existing->last_heard_ms, result);
+        Unlink(from.Key());
+        result.gone.append(from);
+        result.log.append(QStringLiteral("server link: %1 (%2) identity replaced by %3")
+                              .arg(QString::fromUtf8(previousId), from.Text(),
+                                   QString::fromUtf8(hello->online_id)));
+    }
     const bool again = members.contains(from.Key());
     Link& link = members[from.Key()];
     link.virtual_endpoint = virtual_endpoint;

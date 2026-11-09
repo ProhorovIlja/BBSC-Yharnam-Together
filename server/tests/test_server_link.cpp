@@ -778,6 +778,65 @@ int VirtualMembers() {
   return 0;
 }
 
+// B26: after a process restart, a different authenticated account can use
+// precisely the same UDP source IP:port. The old virtual identity must be
+// retired, not reassigned to the new player (which could misroute game frames).
+int IdentityHandoverOnReusedUdpSocket() {
+  Net hub;
+  CHECK(hub.Receive(Kaniel, HelloFrom("Kaniel"), 0).linked.size() == 1);
+  CHECK(hub.Receive(Ada, HelloFrom("Ada"), 0).linked.size() == 1);
+  CHECK(hub->Members() == 2 && hub->HasLink("Ada") &&
+        !hub->HasLink("Eileen"));
+
+  // Simulate a newly launched game receiving the OS-reused source port: its
+  // previous Noise client and account identity no longer exist locally.
+  hub.games.erase(Ada.Key());
+  auto result = hub.Receive(Ada, HelloFrom("Eileen"), 100);
+  CHECK(result.gone.size() == 1 && result.gone[0] == Ada);
+  CHECK(result.linked.size() == 1 && result.linked[0].online_id == "Eileen" &&
+        result.linked[0].endpoint == Ada &&
+        result.linked[0].virtual_endpoint == VirtualEndpointOf("Eileen"));
+  CHECK(hub->Members() == 2 && hub->HasLink("Eileen") &&
+        !hub->HasLink("Ada") &&
+        hub->VirtualOf(Ada) == VirtualEndpointOf("Eileen"));
+
+  // The old hunters were informed it actually went away (not a same-ID
+  // network migration), and its virtual address cannot reach the new hunter.
+  bool notified = false;
+  for (const QByteArray& datagram : SentTo(result, Kaniel)) {
+    const auto member = DecodeMember(datagram);
+    if (member && member->state == MemberState::Gone &&
+        member->online_id == "Ada" &&
+        member->endpoint == VirtualEndpointOf("Ada")) {
+      notified = true;
+    }
+  }
+  CHECK(notified);
+  result = hub.Receive(Kaniel,
+                       Encode(Data{VirtualEndpointOf("Ada"), GameFrame}), 200);
+  CHECK(result.sends.isEmpty()); // An old virtual address must not be routed.
+  CHECK(!result.log.isEmpty() && result.log.first().contains("no game linked"));
+
+  // The new identity still receives packets normally through the same
+  // physical socket, and messages from it carry its NEW virtual address.
+  result = hub.Receive(
+      Kaniel, Encode(Data{VirtualEndpointOf("Eileen"), GameFrame}), 210);
+  const auto to_eileen = DecodeData(SentTo(result, Ada).value(0));
+  CHECK(to_eileen && to_eileen->peer == VirtualEndpointOf("Kaniel") &&
+        to_eileen->frame == GameFrame);
+  result = hub.Receive(
+      Ada, Encode(Data{VirtualEndpointOf("Kaniel"), GameFrame}), 220);
+  const auto from_eileen = DecodeData(SentTo(result, Kaniel).value(0));
+  CHECK(from_eileen && from_eileen->peer == VirtualEndpointOf("Eileen"));
+
+  // A repeat hello for the SAME online ID retains the existing link and
+  // emits neither Gone nor a false identity-change notification.
+  result = hub.Receive(Ada, HelloFrom("Eileen"), 230);
+  CHECK(result.gone.isEmpty() && hub->Members() == 2);
+  std::cout << "server link same-port identity handover: ok\n";
+  return 0;
+}
+
 // Phase 9: the hub reads each game packet in a frame (SHAD GamePacketsType)
 // and forwards only what the sender's routes let reach that member: a refused
 // unreliable packet leaves the frame, a refused reliable one keeps its
@@ -1379,7 +1438,8 @@ int TwoPCsOneId() {
 int main() {
   if (Contracts() != 0 || HelloAndBuilds() != 0 || BuildChecks() != 0 ||
       Relays() != 0 || Liveness() != 0 || TeamOnly() != 0 ||
-      VirtualMembers() != 0 || RoutesGamePackets() != 0 || SignsIn() != 0 ||
+      VirtualMembers() != 0 || IdentityHandoverOnReusedUdpSocket() != 0 ||
+      RoutesGamePackets() != 0 || SignsIn() != 0 ||
       ALongSilenceEndsTheSignIn() != 0 || TwoPCsOneId() != 0 || Crypto() != 0 ||
       Noise() != 0 || Handshake() != 0 || KeyFile() != 0 || SignupWork() != 0 ||
       AnInvaderSharesTheVisitedTeamsRelay() != 0) {
