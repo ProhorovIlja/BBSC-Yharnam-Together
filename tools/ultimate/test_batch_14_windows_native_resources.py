@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -77,6 +78,7 @@ class WinResourceSelection(unittest.TestCase):
         for token in (
             "export BB_BUILD_JOBS=2",
             "export BB_WINDOWS_NO_DEBUG_SYMBOLS=1",
+            "export BB_WINDOWS_STAGED_LINK=1",
             "BBPORT_PRODUCTION_WINDOWS_PE_BUILD_PASS_NO_GAME",
             "NO_GAME_ASSETS_NO_SERVER_NO_GITHUB_RELEASE_NO_UPLOAD_PASS",
             "GPU_INCREMENTAL_RETRY_PASSED_BUT_INITIAL_BUILD_FAILED",
@@ -89,6 +91,58 @@ class WinResourceSelection(unittest.TestCase):
         self.assertNotIn("ninja() { command ninja -j", w)
         self.assertIn('ninja "${windows_ninja_args[@]}" -C out/gpu', self.source)
         self.assertIn("report_bbport_build_failure 'Windows client/GPU/play targets'", self.source)
+
+    def _run_real_production_stage_loop(self, failed_stage=""):
+        """Run the extracted production stage control, mocking only Ninja itself."""
+        if not self.bash:
+            self.skipTest("No Bash")
+        first = self.source.index("    if [[ ${BB_WINDOWS_STAGED_LINK:-0} == 1 ]]; then")
+        last = self.source.index("\n    fi\n    cp out/gpu/", first) + len("\n    fi")
+        production_loop = self.source[first:last]
+        shell = (
+            "set -euo pipefail\n"
+            'windows_ninja_args=(-j 2)\n'
+            'report_bbport_build_failure() { echo "MOCK_REPORT:$1" >&2; }\n'
+            'ninja() {\n'
+            '  printf "NINJA_TARGETS:%s\\n" "$*" \n'
+            '  if [[ "$BB_FAKE_FAIL_STAGE" == "net" && " $* " == *" bbnet "* ]]; then return 37; fi\n'
+            '  if [[ "$BB_FAKE_FAIL_STAGE" == "gpu" && " $* " == *" bbgpu "* ]]; then return 38; fi\n'
+            '  if [[ "$BB_FAKE_FAIL_STAGE" == "final" && " $* " == *" bb-probe "* ]]; then return 39; fi\n'
+            '  return 0\n'
+            '}\n'
+            + production_loop + '\n'
+            'echo STAGED_SUCCESS\n'
+        )
+        with tempfile.TemporaryDirectory(prefix="bbsc-b14-staged-") as td:
+            (Path(td) / "out").mkdir()
+            env = os.environ.copy()
+            env["BB_WINDOWS_STAGED_LINK"] = "1"
+            env["BB_FAKE_FAIL_STAGE"] = failed_stage
+            run = subprocess.run(
+                [self.bash, "-c", shell], cwd=td, env=env,
+                capture_output=True, text=True, timeout=8
+            )
+            output = (Path(td) / "out/gpu-build.log").read_text()
+        return run, output
+
+    def test_prod_staged_ninja_builds_network_before_gpu_before_exes(self):
+        run, log = self._run_real_production_stage_loop()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        for stage in ("net", "gpu", "final"):
+            self.assertIn("WINDOWS_NINJA_STAGE_PASS: " + stage, run.stdout)
+        self.assertLess(log.index("bbnet"), log.index("bbgpu"))
+        self.assertLess(log.index("bbgpu"), log.index("bb-probe bb-gpu-capabilities bb-play"))
+        self.assertEqual(log.count("NINJA_TARGETS:-j 2 -C out/gpu"), 3)
+
+    def test_prod_staged_ninja_preserves_raw_failed_stage_status(self):
+        for stage, rc in (("net", 37), ("gpu", 38), ("final", 39)):
+            with self.subTest(stage=stage):
+                run, log = self._run_real_production_stage_loop(stage)
+                self.assertEqual(run.returncode, rc, run.stdout + run.stderr)
+                self.assertIn("WINDOWS_NINJA_STAGE_FAILED: " + stage, run.stderr)
+                self.assertIn("MOCK_REPORT:Windows " + stage + " stage", run.stderr)
+                self.assertNotIn("STAGED_SUCCESS", run.stdout)
+                self.assertIn("NINJA_TARGETS:-j 2 -C out/gpu", log)
 
     def test_obsolete_b10_exact_allowlist_is_not_used_for_later_b14(self):
         old = B10.read_text(encoding="utf-8")
