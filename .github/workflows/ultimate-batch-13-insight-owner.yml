@@ -3,6 +3,7 @@ name: Ultimate B13 boss Insight per-character owner guard (source C++)
 on:
   pull_request:
     paths:
+      - '.github/workflows/ultimate-batch-12-member-data-slot-guard.yml'
       - 'emulator/src/core/bloodborne_party.h'
       - 'emulator/src/core/bloodborne_re_internal.h'
       - 'emulator/src/core/bloodborne_travel.cpp'
@@ -29,18 +30,18 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Validate B12 to B13 eight-file source and test boundary
+      - name: Validate B12 to B13 nine-file source, test and inherited-CI boundary
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin \
             experiment/ultimate-batch-12-member-data-slot-guard-20261109:refs/remotes/origin/b12
           git diff --name-only origin/b12 HEAD > /tmp/b13-paths.txt
           cat /tmp/b13-paths.txt
-          if grep -vE '^(emulator/src/core/bloodborne_party\.h|emulator/src/core/bloodborne_re_internal\.h|emulator/src/core/bloodborne_travel\.cpp|emulator/tests/bloodborne/test_bloodborne_party\.cpp|tools/re/tests/test_encounter_insight_owner\.py|docs/ULTIMATE_BATCH_13\.md|tools/ultimate/batch_13_manifest\.json|\.github/workflows/ultimate-batch-13-insight-owner\.yml)$' /tmp/b13-paths.txt; then
+          if grep -vE '^(\.github/workflows/ultimate-batch-12-member-data-slot-guard\.yml|emulator/src/core/bloodborne_party\.h|emulator/src/core/bloodborne_re_internal\.h|emulator/src/core/bloodborne_travel\.cpp|emulator/tests/bloodborne/test_bloodborne_party\.cpp|tools/re/tests/test_encounter_insight_owner\.py|docs/ULTIMATE_BATCH_13\.md|tools/ultimate/batch_13_manifest\.json|\.github/workflows/ultimate-batch-13-insight-owner\.yml)$' /tmp/b13-paths.txt; then
             echo 'B13 unexpectedly changed game/server/renderer/save or packaging code' >&2
             exit 1
           fi
-          test "$(wc -l < /tmp/b13-paths.txt)" -eq 8
+          test "$(wc -l < /tmp/b13-paths.txt)" -eq 9
       - name: Check immutable production source/test Git blobs
         run: |
           set -euo pipefail
@@ -49,7 +50,7 @@ jobs:
           from pathlib import Path
           m=json.loads(Path("tools/ultimate/batch_13_manifest.json").read_text())
           assert m["batch_id"]=="B13-2026-11-09" and m["parent_pr"]==44
-          assert len(m["changed_paths"])==8 and all(m["safety"].values())
+          assert len(m["changed_paths"])==9 and all(m["safety"].values())
           for row in m["source_files"]:
               data=Path(row["path"]).read_bytes()
               gitblob=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
