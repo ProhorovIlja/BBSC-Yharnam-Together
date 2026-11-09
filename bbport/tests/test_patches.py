@@ -499,24 +499,31 @@ class DebugPatchTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, f'{kept} conflicts with {dropped}'):
                     validate_patch_requirements([dropped, kept], Path('.'))
 
-    def test_a_release_build_applies_no_cheats_or_debug_tools(self):
-        # Kaniel 2026-11-04: a release (scripts/build_info.json says production) leaves out every
-        # cheat and the debug menu and camera, whatever bbport.ini says; the tweaks stay.
-        # (No Rally would drop No Rally Decay on its own.)
+    def test_offline_release_allows_cheats_online_release_and_dev_disable_them(self):
+        # B35: what matters for actual game patch writes is online launch mode,
+        # not whether build_info.json declared a production release. The
+        # saved '1' toggles may survive an earlier offline sandbox session.
+        # No Rally would remove No Rally Decay in the same preset.
         everything = {key: '1' for key in patches.EFFECTS if key != 'tweak_no_rally'}
-        dev = effect_patches(everything, production=False)
-        release = effect_patches(everything, production=True)
+        offline_release = effect_patches(everything, production=True, online=False)
+        online_release = effect_patches(everything, production=True, online=True)
+        online_dev = effect_patches(everything, production=False, online=True)
         for key in ('cheat_no_death', 'cheat_stealth', 'cheat_silent', 'cheat_rally_no_decay',
                     'debug_camera', 'debug_menu'):
             self.assertIn(key, patches.DEV_TOOL_KEYS)
-            self.assertIn(patches.EFFECTS[key][1], dev)
-            self.assertNotIn(patches.EFFECTS[key][1], release)
-        self.assertNotIn('Enemy Control', release)
+            self.assertIn(patches.EFFECTS[key][1], offline_release)
+            self.assertNotIn(patches.EFFECTS[key][1], online_release)
+            self.assertNotIn(patches.EFFECTS[key][1], online_dev)
+        self.assertNotIn('Enemy Control', online_release)
         for key in ('tweak_camera_distance', 'tweak_ragdoll', 'skip_intro'):
-            self.assertIn(patches.EFFECTS[key][1], release)
-        self.assertFalse(any(n in patches.GAMEPLAY_PATCHES for n in release))
+            self.assertIn(patches.EFFECTS[key][1], online_release)
+        self.assertFalse(any(n in patches.GAMEPLAY_PATCHES for n in online_release))
         self.assertIn('Disable Rally (HP Regain)',
-                      effect_patches({'tweak_no_rally': '1'}, production=True))
+                      effect_patches({'tweak_no_rally': '1'}, production=True, online=True))
+        self.assertIn('Player No Dead (Read note)',
+                      patches.filter_online_dev_patches(['Player No Dead (Read note)'], online=False))
+        self.assertNotIn('Player No Dead (Read note)',
+                         patches.filter_online_dev_patches(['Player No Dead (Read note)'], online=True))
 
     def test_the_build_mode_comes_from_build_info(self):
         with tempfile.TemporaryDirectory() as folder:
