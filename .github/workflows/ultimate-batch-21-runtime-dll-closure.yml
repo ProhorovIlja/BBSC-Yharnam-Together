@@ -1,0 +1,65 @@
+name: "Ultimate B21 runtime Windows DLL import closure (no game or release)"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-21-runtime-dll-closure.yml'
+      - 'bbport/packaging/windows/package.sh'
+      - 'bbport/packaging/windows/verify_runtime_dlls.py'
+      - 'docs/ULTIMATE_BATCH_21.md'
+      - 'tools/ultimate/batch_21_manifest.json'
+      - 'tools/ultimate/test_batch_21_dll_closure.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b21-dll-closure-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-import-graph-regressions:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-20-deploy-ci-release-scope-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Pin six exact B20-to-B21 packaging-only changes and production Git blobs
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-20-deploy-ci-release-scope-20261109:refs/remotes/origin/b20
+          git diff --name-only origin/b20 HEAD >/tmp/b21-paths.txt
+          cat /tmp/b21-paths.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          m=json.loads(Path("tools/ultimate/batch_21_manifest.json").read_text())
+          actual=set(Path("/tmp/b21-paths.txt").read_text().splitlines())
+          expected=set(m["changed_paths"])
+          assert m["batch_id"]=="B21-2026-11-09" and m["parent_pr"]==52
+          assert len(expected)==6 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert all(m["safety"].values())
+          for item in m["pinned_blobs"]:
+              blob=Path(item["path"]).read_bytes()
+              identity=hashlib.sha1(b"blob "+str(len(blob)).encode()+b"\0"+blob).hexdigest()
+              assert item["git_blob_sha1"]==identity,(item["path"],item["git_blob_sha1"],identity)
+          print("B21_EXACT_SIX_FILE_SOURCE_AND_RUNTIME_IMPORT_PINS_PASS")
+          PY
+      - name: Verify actual packaging Bash and static PE import helper syntax
+        run: |
+          set -euo pipefail
+          bash -n bbport/packaging/windows/package.sh
+          python3 -m py_compile bbport/packaging/windows/verify_runtime_dlls.py
+          python3 -m py_compile tools/ultimate/test_batch_21_dll_closure.py
+      - name: Run real recursive PE dependency closure and fail-closed negative fixtures
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_21_dll_closure.py' -v
+          echo 'B21_PACKAGING_DLL_CLOSURE_IMPORT_GRAPH_AND_NEGATIVE_TESTS_PASS'
+      - name: No package, network, Fornex, game files or publish
+        run: echo 'B21_SOURCE_TEST_ONLY_NO_GAME_ASSETS_NO_PUBLIC_ZIP_NO_GHCR_NO_FORNEX'

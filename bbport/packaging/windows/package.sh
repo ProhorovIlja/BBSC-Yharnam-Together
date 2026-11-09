@@ -159,6 +159,15 @@ ldd "$dest"/bin/*.exe "$dest"/bin/*.dll 2>/dev/null |
             cp "/clang64/bin/$name" "$dest/bin/"
         fi
     done
+# Final PE import closure must be transitive and fail on absent runtime DLLs.
+# ldd's first pass may have resolved the wrong system-installed codec version;
+# recursively inspect every copied CLANG64 DLL and pull only missing imports
+# from the *build toolchain*, never from an arbitrary user's PATH/System32.
+# Uses the already-installed Windows Python venv and CLANG64 llvm-objdump.
+out/pyenv/Scripts/python.exe -I packaging/windows/verify_runtime_dlls.py \
+    --bin-dir "$dest/bin" --clang-dir "$(cygpath -w /clang64/bin)" \
+    --root "$dest/bin/bb-probe.exe" --root "$dest/bin/bb-gpu-capabilities.exe" \
+    --root "$dest/Bloodborne.exe"
 cp -r scripts patches "$dest/"
 # Kaniel 2026-11-04: the build's mode for patches.py and the launcher (scripts/build_info.json; none:
 # a dev build). A release (BB_PRODUCTION=1) offers no cheats or debug tools.
