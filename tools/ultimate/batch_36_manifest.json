@@ -1,0 +1,78 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B36-2026-11-09",
+  "parent_pr": 82,
+  "parent_branch": "experiment/ultimate-batch-35-online-gameplay-patch-gate-20261109",
+  "status": "COOP_RELEASE_PLAY_OFFLINE_SAME_SAVES_NO_NETWORK_NO_COOP_EVENT_MODS",
+  "related_issues": [
+    69,
+    70,
+    76,
+    63,
+    64,
+    78,
+    9
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-36-coop-offline-play.yml",
+    "bbport/launcher/bbport_coop.py",
+    "bbport/launcher/bbport_launcher_win.py",
+    "bbport/run.py",
+    "bbport/scripts/mods.py",
+    "bbport/tests/test_coop_offline_sandbox.py",
+    "bbport/tests/test_launcher_production.py",
+    "docs/ULTIMATE_BATCH_36.md",
+    "tools/ultimate/batch_36_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/launcher/bbport_coop.py",
+      "git_blob_sha1": "3dd53d99b68730eb99af4652452520323073b839"
+    },
+    {
+      "path": "bbport/launcher/bbport_launcher_win.py",
+      "git_blob_sha1": "8c81d8702d16bb0c68bb5148826d64067ecf6765"
+    },
+    {
+      "path": "bbport/run.py",
+      "git_blob_sha1": "d582857425468c6909114f2a06bcf2594019bee5"
+    },
+    {
+      "path": "bbport/scripts/mods.py",
+      "git_blob_sha1": "d474b5615f8df221b0607e6b6f4c873660fc137a"
+    },
+    {
+      "path": "bbport/tests/test_coop_offline_sandbox.py",
+      "git_blob_sha1": "4ba958c9762ecb445ead239fd555211792852ddb"
+    },
+    {
+      "path": "bbport/tests/test_launcher_production.py",
+      "git_blob_sha1": "cbad5a2df67b080344dacc3d04552c2b4acf6b7d"
+    }
+  ],
+  "tests": [
+    "new offline button in co-op release does not require server account, DNS, firewall or online sign-in",
+    "offline game uses merged 1.09 game view and shared user/savedata; never generates/copies co-op EMEVD",
+    "game_environment scrubs network secrets/party flags and applies BB_IGNORE_LEGACY_GAME_MODS=1 and BB_PARTY_HUD=0",
+    "mods.py skips sibling CUSA03173-mods when requested but retains separately selected normal cosmetic/user mods",
+    "run.py forwards --ignore-legacy to actual mods.py game-view construction",
+    "offline-only CHEATS appear as switches in production launcher; online built-in patch gate B35 still blocks their application",
+    "offline and online play cannot both start through same launcher process",
+    "source identity exact nine files and six blob SHAs on Linux, tests on Windows and Ubuntu"
+  ],
+  "limits": [
+    "does not yet implement historic v1.3.1 Save stat/item/outfit editor",
+    "does not yet run Bloodborne 1.09 game under Windows or validate real offline game UI",
+    "does not validate arbitrary third-party code safety online; B35 filters only known built-in patch names",
+    "personal save shared by design so beta users should still backup before first test; no user saves changed by this PR",
+    "game view update/asset import may be expensive on first launch; launcher performance benchmarking still open",
+    "no production server/installer/artifact deployment"
+  ],
+  "safety": {
+    "no_live_fornex": true,
+    "no_real_game_assets": true,
+    "no_user_saves": true,
+    "no_release": true,
+    "no_full_client_build": true
+  }
+}
