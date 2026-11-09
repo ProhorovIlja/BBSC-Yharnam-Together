@@ -1,4 +1,4 @@
-name: Ultimate B14 cumulative Windows client: source, link and PE verification (no game)
+name: "Ultimate B14 cumulative Windows client: source, link and PE verification (no game)"
 
 on:
   pull_request:
