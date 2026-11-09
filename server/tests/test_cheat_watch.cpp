@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 shadNet Project
 // SPDX-License-Identifier: GPL-2.0-or-later
-// The cheat watch (coop/cheat_watch.h): what an unmodified game never shows is
-// found, once per run, and what play does (level ups that cost echoes, a
-// bloodstain picked up, a trade's echoes) is not.
+// The cheat watch (coop/cheat_watch.h): offline-edited saved characters
+// are explicitly admitted, but active cheat patches and *changes during a
+// connected run* are still reported; legitimate game rewards aren't.
 #include <iostream>
 #include <string>
 
@@ -98,13 +98,14 @@ int main() {
     CHECK(watch.ItemsOffered(99).empty());
   }
   {
-    // Edited saves: values past the game's limits, a level its attributes do
-    // not make.
+    // B34: an offline-edited character with unusual saved stats is allowed
+    // into multiplayer. Record baseline diagnostics as info, not live cheats.
     CharacterSheet sheet = Hunter();
     sheet.attributes[2] = 150;
     auto found = CheatWatch{}.Sheet(sheet);
     CHECK(Has(found, "attribute-range"));
-    CHECK(LevelOf(found, "attribute-range") == Suspicion::Certain);
+    CHECK(LevelOf(found, "attribute-range") == Suspicion::Info);
+    CHECK(LevelOf(found, "level-mismatch") == Suspicion::Info);
     CHECK(Has(found, "level-mismatch"));
 
     sheet = Hunter();
@@ -122,7 +123,9 @@ int main() {
     CHECK(Has(found, "echoes-range"));
     CHECK(Has(found, "insight-range"));
     CHECK(Has(found, "hp-max"));
-    CHECK(LevelOf(found, "hp-max") == Suspicion::Likely);
+    CHECK(LevelOf(found, "hp-max") == Suspicion::Info);
+    CHECK(LevelOf(found, "echoes-range") == Suspicion::Info);
+    CHECK(LevelOf(found, "insight-range") == Suspicion::Info);
   }
   {
     // The save editor in a run: attributes raised with the level (it keeps them
@@ -217,7 +220,8 @@ int main() {
     sheet.dev_tools = "debug menu";
     sheet.autoplay = true;
     found = CheatWatch{}.Sheet(sheet);
-    CHECK(Has(found, "save-editor"));
+    CHECK(!Has(found, "save-editor"));
+    CHECK(!Has(found, "save-editor-active"));
     CHECK(LevelOf(found, "dev-tools") == Suspicion::Likely);
     CHECK(LevelOf(found, "dev-build") == Suspicion::Info);
     CHECK(Has(found, "autoplay"));
@@ -226,6 +230,53 @@ int main() {
     sheet.dev_tools = "debug camera";
     CHECK(LevelOf(CheatWatch{}.Sheet(sheet), "dev-tools") ==
           Suspicion::Certain);
+  }
+  {
+    // B34: edits performed offline and saved before the first connected sheet
+    // cannot be detected as an ACTIVE cheat. The same already-modified save
+    // must remain acceptable when logging in, restarting or reconnecting.
+    CheatWatch watch;
+    CharacterSheet saved = Hunter();
+    saved.level = 700;
+    saved.attributes = {120, 130, 140, 145, 115, 100};
+    saved.echoes = 1'200'000'000;
+    saved.insight = 400;
+    saved.save_edits = 12; // edited offline, *before* the first server sheet
+    auto initial = watch.Sheet(saved);
+    CHECK(Has(initial, "attribute-range"));
+    CHECK(Has(initial, "level-range"));
+    CHECK(Has(initial, "level-mismatch"));
+    CHECK(Has(initial, "echoes-range"));
+    CHECK(Has(initial, "insight-range"));
+    for (const CheatFinding &finding : initial) {
+      CHECK(finding.level == Suspicion::Info);
+    }
+    CHECK(!Has(initial, "save-editor"));
+    CHECK(!Has(initial, "save-editor-active"));
+    // A repeated identical sheet (30 s later) has no new false suspicion.
+    CHECK(watch.Sheet(saved).empty());
+    // In-session editing that increments the counter *after* the baseline
+    // remains suspicious, without having to ban the saved baseline.
+    saved.save_edits = 13;
+    auto changed = watch.Sheet(saved);
+    CHECK(Has(changed, "save-editor-active"));
+    CHECK(LevelOf(changed, "save-editor-active") == Suspicion::Likely);
+    CHECK(!Has(changed, "level-apart"));
+    // A new session uses the current saved state as its own starting point.
+    watch.StartOver();
+    CHECK(!Has(watch.Sheet(saved), "save-editor-active"));
+    // Active cheat patches still raise a distinct finding, unlike stats.
+    saved.cheats = "no death";
+    auto active = CheatWatch{}.Sheet(saved);
+    CHECK(Has(active, "cheats"));
+    CHECK(LevelOf(active, "cheats") == Suspicion::Certain);
+    CHECK(!Has(active, "save-editor-active"));
+
+    auto vitals = watch.Vitals(99, 99, 20000, 900);
+    CHECK(LevelOf(vitals, "vials") == Suspicion::Info);
+    CHECK(LevelOf(vitals, "bullets") == Suspicion::Info);
+    CHECK(LevelOf(vitals, "hp-max") == Suspicion::Info);
+    CHECK(LevelOf(vitals, "level-range") == Suspicion::Info);
   }
   {
     // Vitals and trades past the limits.
