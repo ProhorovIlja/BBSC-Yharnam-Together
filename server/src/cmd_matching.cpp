@@ -8,6 +8,7 @@
 #include "client_session.h"
 #include "proto_utils.h"
 #include "shadnet.pb.h"
+#include "signaling_peer_scope.h"
 
 namespace {
 
@@ -1233,38 +1234,46 @@ ErrorType ClientSession::CmdRequestSignalingInfos(StreamExtractor& data, QByteAr
     if (!decodeProto(req, data) || data.error())
         return ErrorType::Malformed;
 
-    QString targetNpid = QString::fromStdString(req.target_npid());
+    const QString targetNpid = QString::fromStdString(req.target_npid());
+    if (targetNpid.isEmpty() || targetNpid == m_info.npid)
+        return ErrorType::InvalidInput;
 
-    QString targetIp;
-    uint16_t targetPort = 0;
-    {
-        QReadLocker lk(&m_shared->matching.udpLock);
-        auto it = m_shared->matching.udpExt.find(targetNpid);
-        if (it != m_shared->matching.udpExt.end()) {
-            targetIp = it->first;
-            targetPort = it->second;
-        }
-    }
-    uint16_t targetMemberId = 0;
+    // A global STUN endpoint does not prove membership in this caller's room.
+    // In particular, five-player sessions may coexist with other rooms under the
+    // same title key. Never resolve a target from another party, even if it has
+    // pinged the STUN server and therefore has a known public address.
+    if (m_matching.roomId == 0)
+        return ErrorType::RoomMissing;
+
+    std::optional<SignalingPeerScope::Peer> peer;
     {
         QReadLocker lk(&m_shared->matching.roomsLock);
-        for (auto it = m_shared->matching.rooms.constBegin();
-             it != m_shared->matching.rooms.constEnd(); ++it) {
-            if (it.key().first != m_matching.matchingKey)
-                continue;
-            const RoomMember* tm = it.value().findByNpid(targetNpid);
-            if (tm) {
-                targetMemberId = tm->memberId;
-                if (targetIp.isEmpty()) {
-                    targetIp = tm->addr;
-                    targetPort = tm->port;
-                }
-                break;
-            }
+        const auto it = m_shared->matching.rooms.constFind(
+            {m_matching.matchingKey, m_matching.roomId});
+        if (it == m_shared->matching.rooms.constEnd() ||
+            !it.value().findByNpid(m_info.npid))
+            return ErrorType::RoomMissing;
+        peer = SignalingPeerScope::Find(it.value(), m_info.npid, targetNpid);
+    }
+    if (!peer)
+        return ErrorType::NotFound;
+
+    // Resolve the already-authorized room member's endpoint. Use a complete
+    // public STUN pair when available, otherwise the room's advertised pair.
+    QString targetIp = peer->roomAddr;
+    uint16_t targetPort = peer->roomPort;
+    {
+        QReadLocker lk(&m_shared->matching.udpLock);
+        const auto it = m_shared->matching.udpExt.constFind(targetNpid);
+        if (it != m_shared->matching.udpExt.constEnd() &&
+            !it.value().first.isEmpty() && it.value().second != 0) {
+            targetIp = it.value().first;
+            targetPort = it.value().second;
         }
     }
-    if (targetIp.isEmpty())
+    if (targetIp.isEmpty() || targetPort == 0)
         return ErrorType::NotFound;
+    const uint16_t targetMemberId = peer->memberId;
 
     qInfo() << "RequestSignalingInfos:" << m_info.npid << "->" << targetNpid
             << "(mid=" << targetMemberId << ") target=" << targetIp << ":" << targetPort;
