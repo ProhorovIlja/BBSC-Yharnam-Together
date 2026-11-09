@@ -1,0 +1,71 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B39-2026-11-09",
+  "parent_pr": 90,
+  "parent_branch": "experiment/ultimate-batch-38-multi-global-server-profiles-20261109",
+  "status": "SOURCE_ONLY_LAN_VPN_SELECTED_NIC_PARTY_PREFLIGHT_NOT_PLAYABLE_YET",
+  "related_issues": [
+    93,
+    80,
+    89,
+    9
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-39-lan-vpn-preflight.yml",
+    "bbport/launcher/bbport_party_network.py",
+    "bbport/tests/test_party_network_preflight.py",
+    "docs/ULTIMATE_BATCH_39.md",
+    "tools/ultimate/batch_39_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/launcher/bbport_party_network.py",
+      "git_blob_sha1": "5f3f8c0c1e6f455d71bb25d675953399bad8ee60"
+    },
+    {
+      "path": "bbport/tests/test_party_network_preflight.py",
+      "git_blob_sha1": "1060d92a0d59e4dc2acdd2dcbc56ebe23437723b"
+    }
+  ],
+  "external_sources": [
+    {
+      "repo": "mark3317/bbgl",
+      "path": "launcher/bbport_coop.py",
+      "purpose": "Get-NetAdapter and Get-NetIPAddress scoped NIC discovery, GPL-2.0"
+    },
+    {
+      "repo": "mark3317/bbgl",
+      "path": "launcher/bbport_party.py",
+      "purpose": "selected-interface discovery, Tailscale CLI peer candidate strategy, not a copied working Party engine"
+    },
+    {
+      "repo": "mark3317/bbsc-gl",
+      "path": "party/engine.py",
+      "purpose": "future YT Link4/owner protocol gap analysis; not imported yet"
+    }
+  ],
+  "native_tests": [
+    "Real production bbport_party_network.py parser, typed selected-interface policy and simulated Windows PowerShell invocation on Windows and Ubuntu Python 3.12",
+    "Radmin/Tailscale/ZeroTier/ordinary LAN IPv4 NIC recognition without guessing VPN by IP block alone",
+    "Tailscale status JSON online peers only from 100.64/10; no broadcast on Tailnet",
+    "LAN broadcast limited to RFC1918; unknown/public or ambiguous NICs are not silently selected",
+    "No discovery UDP/TCP sockets, game launch, unauthorized mod download, auth or game savedata",
+    "Source SHA and exact five changed files pinned; B38 dedicated-server tests still pass"
+  ],
+  "limitations": [
+    "No YT Link4/Matching2 compatible Party runtime, no direct gameplay P2P packets",
+    "No actual VPN client remote discovery and no ZeroTier peer list API integration",
+    "Only Windows PowerShell preflight inventory; peer discovery/handshake, session consent and cryptographic authorization not yet implemented",
+    "No new launcher PLAY LAN/VPN button until backend handshake verified",
+    "No real Bloodborne game, account, NPC, quest, save, 2/3/5-player, NAT, privacy or cross-version tests",
+    "No Fornex, user game assets, user saves or release files changed"
+  ],
+  "safety": {
+    "no_live_fornex": true,
+    "no_credentials": true,
+    "no_private_game_assets": true,
+    "no_user_saves": true,
+    "no_installer": true,
+    "no_full_game_build": true
+  }
+}
