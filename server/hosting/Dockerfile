@@ -53,7 +53,8 @@ ARG QT_VERSION=6.8.4
 ARG QTHTTPSERVER_VERSION=6.8.3
 ARG MICROMAMBA_VERSION=2.3.3-0
 ARG BUILD_JOBS=0
-RUN curl -fsSL -o /usr/local/bin/micromamba \
+RUN curl -fL --retry 4 --retry-all-errors --retry-delay 5 \
+        --connect-timeout 20 --max-time 90 -o /usr/local/bin/micromamba \
         "https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-linux-64" \
     && chmod +x /usr/local/bin/micromamba \
     && micromamba create -y -r /tmp/mamba -p /opt/qt -c conda-forge "qt6-main=${QT_VERSION}" \
@@ -103,6 +104,21 @@ RUN sh /usr/local/bin/collect-runtime.sh /bin-out/shadnet /opt/qt /out
 
 # Simulated players (loadtest/bbload.cpp) for smoke tests against a deployed shard:
 #   docker build --target loadtest -t yharnam-bbload:local -f server/hosting/Dockerfile .
+# Optional isolated test stage; default runtime remains byte-identical otherwise.
+FROM build AS verification-tests
+ARG BUILD_JOBS=2
+# CMake's password_accounts test refers to the source-tree fixture by absolute path.
+# This COPY affects only the verification stage, not the default runtime image.
+COPY server/data/common-passwords.txt /src/server/data/common-passwords.txt
+RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
+    cmake --build build --target \
+        test_admission test_admin test_server_link test_watchdog \
+        test_world_writer test_bloodborne_world test_http_gate test_team_lobby \
+        test_password_accounts test_rpc_tunnel test_build_fingerprint test_packet_routes \
+        -j"$BUILD_JOBS" \
+    && ctest --test-dir build --output-on-failure \
+        -R '^(admission|admin|server_link|watchdog|world_writer|bloodborne_world|http_gate|team_lobby|password_accounts|rpc_tunnel|build_fingerprint|packet_routes)$'
+
 FROM build AS loadtest-build
 ARG BUILD_JOBS=0
 RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \

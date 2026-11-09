@@ -70,6 +70,8 @@ struct Settings {
   int ramp_ms = 50;     // between two games' first hellos
   int owner_fps = 30;   // the owner's frames a second to each teammate
   int follower_fps = 8; // a follower's
+  int owners = 1;       // seats that own enemies (since 1.3.0 the nearest
+                        // player owns each enemy, so a spread team has several)
   QByteArray tag =
       "lt"; // the start of every online id (one per bbload process)
   QByteArray build = "bbload";
@@ -157,6 +159,7 @@ private:
   void StartWork(int bits, s64 now_us);
   void Redirected(const ServerLink::Redirect &redirect, s64 now_us);
   bool Leader() const { return seat == 0; }
+  bool Owner() const;
   // A region: whether this member joins its leader on another shard, and how.
   bool Elsewhere() const;
   bool ByCode() const;
@@ -388,6 +391,8 @@ Game::Game(Load &load, int index, int team, int seat)
   }
 }
 
+bool Game::Owner() const { return seat < load.settings.owners; }
+
 bool Game::Elsewhere() const {
   return !Leader() && load.settings.shards.size() > 1 && redirects == 0 &&
          first_shard != load.ShardOf(team, 0);
@@ -581,7 +586,7 @@ void Game::Tick(s64 now_us) {
     }
     if (now_us >= next_frame_us) {
       const int fps =
-          Leader() ? load.settings.owner_fps : load.settings.follower_fps;
+          Owner() ? load.settings.owner_fps : load.settings.follower_fps;
       next_frame_us =
           (next_frame_us == 0 ? now_us : next_frame_us) + 1'000'000 / fps;
       if (next_frame_us < now_us) {
@@ -620,7 +625,7 @@ void Game::SendGamePackets(s64 now_us) {
           {PacketClass::Unreliable, 0,
            GamePacket(channel, size, now_us, ++sent_seq[to])});
     };
-    if (Leader()) {
+    if (Owner()) {
       // The enemy owner (rig 2026-10-15): 0x31 twice a frame, 0x04 every third,
       // 0x05 every fourth, 0x06 every fifth.
       add(0x31, 48);
@@ -930,12 +935,14 @@ int main(int argc, char **argv) {
       {"server", "server address", "address", "127.0.0.1"},
       {"port", "link UDP port", "port", "31314"},
       {"teams", "teams", "n", "10"},
-      {"team-size", "players a team (2-4)", "n", "3"},
+      {"team-size", "players a team (2-5)", "n", "3"},
       {"seconds", "seconds to play after the last game starts", "n", "60"},
       {"ramp-ms", "ms between two games' starts", "n", "50"},
       {"owner-fps", "the enemy owner's frames a second per teammate", "n",
        "30"},
       {"follower-fps", "a follower's frames a second per teammate", "n", "8"},
+      {"owners", "seats a team that own enemies and send as their owner", "n",
+       "1"},
       {"map-changes", "map changes a minute a game", "n", "0.5"},
       {"tag", "the start of every online id", "tag", "lt"},
       {"build", "the build the hello says", "build", "bbload"},
@@ -958,11 +965,13 @@ int main(int argc, char **argv) {
   settings.server = QHostAddress(parser.value("server"));
   settings.port = static_cast<quint16>(parser.value("port").toUInt());
   settings.teams = parser.value("teams").toInt();
-  settings.team_size = std::clamp(parser.value("team-size").toInt(), 2, 4);
+  settings.team_size = std::clamp(parser.value("team-size").toInt(), 2, 5);
   settings.seconds = parser.value("seconds").toInt();
   settings.ramp_ms = parser.value("ramp-ms").toInt();
   settings.owner_fps = std::max(1, parser.value("owner-fps").toInt());
   settings.follower_fps = std::max(1, parser.value("follower-fps").toInt());
+  settings.owners = std::clamp(parser.value("owners").toInt(), 0,
+                               settings.team_size);
   settings.map_change_per_min = parser.value("map-changes").toDouble();
   settings.tag = parser.value("tag").toUtf8();
   settings.build = parser.value("build").toUtf8();
