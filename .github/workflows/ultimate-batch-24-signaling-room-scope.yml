@@ -1,0 +1,94 @@
+name: "Ultimate B24 scope peer signaling to the active matching room"
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-24-signaling-room-scope.yml'
+      - 'server/src/cmd_matching.cpp'
+      - 'server/src/signaling_peer_scope.h'
+      - 'server/tests/test_signaling_peer_scope.cpp'
+      - 'docs/ULTIMATE_BATCH_24.md'
+      - 'tools/ultimate/batch_24_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b24-scope-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-and-auth-contract:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-23-final-runtime-gate-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exact six-file B23 to B24 source diff and production Git blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-23-final-runtime-gate-20261109:refs/remotes/origin/b23
+          git diff --name-only origin/b23 HEAD >/tmp/b24-changed.txt
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_24_manifest.json').read_text())
+          actual=set(Path('/tmp/b24-changed.txt').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==6 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B24-2026-11-09' and m['parent_pr']==55
+          assert all(m['safety'].values())
+          for entry in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',entry['path']],text=True).strip()
+              assert sha==entry['git_blob_sha1'],(entry['path'],sha)
+          print('B24_EXACT_SOURCE_TREE_PINS_AND_DRAFT_SAFETY_PASS')
+          PY
+      - name: Ensure peer authentication precedes STUN and no cross-room scan survives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          code=Path('server/src/cmd_matching.cpp').read_text()
+          name='ErrorType ClientSession::CmdRequestSignalingInfos'
+          assert code.count(name)==1
+          body=code.split(name,1)[1].split('ErrorType ClientSession::CmdSendRoomMessage',1)[0]
+          assert re.search(r'rooms\.constFind\(\s*\{m_matching\.matchingKey,\s*m_matching\.roomId\}',body)
+          assert 'findByNpid(m_info.npid)' in body
+          assert body.index('SignalingPeerScope::Find') < body.index('udpExt.constFind')
+          assert 'rooms.constBegin()' not in body
+          assert 'targetPort == 0' in body
+          assert '#include "signaling_peer_scope.h"' in code
+          print('B24_HANDLER_CHECKS_CALLER_TARGET_ROOM_BEFORE_GLOBAL_STUN_PASS')
+          PY
+
+  real-qt6-five-peers:
+    needs: exact-source-and-auth-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install actual Qt6 C++20 build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ pkg-config qt6-base-dev
+      - name: Compile and execute production room-scope helper and 5-member regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src \
+              server/tests/test_signaling_peer_scope.cpp \
+              $(pkg-config --cflags --libs Qt6Core Qt6Network) \
+              -o /tmp/ultimate-b24-peer-scope
+          timeout 30s /tmp/ultimate-b24-peer-scope
+          echo B24_REAL_QT6_SERVER_PEER_ROOM_SCOPE_PASS_NOT_GAMEPLAY
+      - name: Explicit no deployment, native game/installer rebuild or private saves
+        run: echo B24_NO_FORNEX_NO_GAME_ASSETS_NO_RELEASE_NO_REAL_GAMEPLAY
