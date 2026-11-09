@@ -63,33 +63,40 @@ jobs:
           print('B34_OFFLINE_SAVED_BASELINE_ALLOWED_AND_LIVE_CHEAT_SIGNAL_PRESERVED')
           PY
 
-  compile-and-run-real-server-cheat-watch:
+  compile-and-run-real-server-cheat-watch-linux:
     needs: exact-cheat-watch-source
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-2022]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Enable Microsoft C++20
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-      - name: Compile and run ACTUAL in-tree CheatWatch production header with C++20
+      - name: Compile actual CheatWatch production header and run server tests on GCC
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            MSYS_NO_PATHCONV=1 cl /nologo /std:c++20 /EHsc /W4 /Iserver server/tests/test_cheat_watch.cpp /Fe:cheat_watch_b34.exe
-            ./cheat_watch_b34.exe
-          else
-            g++ -std=c++20 -O2 -Wall -Wextra -Werror -Iserver server/tests/test_cheat_watch.cpp -o ./cheat_watch_b34
-            ./cheat_watch_b34
-          fi
-      - name: No real game saves, public server restarts, bans, packaging or full emulator rebuild
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Iserver server/tests/test_cheat_watch.cpp -o ./cheat_watch_b34
+          ./cheat_watch_b34
+
+  compile-and-run-real-server-cheat-watch-windows:
+    needs: exact-cheat-watch-source
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Enable Microsoft C++20 compiler
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile actual CheatWatch production header and run server tests on MSVC
         shell: bash
-        run: echo B34_REAL_CPP20_WATCHER_NOT_NETWORK_ENFORCEMENT_NO_REAL_SAVES_NO_FORNEX
+        run: |
+          set -euo pipefail
+          # Git Bash otherwise rewrites MSVC /nologo and /I paths to its install dir.
+          MSYS_NO_PATHCONV=1 cl /nologo /std:c++20 /EHsc /W4 /Iserver server/tests/test_cheat_watch.cpp /Fe:cheat_watch_b34.exe
+          ./cheat_watch_b34.exe
+      - name: No live service, game files or release packaging
+        shell: bash
+        run: echo B34_REAL_NATIVE_CPP20_TESTS_ONLY_NO_FORNEX_NO_USER_SAVES
