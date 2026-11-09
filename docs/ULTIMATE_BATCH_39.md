@@ -21,7 +21,11 @@
 - `bbport/tests/test_local_hunters_online.py` imports the **actual production** `bbport_coop.py` and tests 5 link members, true zero, old server without field, malformed response, wrong service, timeouts, invalid host and bounded data, and source server/UI wiring with real C++ code locations.
 - Windows 2022 and Ubuntu 24.04 Python tests plus B37/B38 regression tests.
 - A **full isolated Qt6/protobuf shadNet server build and its in-tree CTest suites**, using the established `server/hosting/Dockerfile --target verification-tests` workflow from B27, catches incompatible C++ atomic/HTTP modifications. Do not call this green until actual CI confirms it.
-- Exact nine changed paths and six SHA pinned source/test blobs compared to B38.
+- Exact ten changed paths and seven SHA-pinned source/test blobs compared to B38, including an updated real server world test expectation inherited from B34.
+
+## Integration test correction discovered by full server CI
+
+The first isolated full server build **compiled all changed Qt/C++ code**, then ran 12 CTest suites: 11 passed; `bloodborne_world::CheatsAndEditedSavesAreNoted` failed because its old test expected `level-mismatch` to be `Suspicion::Certain`. This expectation predates **B34's explicit allowance of offline-edited saved characters online**. The correct finding for a first-sheet mismatch is `Suspicion::Info`, while a live `no death` cheat patch remains `Suspicion::Certain`. The actual server test `server/tests/test_bloodborne_world.cpp` now checks both, with a pinned Git blob SHA. No anti-cheat production behavior was weakened by this test-only correction. Rerun full Docker Qt6/protobuf CI before asserting that the B39 branch is green.
 
 ## Limits and pending
 
