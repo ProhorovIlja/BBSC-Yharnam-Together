@@ -635,14 +635,28 @@ bool IsTeamStoryFlag(s32 flag) {
 } // namespace
 
 std::vector<std::pair<s32, bool>> TeamStoryToFollow(const WorldFlags& before,
-                                                    const WorldFlags& after) {
-    if (before.blocks.empty() || before.blocks != after.blocks) {
-        return {}; // nothing taken yet, or another store's world: loads take it
+                                                    const WorldFlags& after,
+                                                    u32 flags_per_block) {
+    if (before.blocks.empty() || after.blocks.empty() || flags_per_block == 0) {
+        return {}; // nothing taken yet, or no readable flag-store coverage
     }
+    // Adding the next map's block used to discard *every* story/NPC change,
+    // including a changed flag in the global block that both snapshots cover.
+    // Only reconcile blocks known on BOTH sides. A newly seen/removed block
+    // stays for the game's next load (no speculative NPC actor spawning).
+    const auto shared_block = [&](s32 flag) {
+        if (flag < 0) {
+            return false;
+        }
+        const u32 block = static_cast<u32>(flag) / flags_per_block;
+        return std::binary_search(before.blocks.begin(), before.blocks.end(), block) &&
+               std::binary_search(after.blocks.begin(), after.blocks.end(), block);
+    };
     std::vector<std::pair<s32, bool>> follow;
     const auto add = [&](std::span<const s32> from, std::span<const s32> other, bool on) {
         for (const s32 flag : from) {
-            if (IsTeamStoryFlag(flag) && !std::binary_search(other.begin(), other.end(), flag)) {
+            if (IsTeamStoryFlag(flag) && shared_block(flag) &&
+                !std::binary_search(other.begin(), other.end(), flag)) {
                 follow.emplace_back(flag, on);
             }
         }

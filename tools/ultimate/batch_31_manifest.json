@@ -1,0 +1,70 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B31-2026-11-09",
+  "parent_pr": 62,
+  "parent_branch": "experiment/ultimate-batch-30-npc-death-drop-owner-20261109",
+  "issue": 63,
+  "related_issues": [
+    64,
+    22,
+    21,
+    9
+  ],
+  "status": "PARTIAL_OVERLAPPING_WORLD_FLAG_BLOCK_NPC_QUEST_STORY_DELTAS",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-31-npc-story-world-coverage.yml",
+    "docs/ULTIMATE_BATCH_31.md",
+    "emulator/src/core/bloodborne_server_world.cpp",
+    "emulator/src/core/bloodborne_team.cpp",
+    "emulator/src/core/bloodborne_team.h",
+    "emulator/tests/bloodborne/test_bloodborne_team.cpp",
+    "tools/re/tests/test_npc_story_block_coverage.py",
+    "tools/ultimate/batch_31_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "emulator/src/core/bloodborne_team.h",
+      "git_blob_sha1": "ffa1a1e589b98d907a2c7352d1f76a1e32f23e2a"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_team.cpp",
+      "git_blob_sha1": "65bfc5aeec8c00db8b23a5189b6212b34942ddbd"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_server_world.cpp",
+      "git_blob_sha1": "c37340dd00c7a2aa07a52b0ff9b6fb8f6466ed91"
+    },
+    {
+      "path": "emulator/tests/bloodborne/test_bloodborne_team.cpp",
+      "git_blob_sha1": "684f83af5dc27da71c65f3938b59a30a4db2741b"
+    },
+    {
+      "path": "tools/re/tests/test_npc_story_block_coverage.py",
+      "git_blob_sha1": "dcabe987bcf27b220d9176661ae5fa4833be0513"
+    }
+  ],
+  "native_tests": [
+    "source exact eight-file B30->B31 SHA proof",
+    "actual C++20 production story classification and team delta code compiled on Windows/MSVC and Ubuntu/GCC",
+    "changed-global-NPC flags still follow when host gains new map block",
+    "changed-global-NPC flags still follow when other block disappears",
+    "newly loaded/unloaded blocks defer to next map load",
+    "per-player Iosefka NPC gift flags remain local",
+    "map-specific flags, time-of-day and absent prior world never speculatively applied",
+    "team/world context changes reset NPC-story baseline in client",
+    "existing in-tree Bloodborne TeamWorld GTest expectations amended"
+  ],
+  "safety": {
+    "no_live_fornex": true,
+    "no_user_saves": true,
+    "no_game_assets": true,
+    "no_release": true,
+    "no_full_client_rebuild": true
+  },
+  "limits": [
+    "does NOT confirm Henryk/Eileen NPC spawn fixed",
+    "does NOT confirm first visit Iosefka clinic timeline fixed",
+    "does not run game on 5 physical PCs",
+    "source and synthesized native regression, no player save"
+  ]
+}

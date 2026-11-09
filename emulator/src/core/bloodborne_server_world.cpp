@@ -1566,6 +1566,7 @@ bool HoldTitleLoadForTeam(u32 slot, bool fresh) {
             // for the team's world (TeamWorldWaitMs at most) so the save takes it as it loads.
             team_party = decision.start->party();
             team_world.reset();
+            team_story_followed = {}; // never compare quest states across different worlds
             team_session.reset();
             team_world_wait_ms = SteadyMilliseconds();
             new_party = true;
@@ -1608,6 +1609,7 @@ bool HoldTitleLoadForTeam(u32 slot, bool fresh) {
         team_world_due = decision.start.has_value();
         team_world_taken = false;
         team_world_blocks.clear();
+        team_story_followed = {}; // every freshly loaded save needs its own baseline
         team_host = decision.start && decision.start->host() == me;
         personal_world_due = !decision.start.has_value();
         team_world_reported = {};
@@ -1937,6 +1939,7 @@ void LeaveTeamInPlay(u64 manager) {
         team_world_due = false;
         team_world_taken = false;
         team_world_blocks.clear();
+        team_story_followed = {};
         team_host = false;
         personal_world_due = true;
         team_join = {};
@@ -2041,6 +2044,7 @@ void AdoptTeamInPlay(const bbcoop::TeamStart& start) {
         team_world_due = true;
         team_world_taken = false;
         team_world_blocks.clear();
+        team_story_followed = {}; // new team/world must not inherit the old NPC-story delta
         team_host = start.host() == me;
         personal_world_due = false;
         team_world_reported = {};
@@ -3052,12 +3056,21 @@ void FollowTeamStory(s64 now_ms) {
         if (global < 0x10000 || TryRead<u8>(global, 0x08).value_or(1) != 0) {
             return; // loading: the load takes it, or the next check
         }
+        // A partially loaded game flag store must not seed the NPC-story
+        // baseline: the next readable tick needs a real geometry + snapshot.
+        const u32 flags_per_block = ReadFlagStore().flags_per_block;
+        if (flags_per_block == 0) {
+            return;
+        }
         WorldFlags target = WorldFlagsOf(*team_world);
         if (team_story_followed.blocks.empty()) {
             team_story_followed = std::move(target);
             return;
         }
-        follow = TeamStoryToFollow(team_story_followed, target);
+        // Keep NPC/quest deltas for blocks the host reported both before and
+        // after it loaded a different map. A missing block is NOT authority
+        // to spawn or despawn an NPC in the live guest's map.
+        follow = TeamStoryToFollow(team_story_followed, target, flags_per_block);
         team_story_followed = std::move(target);
     }
     using SetFlag = void PS4_SYSV_ABI (*)(u64, s32, bool);
