@@ -337,14 +337,25 @@ TEST(TeamWorld, AGuestTakesTheTeamsTimeOfDay) {
     WorldFlags team;
     team.blocks = {9};
     team.on = {9301, 9800, 9801};
-    EXPECT_EQ(TimeOfDayToFollow(team, [](s32) { return false; }), (std::vector<s32>{9800, 9801}));
-    EXPECT_EQ(TimeOfDayToFollow(team, [](s32 flag) { return flag == 9800; }),
+    EXPECT_EQ(TimeOfDayToFollow(team, 1000, [](s32) { return false; }), (std::vector<s32>{9800, 9801}));
+    EXPECT_EQ(TimeOfDayToFollow(team, 1000, [](s32 flag) { return flag == 9800; }),
               (std::vector<s32>{9801}));
-    EXPECT_TRUE(TimeOfDayToFollow(team, [](s32 flag) { return flag <= 9801; }).empty());
+    EXPECT_TRUE(TimeOfDayToFollow(team, 1000, [](s32 flag) { return flag <= 9801; }).empty());
     // The guest's blood moon stays: the team's world is behind, not this one's to undo.
     team.on = {9800};
-    EXPECT_TRUE(TimeOfDayToFollow(team, [](s32 flag) { return flag >= 9800; }).empty());
-    EXPECT_TRUE(TimeOfDayToFollow(WorldFlags{}, [](s32) { return false; }).empty());
+    EXPECT_TRUE(TimeOfDayToFollow(team, 1000, [](s32 flag) { return flag >= 9800; }).empty());
+    EXPECT_TRUE(TimeOfDayToFollow(WorldFlags{}, 1000, [](s32) { return false; }).empty());
+
+    // A partially reported host world may contain time flags in the on-list
+    // without claiming its time-of-day block. It must NEVER advance the
+    // guest's stage, even when the guest has not reached Cathedral Ward.
+    team.blocks = {1, 12410};
+    team.on = {9800, 9801, 9802};
+    EXPECT_TRUE(TimeOfDayToFollow(team, 1000, [](s32) { return false; }).empty());
+    team.blocks = {9};
+    EXPECT_TRUE(TimeOfDayToFollow(team, 0, [](s32) { return false; }).empty());
+    EXPECT_EQ(TimeOfDayToFollow(team, 1000, [](s32) { return false; }),
+              (std::vector<s32>{9800, 9801, 9802}));
 }
 
 // Kaniel's playtest 2026-10-22: krolebord, alone in Old Yharnam before the host, saw its
@@ -366,6 +377,22 @@ TEST(TeamWorld, AGuestsLoadTakesTheTeamsTimeOfDayExactly) {
     // A team world without the time of day's block says nothing about it.
     team.blocks = {12410};
     EXPECT_TRUE(TeamTimeOfDayAtLoad(team, 1000, blood_moon).empty());
+
+    // For a flag-store with smaller blocks, 9800/9801 and 9802 have
+    // separate coverage. The load must not clear or set an uncovered stage.
+    team.blocks = {4900};
+    team.on = {9800, 9801, 9802};
+    EXPECT_EQ(TeamTimeOfDayAtLoad(team, 2, [](s32) { return false; }),
+              (std::vector<std::pair<s32, bool>>{{9800, true}, {9801, true}}));
+    EXPECT_EQ(TimeOfDayToFollow(team, 2, [](s32) { return false; }),
+              (std::vector<s32>{9800, 9801}));
+    team.blocks = {4901};
+    EXPECT_EQ(TeamTimeOfDayAtLoad(team, 2, [](s32) { return false; }),
+              (std::vector<std::pair<s32, bool>>{{9802, true}}));
+    EXPECT_EQ(TimeOfDayToFollow(team, 2, [](s32) { return false; }),
+              (std::vector<s32>{9802}));
+    team.blocks.clear();
+    EXPECT_TRUE(TeamTimeOfDayAtLoad(team, 2, blood_moon).empty());
 }
 
 // Kaniel 2026-10-20: NPCs showed up for guests on maps without the host. A guest away from the host
