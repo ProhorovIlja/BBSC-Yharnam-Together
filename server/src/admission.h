@@ -114,7 +114,10 @@ private:
     // addresses fail closed if every slot remains live.
     static constexpr qsizetype MaxHelloBuckets = 100'000;
     static constexpr qint64 HelloBucketIdleMs = 120'000;
+    static constexpr qsizetype MaxAccountBuckets = 100'000;
+    static constexpr qint64 AccountWindowMs = 3'600'000;
     qint64 next_hello_cleanup_ms = 0;
+    qint64 next_account_cleanup_ms = 0;
     Limits limits;
     QHash<quint32, Bucket> hellos;
     QHash<quint32, QList<qint64>> accounts; // when each address made its accounts, the last hour
