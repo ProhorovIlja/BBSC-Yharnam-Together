@@ -3406,7 +3406,8 @@ class Launcher:
                               ('display', _('Display & FPS', 'Экран и FPS')),
                               ('controls', _('Controls', 'Управление')),
                               ('game', _('Game & effects', 'Игра и эффекты')),
-                              ('cheats', _('Gameplay tweaks', 'Игровой процесс') if PRODUCTION else _('Cheats', 'Читы')),
+                              ('cheats', _('Offline cheats & tweaks', 'Офлайн-читы и настройки') if PRODUCTION
+                               else _('Cheats', 'Читы')),
                               ('mods', _('Mods & patches', 'Моды и патчи')),
                               ('advanced', _('Advanced', 'Дополнительно')), ('log', _('Log', 'Журнал')))
         self.last_settings = 'general'
@@ -3482,6 +3483,14 @@ class Launcher:
         bar.pack_propagate(False)
         self.play_button = PlayButton(self, bar, _('PLAY', 'ИГРАТЬ'), self.play)
         self.play_button.pack(side='right', padx=(px(8), px(24)))
+        # Online team PLAY and solo OFFLINE PLAY deliberately use separate game
+        # environments; a visible second button must not log in or load the
+        # co-op NPC event overlay. It shares the same character save directory.
+        self.offline_button = None
+        if COOP_INSTALL:
+            self.offline_button = FlatButton(self, bar, _('PLAY OFFLINE', 'ИГРАТЬ ОФЛАЙН'),
+                                             self.play_coop_offline, bg=BG)
+            self.offline_button.pack(side='right', padx=(px(8), 0))
         self.stop_button = FlatButton(self, bar, _('Stop', 'Остановить'), self.stop, bg=BG)
         # Shown once a newer release is out (coop_check_update); until then Check for updates holds its place
         # (Kaniel 2026-10-20).
@@ -3545,6 +3554,8 @@ class Launcher:
         if running:
             self.stop_button.pack(side='right', padx=(0, px(8)))
             self.play_button.configure(state='disabled')
+            if self.offline_button is not None:
+                self.offline_button.configure(state='disabled')
         else:
             self.stop_button.pack_forget()
         if preparing:
@@ -5327,7 +5338,7 @@ class Launcher:
         return False
 
     def play_coop(self):
-        if self.coop_busy:
+        if self.coop_busy or self.process or self.installing:
             return
         self.coop_changed()
         if bbport_coop.missing(self.coop) or self.coop_ready():
@@ -5337,9 +5348,73 @@ class Launcher:
         self.coop_busy = True
         self.coop_id_tries = 0  # new ids made after the server refused this one's address (coop_watch_line)
         self.play_button.configure(state='disabled')
+        if self.offline_button is not None:
+            self.offline_button.configure(state='disabled')
         self.set_running(False, preparing=True)
         threading.Thread(target=self.coop_prepare_and_play,
                          args=(dict(bbport_coop.played_settings(self.coop)),), daemon=True).start()
+
+    def play_coop_offline(self):
+        """Solo sandbox: no sign-in, DNS, firewall prompt, team or co-op scripts."""
+        if self.process or self.coop_busy or self.installing:
+            return
+        if not self.coop_game_folder():
+            self.messagebox.showerror('Bloodborne', _(
+                'Choose the Bloodborne game folder in Co-op settings before playing offline.',
+                'Выберите папку Bloodborne в настройках кооператива перед офлайн-игрой.'))
+            return
+        self.collect()
+        self.coop_busy = True
+        self.play_button.configure(state='disabled')
+        if self.offline_button is not None:
+            self.offline_button.configure(state='disabled')
+        self.set_running(False, preparing=True)
+        self.status.configure(text=_('Preparing the offline game without server connection…',
+                                     'Подготовка офлайн-игры без подключения к серверу…'), fg=GOLD)
+        threading.Thread(target=self.coop_prepare_offline,
+                         args=(dict(self.coop),), daemon=True).start()
+
+    def coop_prepare_offline(self, settings):
+        failed, root = None, None
+        try:
+            bbport_coop.back_up_saves(PORT_DIR, 'before OFFLINE PLAY')
+            root = bbport_coop.prepare_offline_game(PORT_DIR, settings)
+        except (OSError, RuntimeError, ValueError) as error:
+            failed = str(error)
+        except Exception as error:
+            failed = f'{type(error).__name__}: {error}'
+        self.ui_calls.put(lambda: self.coop_start_offline(root, failed))
+
+    def coop_start_offline(self, root, failed):
+        """Start the SAME character savedata, but with no online or co-op event scripts."""
+        self.coop_busy = False
+        self.play_button.configure(state='normal')
+        if self.offline_button is not None:
+            self.offline_button.configure(state='normal')
+        if failed:
+            self.set_running(False)
+            self.status.configure(text=_('Offline game could not start.', 'Офлайн-игра не запустилась.'), fg=BAD)
+            self.messagebox.showerror('Bloodborne', failed)
+            return
+        game = str(Path(root) / 'CUSA03173')
+        offline_settings = dict(self.app, game_dir=game, user_dir=str(PORT_DIR / 'user'), online=False)
+        env = bbport_coop.offline_game_environment(game_environment(offline_settings), PORT_DIR, root)
+        log_path = bbport_coop.rotate_logs(PORT_DIR)
+        self.set_log('')
+        self.coop_playing = None   # no online account or reconnect/retry on exit
+        self.coop_new_id = None
+        try:
+            self.process = start_game(run_command(), env, log_path)
+        except OSError as error:
+            self.set_running(False)
+            self.process = None
+            self.status.configure(text=_('Could not start: {}', 'Не удалось запустить: {}').format(error), fg=BAD)
+            return
+        self.job = GameJob(self.process)
+        threading.Thread(target=self.read_output, args=(self.process, self.job, log_path), daemon=True).start()
+        self.set_running(True, preparing=True)
+        self.status.configure(text=_('Offline game: no server login or co-op event scripts.',
+                                     'Офлайн-игра: без входа на сервер и кооперативных событий.'), fg=GOLD)
 
     def coop_prepare_and_play(self, settings):
         """Off the window's thread: the firewall and the game folder; then the game starts on the window's
@@ -5395,6 +5470,8 @@ class Launcher:
     def coop_start_game(self, settings, root, failed, note):
         self.coop_busy = False
         self.play_button.configure(state='normal')
+        if self.offline_button is not None:
+            self.offline_button.configure(state='normal')
         if failed:
             self.set_running(False)
             self.status.configure(text=_('Co-op could not start.', 'Кооператив не запустился.'), fg=BAD)
@@ -6065,12 +6142,18 @@ class Launcher:
 
     def build_cheats(self):
         if PRODUCTION:
-            # A release: the gameplay tweaks alone (no cheats in it).
-            page = self.scrolled_page('cheats', _('Gameplay tweaks', 'Игровой процесс'),
-                                      _('Game patches for version 1.09, applied at start.',
-                                        'Патчи игры для версии 1.09, применяются при запуске.'))
-            f = self.card(page, _('Gameplay tweaks', 'Изменения игрового процесса'))
+            page = self.scrolled_page('cheats', _('Offline cheats & tweaks', 'Офлайн-читы и настройки'),
+                                      _('Built-in cheats apply only with PLAY OFFLINE. Online PLAY ignores '
+                                        'these switches; edited character saves still carry over.',
+                                        'Встроенные читы действуют только при ИГРАТЬ ОФЛАЙН. Онлайн '
+                                        'игнорирует эти переключатели; изменённый персонаж сохраняется.'))
+            f = self.card(page, _('Offline-only cheats', 'Читы только офлайн'))
             self.version_warning(f)
+            for key, title, _on in CHEATS:
+                self.check(f, key, 'ini', _(*title))
+            self.note(f, _('Select PLAY OFFLINE to use these. Network play never applies these patches.',
+                           'Используйте ИГРАТЬ ОФЛАЙН. В сетевой игре эти патчи не применяются.'))
+            f = self.card(page, _('Gameplay tweaks', 'Изменения игрового процесса'))
             for key, title, _on in TWEAKS:
                 self.check(f, key, 'ini', _(*title))
             return
@@ -6309,8 +6392,10 @@ class Launcher:
                 label.grid()
             else:
                 label.grid_remove()
-        if not self.process and not self.installing:
+        if not self.process and not self.installing and not self.coop_busy:
             self.play_button.configure(state='normal' if info else 'disabled')
+            if self.offline_button is not None:
+                self.offline_button.configure(state='normal' if info else 'disabled')
             self.status.configure(text=self.summary() if info else _('Choose the game folder first.',
                                                                      'Сначала выберите папку игры.'), fg=MUTED)
 
