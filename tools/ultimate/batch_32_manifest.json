@@ -18,6 +18,7 @@
     "emulator/src/core/bloodborne_team.cpp",
     "emulator/src/core/bloodborne_team.h",
     "emulator/tests/bloodborne/test_bloodborne_team.cpp",
+    "tools/re/tests/test_npc_story_block_coverage.py",
     "tools/re/tests/test_npc_story_write_retry.py",
     "tools/ultimate/batch_32_manifest.json"
   ],
@@ -41,6 +42,10 @@
     {
       "path": "tools/re/tests/test_npc_story_write_retry.py",
       "git_blob_sha1": "d67bcb6dc0200d1afa315e93cda8db3147ba7263"
+    },
+    {
+      "path": "tools/re/tests/test_npc_story_block_coverage.py",
+      "git_blob_sha1": "2155d0208a94a9ddded3cc6bd2911fc7de1546a8"
     }
   ],
   "native_tests": [
@@ -51,7 +56,8 @@
     "already applied story flag clears without native re-award",
     "stale host transitions and missing blocks invalidate pending writes",
     "per-player Iosefka dialogue, map NPC actors and time-of-day excluded",
-    "in-tree Bloodborne TeamWorld GTest new cases and preserved older B31 source-exact test"
+    "in-tree Bloodborne TeamWorld GTest new cases and preserved older B31 source-exact test",
+    "inherited B31 source test now asserts the actual source ResetTeamStoryTracking clears both baseline and unconfirmed retries"
   ],
   "safety": {
     "no_fornex_writes": true,
