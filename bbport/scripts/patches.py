@@ -69,10 +69,39 @@ GAMEPLAY_PATCHES={
 }
 
 
-# Kaniel 2026-11-04 ("remove cheats in production mode"): a release (package.sh writes
-# scripts/build_info.json {"production": true}) applies no cheat and no debug menu or camera patch,
-# whatever bbport.ini says; dev and rig builds (no such file) keep them.
+# Cheats and engine debug tools are OFFLINE-only, not dev-build-only. A
+# production build can apply them to an offline sandbox character, while an
+# online session (including every seamless-co-op launch) must omit them even
+# from a development build or a stale saved bbport.ini/--extra selection.
 DEV_TOOL_KEYS=tuple(k for k in EFFECTS if k.startswith('cheat_') or k in ('debug_camera','debug_menu'))
+OFFLINE_TOOL_PATCH_NAMES=frozenset(
+    patch for key in DEV_TOOL_KEYS for patch in EFFECTS[key] if patch
+)
+
+
+def online_game(env=None):
+    """The actual launch mode, not a build-info bit or a UI preference."""
+    if env is None:
+        env=os.environ
+    return env.get('BB_ONLINE')=='1' or env.get('SHADPS4_BLOODBORNE_SEAMLESS_COOP')=='1'
+
+
+def filter_online_dev_patches(names, online=None):
+    """Drop built-in offline-only patch names regardless of their source.
+
+    A manual --extra name or an external XML using a built-in name cannot
+    resurrect a known cheat after the ini toggle has been filtered. Unknown
+    third-party code still needs a separate reviewed online mod policy.
+    """
+    if online is None:
+        online=online_game()
+    names=list(names)
+    if not online:
+        return names
+    skipped=[name for name in names if name in OFFLINE_TOOL_PATCH_NAMES]
+    if skipped:
+        print('Patches: online mode skipped offline-only tools: '+', '.join(dict.fromkeys(skipped)))
+    return [name for name in names if name not in OFFLINE_TOOL_PATCH_NAMES]
 
 
 def is_production(build_info=Path(__file__).resolve().parent/'build_info.json'):
@@ -227,14 +256,20 @@ def validate_patch_requirements(names, game):
     return names
 
 
-def effect_patches(settings, production=None):
-    if production is None:
-        production=is_production()
+def effect_patches(settings, production=None, online=None):
+    """Patches for this launch; production retained for old callers.
+
+    Saved offline cheat selections are harmless online because the actual
+    online launch suppresses their patch code before building patches.bin.
+    """
+    if online is None:
+        online=online_game()
     names=[]
     for key,(off,on) in EFFECTS.items():
         if key not in settings: continue
-        if production and key in DEV_TOOL_KEYS:
-            if settings[key]=='1': print(f'Patches: {on} left out (a release build has no cheats or debug tools)')
+        if online and key in DEV_TOOL_KEYS:
+            if settings[key]=='1':
+                print(f'Patches: {on} left out (online play disables active cheats/debug tools)')
             continue
         name=on if settings[key]=='1' else off
         if name: names.append(name)
@@ -788,6 +823,9 @@ def main():
     if whole:  # other patches' code is not fingerprinted
         names+=[n.strip() for n in a.extra.split(';') if n.strip()]
     names+=[n for n in effect_patches(read_settings(a.settings)) if n not in names and GROUP_OF.get(n) in groups]
+    # --extra can name the same built-in cheat even if bbport.ini is clean.
+    # Filter it too, before the game patch file is written.
+    names=filter_online_dev_patches(names)
     if 'fixes' in groups:
         if intel_tonemap_fix() and INTEL_TONEMAP not in names:
             names.append(INTEL_TONEMAP)
@@ -814,6 +852,10 @@ def main():
         # After the built-in ones: an external patch of the same bytes wins.
         external=compile_external_named(external_selection(external_patches(a.patches_dir,a.app_version,a.xml),
                                                            a.patches_config),segments)
+        # A third-party XML cannot re-enable a named built-in cheat. Arbitrary
+        # external code must be classified separately by the online mod policy.
+        allowed=set(filter_online_dev_patches([name for name,_,_ in external]))
+        external=[entry for entry in external if entry[0] in allowed]
         named,replacing=drop_replaced_fps(named,fps_names,external)
         if replacing:
             print(f'Patches: external {", ".join(replacing)} replaces the built-in '

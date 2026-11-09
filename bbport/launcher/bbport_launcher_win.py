@@ -1263,6 +1263,14 @@ def game_environment(s, frame_generation=None):
         if '=' in item:
             key, value = item.split('=', 1)
             env[key] = value
+    # The launcher's OFFLINE choice must override any inherited shell state
+    # or advanced extra_env from an earlier online/co-op process. run.py and
+    # patches.py use these live variables to disable cheats; stale online
+    # flags would silently change the policy (or contact a server) offline.
+    for old in ('BB_ONLINE', 'SHADPS4_BLOODBORNE_SEAMLESS_COOP',
+                'BB_SHADNET_SERVER', 'BB_SHADNET_WEBAPI', 'BB_SHADNET_NPID',
+                'BB_SHADNET_PASSWORD', 'BB_SHADNET_SERVER_KEY'):
+        env.pop(old, None)
     if s.get('online'):
         server = str(s['online_server']).strip() or APP_DEFAULTS['online_server']
         env['BB_ONLINE'] = '1'
