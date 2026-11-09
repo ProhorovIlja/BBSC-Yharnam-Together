@@ -960,6 +960,15 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
         m_world.Quiet(back, false, QDateTime::currentMSecsSinceEpoch());
     for (const auto& gone : result.gone) {
         Apply(m_world.Forget(gone));
+        // A Gone event has a real endpoint but no online ID. Remove the
+        // former game's signaling lease if that ID no longer has a live
+        // link. During same-account port migration the new link already
+        // exists in Hub and must keep its virtual endpoint.
+        const QByteArray formerId = m_linkOnlineIds.take(gone.Key());
+        if (!formerId.isEmpty() && !m_link.HasLink(formerId)) {
+            QWriteLocker lk(&m_shared->matching.udpLock);
+            m_shared->matching.udpExt.remove(QString::fromUtf8(formerId));
+        }
         if (const auto found = m_linkAddress.constFind(gone.Key());
             found != m_linkAddress.constEnd()) {
             const quint32 address = *found;
@@ -982,6 +991,7 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
     // Phase 7: a linked game's address for the rooms and signaling is its virtual one, known from
     // its hello.
     for (const auto& linked : result.linked) {
+        m_linkOnlineIds.insert(linked.endpoint.Key(), linked.online_id);
         m_redirecting.remove(linked.endpoint.Key()); // back here: it stays
         if (!m_linkAddress.contains(linked.endpoint.Key())) {
             m_linkAddress.insert(linked.endpoint.Key(), linked.endpoint.ipv4);
