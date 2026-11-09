@@ -21,6 +21,9 @@ concurrency:
 
 jobs:
   verified-merge-contract:
+    # Original B14->B15 22-file allowlist belongs to Draft PR #47 only.
+    # Descendant server patches keep their own precise parent diff and C++ tests.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-14-integrated-windows-native-20261109')
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
