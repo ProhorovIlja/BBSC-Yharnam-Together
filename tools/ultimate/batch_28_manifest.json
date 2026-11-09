@@ -1,0 +1,50 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B28-2026-11-09",
+  "parent_pr": 59,
+  "parent_branch": "experiment/ultimate-batch-27-world-load-reconnect-20261109",
+  "status": "PERSONAL_WORLD_SNAPSHOT_MUST_COMMIT_BEFORE_HOST_TEAM_FLAGS_TOUCH_GUEST",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-28-guest-personal-world-write-gate.yml",
+    "emulator/src/core/bloodborne_server_world.cpp",
+    "emulator/src/core/team_world_file.h",
+    "emulator/tests/bloodborne/test_team_world_file.cpp",
+    "docs/ULTIMATE_BATCH_28.md",
+    "tools/ultimate/batch_28_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "emulator/src/core/bloodborne_server_world.cpp",
+      "git_blob_sha1": "bf14b817e4ffc94db00f6de4c50abd5a2746d4c0"
+    },
+    {
+      "path": "emulator/src/core/team_world_file.h",
+      "git_blob_sha1": "9a0605a3cf93f48a322562a8e90c003bb4e0728c"
+    },
+    {
+      "path": "emulator/tests/bloodborne/test_team_world_file.cpp",
+      "git_blob_sha1": "76e62c57909495db00b12b8ee6283a479d94fe76"
+    }
+  ],
+  "native_tests": [
+    "source-exact gate before team SetWorldFlags",
+    "actual portable C++20 helper on Ubuntu",
+    "actual portable C++20 helper on Windows MSVC",
+    "binary payload round-trip and atomic existing snapshot replacement",
+    "blocked staging path retains existing world, false result",
+    "no parent path returns false",
+    "post-failure retry writes new world"
+  ],
+  "safety": {
+    "no_fornex_writes": true,
+    "no_proprietary_game_assets": true,
+    "no_personal_save_access": true,
+    "no_public_release": true,
+    "no_full_windows_engine_rebuild": true
+  },
+  "limits": [
+    "not full Bloodborne client runtime or save replay",
+    "no power-loss durability claim",
+    "not a confirmed reproduction of Supermedo 1.9.8.3 issue"
+  ]
+}
