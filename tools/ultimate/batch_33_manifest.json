@@ -1,0 +1,68 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B33-2026-11-09",
+  "parent_pr": 67,
+  "parent_branch": "experiment/ultimate-batch-32-npc-story-retry-after-game-rejection-20261109",
+  "status": "HOST_TIME_OF_DAY_STAGE_REQUIRES_COVERED_WORLD_FLAG_BLOCK_ON_LIVE_UPDATE_AND_MAP_LOAD",
+  "related_issues": [
+    66,
+    64,
+    63,
+    22,
+    9
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-33-host-time-coverage.yml",
+    "docs/ULTIMATE_BATCH_33.md",
+    "emulator/src/core/bloodborne_server_world.cpp",
+    "emulator/src/core/bloodborne_team.cpp",
+    "emulator/src/core/bloodborne_team.h",
+    "emulator/tests/bloodborne/test_bloodborne_team.cpp",
+    "tools/re/tests/test_time_of_day_host_coverage.py",
+    "tools/ultimate/batch_33_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "emulator/src/core/bloodborne_server_world.cpp",
+      "git_blob_sha1": "c1697fad1ea395a10bff93e0e4838fa0d02f846d"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_team.cpp",
+      "git_blob_sha1": "a30bd5fa239040eceae1f1d5fc4b904edec5251b"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_team.h",
+      "git_blob_sha1": "88243cf56476c851296266b6a3046f90deee0810"
+    },
+    {
+      "path": "emulator/tests/bloodborne/test_bloodborne_team.cpp",
+      "git_blob_sha1": "adc63fb9d952e5bc8ca9e1000c3059c520317276"
+    },
+    {
+      "path": "tools/re/tests/test_time_of_day_host_coverage.py",
+      "git_blob_sha1": "8b15170fe6d151dee006ff874aae0cbb42178231"
+    }
+  ],
+  "native_tests": [
+    "actual production C++20 TimeOfDayToFollow and TeamTimeOfDayAtLoad compiled and executed on Windows MSVC and Ubuntu GCC",
+    "uncovered or unknown host world block cannot force time 9800 9801 9802 on a guest",
+    "on-load unknown flags_per_block is fail closed and never caches stale layout across save loads",
+    "covered host stages can advance live guest night and blood moon",
+    "guest with later time-of-day cannot move backward between loads",
+    "on-load map flags checked independently per stage when store geometry spans blocks",
+    "existing B31 NPC flag-block coverage and B32 rejected native quest flag retry regressions remain green"
+  ],
+  "safety": {
+    "no_fornex_writes": true,
+    "no_personal_saves": true,
+    "no_private_game_files": true,
+    "no_release": true,
+    "no_full_emulator_rebuild": true
+  },
+  "limitations": [
+    "no assertion that Vicar Amelia skull interaction works, or new hunter at Iosefka Clinic uses proper first-visit storyline",
+    "no actual Bloodborne 1.09 script/NPC actor spawn, guest world save or five physical PC test",
+    "test uses synthetic FlagStore world snapshots, not a real partially transmitted protobuf",
+    "game engine may have separate NPC actor spawn/despawn and cutscene interaction paths"
+  ]
+}

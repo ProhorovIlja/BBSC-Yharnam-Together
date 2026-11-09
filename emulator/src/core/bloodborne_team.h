@@ -259,7 +259,11 @@ WorldFlags WorldFlagsOf(const bbcoop::TeamWorld& world);
 // from the host's cutscene that brought it (Vicar Amelia's skull, Kaniel's playtest 2026-10-17)
 // takes it, and its next load shows it. Never one back.
 inline constexpr std::array<s32, 3> TimeOfDayFlags{9800, 9801, 9802};
-std::vector<s32> TimeOfDayToFollow(const WorldFlags& team, const std::function<bool(s32)>& on);
+// A host's partially captured/received world cannot dictate time of day
+// unless its current flag-store explicitly covers the affected block.
+// Unknown or unavailable block geometry must not advance guest story time.
+std::vector<s32> TimeOfDayToFollow(const WorldFlags& team, u32 flags_per_block,
+                                   const std::function<bool(s32)>& on);
 // At a guest's load, the time of day flags that differ from the team's world, as (flag, on), back
 // as well as on: the maps' events pick their characters by it as they load (Kaniel's playtest
 // 2026-10-22: krolebord, alone in Old Yharnam, saw his own save's blood-moon characters). None

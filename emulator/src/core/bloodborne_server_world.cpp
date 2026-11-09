@@ -3003,21 +3003,25 @@ void FollowTeamTimeOfDay(s64 now_ms) {
         if (team_host || !team_world_taken || !team_world || !team_world->exists()) {
             return;
         }
-        for (const s32 flag : team_world->on()) {
-            if (std::ranges::find(TimeOfDayFlags, flag) != TimeOfDayFlags.end()) {
-                team.on.push_back(flag);
-            }
-        }
+        // Read the host's complete advertised coverage, not just its on-list.
+        // The on-list may contain a time-of-day ID without the flag-store
+        // block needed to prove this report represents that map's state.
+        team = WorldFlagsOf(*team_world);
     }
-    std::sort(team.on.begin(), team.on.end());
     const u64 global = GetGlobalState();
-    if (team.on.empty() || global < 0x10000 || TryRead<u8>(global, 0x08).value_or(1) != 0) {
+    if (global < 0x10000 || TryRead<u8>(global, 0x08).value_or(1) != 0) {
+        return;
+    }
+    const u32 flags_per_block = ReadFlagStore().flags_per_block;
+    if (flags_per_block == 0) {
         return;
     }
     using SetFlag = void PS4_SYSV_ABI (*)(u64, s32, bool);
-    for (const s32 flag : TimeOfDayToFollow(team, EventFlagOn)) {
+    for (const s32 flag : TimeOfDayToFollow(team, flags_per_block, EventFlagOn)) {
         reinterpret_cast<SetFlag>(image_base + PartyGhostSetEventFlagOffset)(0, flag, true);
-        LOG_INFO(Debug, "Co-op team world: the team's time of day is this guest's too (flag {})",
+        // The game's native setter has a void return; the next 2-second
+        // tick will retry if the flag is still absent.
+        LOG_INFO(Debug, "Co-op team world: asked the guest game to follow time-of-day flag {}",
                  flag);
     }
 }
@@ -3026,9 +3030,11 @@ void FollowTeamTimeOfDay(s64 now_ms) {
 // the session's changes went in (its own game's time of day can be among them: the rig's
 // team-time-of-day-trip), so the map's events pick the team's characters. The load's hooks only.
 void ApplyTeamTimeOfDayOnLoad() {
-    static u32 flags_per_block = 0;
+    // Never cache the flag-store geometry across a new character/NG+
+    // title load. Failed/unreadable stores safely defer to the next load.
+    const u32 flags_per_block = ReadFlagStore().flags_per_block;
     if (flags_per_block == 0) {
-        flags_per_block = ReadFlagStore().flags_per_block;
+        return;
     }
     std::vector<std::pair<s32, bool>> changes;
     {

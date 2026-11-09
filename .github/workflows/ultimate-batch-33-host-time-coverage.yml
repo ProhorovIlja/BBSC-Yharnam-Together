@@ -1,0 +1,113 @@
+name: "Ultimate B33 host time of day stage requires known flag blocks"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-33-host-time-coverage.yml'
+      - 'docs/ULTIMATE_BATCH_33.md'
+      - 'emulator/src/core/bloodborne_server_world.cpp'
+      - 'emulator/src/core/bloodborne_team.cpp'
+      - 'emulator/src/core/bloodborne_team.h'
+      - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
+      - 'tools/re/tests/test_time_of_day_host_coverage.py'
+      - 'tools/ultimate/batch_33_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b33-host-stage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-production-host-stage-coverage:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-32-npc-story-retry-after-game-rejection-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact B32 to B33 eight file diff and all source blob SHA pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-32-npc-story-retry-after-game-rejection-20261109:refs/remotes/origin/b32
+          git diff --name-only origin/b32 HEAD >/tmp/b33-changed.txt
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_33_manifest.json').read_text())
+          actual=set(Path('/tmp/b33-changed.txt').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==8 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B33-2026-11-09' and m['parent_pr']==67
+          assert all(m['safety'].values())
+          for pin in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',pin['path']],text=True).strip()
+              assert sha==pin['git_blob_sha1'],(pin['path'],sha)
+          print('B33_EXACT_EIGHT_CHANGED_FILES_AND_PRODUCTION_BLOB_SHA_PASS')
+          PY
+      - name: Verify guest time-of-day uses authoritative host block coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('emulator/src/core/bloodborne_team.cpp').read_text()
+          game=Path('emulator/src/core/bloodborne_server_world.cpp').read_text()
+          header=Path('emulator/src/core/bloodborne_team.h').read_text()
+          tests=Path('emulator/tests/bloodborne/test_bloodborne_team.cpp').read_text()
+          live=game.split('void FollowTeamTimeOfDay(s64 now_ms) {',1)[1].split('void ApplyTeamTimeOfDayOnLoad() {',1)[0]
+          load=game.split('void ApplyTeamTimeOfDayOnLoad() {',1)[1].split('void FollowTeamStory(',1)[0]
+          assert 'team = WorldFlagsOf(*team_world);' in live
+          assert 'ReadFlagStore().flags_per_block' in live
+          assert 'TimeOfDayToFollow(team, flags_per_block, EventFlagOn)' in live
+          assert 'team_world->on()' not in live
+          assert 'static u32 flags_per_block' not in load
+          assert 'ReadFlagStore().flags_per_block' in load
+          assert 'TimeOfDayToFollow(const WorldFlags& team, u32 flags_per_block' in header
+          a=src.split('std::vector<s32> TimeOfDayToFollow(',1)[1].split('std::vector<std::pair<s32, bool>> TeamTimeOfDayAtLoad(',1)[0]
+          b=src.split('std::vector<std::pair<s32, bool>> TeamTimeOfDayAtLoad(',1)[1].split('namespace {',1)[0]
+          assert 'team.blocks.empty()' in a
+          assert 'std::binary_search(team.blocks.begin()' in a
+          assert 'static_cast<u32>(flag) / flags_per_block' in a
+          assert 'static_cast<u32>(flag) / flags_per_block' in b
+          assert 'team.blocks = {4900};' in tests
+          print('B33_NO_UNCOVERED_HOST_STAGE_IMPOSED_ON_NEW_HUNTER_PASS')
+          PY
+
+  native-real-time-stage-helpers:
+    needs: exact-production-host-stage-coverage
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure Microsoft native C++20 compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile real production C++20 time-of-day functions on Windows and Linux
+        shell: bash
+        run: python -m unittest discover -s tools/re/tests -p 'test_time_of_day_host_coverage.py' -v
+      - name: Retain B31 overlapping NPC event flags and B32 game-rejected flag retry tests
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tools/re/tests -p 'test_npc_story_block_coverage.py' -v
+          python -m unittest discover -s tools/re/tests -p 'test_npc_story_write_retry.py' -v
+      - name: No real game assets, player saves, service restarts, full client or release
+        shell: bash
+        run: echo B33_STAGE_COVERAGE_ONLY_NO_REAL_QUEST_PROOF_NO_FORNEX_NO_INSTALLER
