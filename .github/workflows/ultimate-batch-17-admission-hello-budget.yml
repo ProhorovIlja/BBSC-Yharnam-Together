@@ -1,0 +1,87 @@
+name: "Ultimate B17 server bounded hello admission: actual Qt6 C++ regression"
+
+on:
+  pull_request:
+    paths:
+      - 'server/src/admission.cpp'
+      - 'server/src/admission.h'
+      - 'server/tests/test_admission.cpp'
+      - '.github/workflows/ultimate-batch-15-integrated-server.yml'
+      - '.github/workflows/ultimate-batch-17-admission-hello-budget.yml'
+      - 'docs/ULTIMATE_BATCH_17.md'
+      - 'tools/ultimate/batch_17_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b17-admission-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  admission-source-and-real-native-tests:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-16-windows-output-finalization-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exact seven source and test paths versus cumulative B16
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-16-windows-output-finalization-20261109:refs/remotes/origin/b16
+          git diff --name-only origin/b16 HEAD >/tmp/b17-changed.txt
+          cat /tmp/b17-changed.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          m=json.loads(Path('tools/ultimate/batch_17_manifest.json').read_text())
+          assert m['batch_id']=='B17-2026-11-09' and m['parent_pr']==48
+          expected=set(m['changed_paths'])
+          actual=set(Path('/tmp/b17-changed.txt').read_text().splitlines())
+          assert len(expected)==7 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert all(m['safety'].values())
+          for item in m['pinned_blobs']:
+              data=Path(item['path']).read_bytes()
+              blob=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              assert blob==item['blob_sha1'],(item['path'],blob,item['blob_sha1'])
+          print('B17_SEVEN_FILE_BOUNDARY_AND_PRODUCTION_CPP_SHA_PASS')
+          PY
+      - name: Install real Qt6 compiler dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ pkg-config qt6-base-dev
+      - name: Compile and execute actual 100000-IP hello flood server regression
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -fPIC -pthread -Iserver/src \
+            server/tests/test_admission.cpp server/src/admission.cpp \
+            $(pkg-config --cflags --libs Qt6Core Qt6Network) -o /tmp/b17_test_admission
+          timeout 40s /tmp/b17_test_admission
+          echo 'B17_REAL_QT6_SERVER_100K_IP_RATE_BUCKET_PASS'
+      - name: Compile and execute encrypted link and watchdog regressions
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src -Iserver \
+            -DBLOODBORNE_SERVER_LINK_CONTRACTS="\"$PWD/server/tests/contracts/server_link_frames.txt\"" \
+            server/tests/test_server_link.cpp server/src/server_link.cpp \
+            server/coop/link_crypto.cpp \
+            $(pkg-config --cflags --libs Qt6Core Qt6Network) -o /tmp/b17_test_server_link
+          timeout 30s /tmp/b17_test_server_link
+          g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src \
+            server/tests/test_watchdog.cpp server/src/watchdog.cpp \
+            $(pkg-config --cflags --libs Qt6Core) -o /tmp/b17_test_watchdog
+          timeout 30s /tmp/b17_test_watchdog
+          echo 'B17_LINK_CRYPTO_AND_WATCHDOG_INHERITED_PASS'
+      - name: Run real B12/B13 C++ client data/Insight owners on cumulative source
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_member_data_slot_guard.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_encounter_insight_owner.py' -v
+          echo 'B17_CUMULATIVE_JOIN_AND_INSIGHT_OWNERS_PASS'
+      - name: No deployment, upload or release
+        run: echo 'B17_NO_FORNEX_NO_RELEASE_NO_PRIVATE_SAVES_NO_CLIENT_REBUILD'

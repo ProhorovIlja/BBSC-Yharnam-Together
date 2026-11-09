@@ -27,10 +27,32 @@ bool Guard::Bucket::Take(double amount, double rate, double burst, qint64 now_ms
 }
 
 bool Guard::AllowHello(quint32 address, qint64 now_ms) {
-    if (hellos.size() > 100'000) {
-        hellos.clear(); // a spoofed flood of addresses: start over rather than grow
+    auto bucket = hellos.find(address);
+    if (bucket == hellos.end()) {
+        if (hellos.size() >= MaxHelloBuckets) {
+            // New addresses must never reset the spent allowance of existing
+            // ones. This operation is bounded to one scan per ten seconds at
+            // capacity; an active player keeps its bucket and normal refill.
+            if (now_ms >= next_hello_cleanup_ms) {
+                for (auto it = hellos.begin(); it != hellos.end();) {
+                    const qint64 last = it.value().at_ms;
+                    if (now_ms >= last && now_ms - last >= HelloBucketIdleMs) {
+                        it = hellos.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+                next_hello_cleanup_ms = now_ms + 10'000;
+            }
+            if (hellos.size() >= MaxHelloBuckets) {
+                ++counters.hellos_refused;
+                return false;
+            }
+        }
+        bucket = hellos.insert(address, Bucket{});
     }
-    if (!hellos[address].Take(1.0, limits.hellos_per_second, limits.hello_burst, now_ms)) {
+    if (!bucket.value().Take(1.0, limits.hellos_per_second,
+                             limits.hello_burst, now_ms)) {
         ++counters.hellos_refused;
         return false;
     }
