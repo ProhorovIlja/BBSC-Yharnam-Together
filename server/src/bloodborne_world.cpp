@@ -270,6 +270,8 @@ struct WorldWriter::State {
     std::atomic<bool> abandon{false};
     std::atomic<quint64> synced{0};
     std::atomic<quint64> commits{0};
+    std::atomic<quint64> sync_failures{0};
+    WorldWriter::DiskSync disk_sync = SyncToDisk;
 
     // The thread's own: the journals written to since the last commit.
     std::map<QString, std::unique_ptr<QFile>> journals;
@@ -306,14 +308,21 @@ struct WorldWriter::State {
         if (unsynced == 0 || abandon) {
             return;
         }
+        bool all_synced = true;
         for (auto& [folder, file] : journals) {
-            if (!SyncToDisk(*file)) {
+            if (!disk_sync(*file)) {
                 Log(QStringLiteral("world store %1: the journal could not be synced").arg(folder));
+                ++sync_failures;
+                all_synced = false;
             }
         }
         journals.clear();
-        synced += static_cast<quint64>(unsynced);
-        ++commits;
+        // Do not report a failed fsync batch as durable. The kernel may still
+        // hold its data in memory, but a power loss can discard it.
+        if (all_synced) {
+            synced += static_cast<quint64>(unsynced);
+            ++commits;
+        }
         unsynced = 0;
     }
 
@@ -386,9 +395,11 @@ struct WorldWriter::State {
     }
 };
 
-WorldWriter::WorldWriter(qint64 commit_ms, int commit_records) : state{std::make_unique<State>()} {
+WorldWriter::WorldWriter(qint64 commit_ms, int commit_records, DiskSync disk_sync)
+    : state{std::make_unique<State>()} {
     state->commit_ms = commit_ms;
     state->commit_records = std::max(commit_records, 1);
+    state->disk_sync = disk_sync ? disk_sync : SyncToDisk;
     state->thread = std::thread{[this] { state->Run(); }};
 }
 
@@ -503,6 +514,10 @@ QStringList WorldWriter::TakeLog() {
 
 quint64 WorldWriter::Synced() const {
     return state->synced;
+}
+
+quint64 WorldWriter::SyncFailures() const {
+    return state->sync_failures;
 }
 
 quint64 WorldWriter::Commits() const {
