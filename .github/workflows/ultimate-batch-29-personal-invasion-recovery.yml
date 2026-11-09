@@ -1,0 +1,121 @@
+name: "Ultimate B29 fail-closed guest and invasion world recovery"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-29-personal-invasion-recovery.yml'
+      - 'emulator/src/core/bloodborne_server_world.cpp'
+      - 'emulator/src/core/team_world_file.h'
+      - 'emulator/tests/bloodborne/test_team_world_file.cpp'
+      - 'docs/ULTIMATE_BATCH_29.md'
+      - 'tools/ultimate/batch_29_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b29-world-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-production-guards:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-28-guest-personal-world-write-gate-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact six B28-to-B29 files, manifest and real source Git SHA pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-28-guest-personal-world-write-gate-20261109:refs/remotes/origin/b28
+          git diff --name-only origin/b28 HEAD >/tmp/b29-changed.txt
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_29_manifest.json').read_text())
+          actual=set(Path('/tmp/b29-changed.txt').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==6 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B29-2026-11-09' and m['parent_pr']==60
+          assert all(m['safety'].values())
+          for item in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',item['path']],text=True).strip()
+              assert sha==item['git_blob_sha1'],(item['path'],sha)
+          print('B29_EXACT_SIX_FILES_AND_SHA_PINS_PASS')
+          PY
+      - name: Fail-closed lifecycle in actual Bloodborne game source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('emulator/src/core/bloodborne_server_world.cpp').read_text()
+          h=Path('emulator/src/core/team_world_file.h').read_text()
+          test=Path('emulator/tests/bloodborne/test_team_world_file.cpp').read_text()
+          assert 'ReadExistingFileChecked(' in h and 'RemoveWorldFileChecked(' in h
+          ngp=s.split('if (next_playthrough) {',1)[1].split('next_playthrough_due = false;',1)[0]
+          assert 'if (!TeamWorldFile::RemoveWorldFileChecked(PersonalWorldFile(slot)))' in ngp
+          rest=s.split('if (personal && slot >= 0) {',1)[1].split('if (!due) {',1)[0]
+          assert 'std::filesystem::exists(path, status_error)' in rest
+          assert 'TeamWorldFile::ReadExistingFileChecked(path)' in rest
+          assert 'personal_world_due = true;' in rest
+          assert 'if (!TeamWorldFile::RemoveWorldFileChecked(path))' in rest
+          assert 'personal_world_due = false;' in rest
+          capture=s.split("// This save's own world aside first, block by block",1)[1].split('const size_t changed = SetWorldFlags(*store, target);',1)[0]
+          assert 'if (backup_exists && !old_world)' in capture
+          assert 'if (!WriteWholeFile(personal_path, FormatWorldFlags(own)))' in capture
+          save=s.split('bool SaveInvasionHome() {',1)[1].split('bool RestoreInvasionHome(',1)[0]
+          assert 'if (!WriteWholeFile(path, FormatInvasionHome(home)))' in save
+          assert 'if (!text || !ParseInvasionHome(*text))' in save
+          restore=s.split('bool RestoreInvasionHome(bool respawn) {',1)[1].split('// The invader goes home',1)[0]
+          assert 'if (!backup_exists)' in restore
+          assert 'const auto home = text ? ParseInvasionHome(*text)' in restore
+          assert 'if (!TeamWorldFile::RemoveWorldFileChecked(path))' in restore
+          assert 'std::filesystem::remove(path, error)' not in restore
+          tick=s.split("if (phase == InvaderTrip::Phase::None) {",1)[1].split('switch (action)',1)[0]
+          assert 'if (home_kept && !RestoreInvasionHome(true))' in tick
+          assert 'RemoveWorldFileChecked' in test and 'ReadExistingFileChecked' in test
+          print('B29_PERSONAL_AND_PVP_HOME_NOT_LOST_ON_CORRUPT_BACKUP_OR_DELETE_FAILURE_PASS')
+          PY
+
+  native-production-file-fault-regressions:
+    needs: exact-production-guards
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Compile and run actual backup recovery C++20 helpers on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Iemulator/src \
+            emulator/tests/bloodborne/test_team_world_file.cpp \
+            -o /tmp/bbsc-b29-world-recovery
+          timeout 30s /tmp/bbsc-b29-world-recovery
+      - name: Configure native MSVC C++20 compiler on Windows
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile and run actual backup recovery C++20 helpers on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_team_world_file.cpp /Fe:${{ runner.temp }}\bbsc-b29-world-recovery.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\bbsc-b29-world-recovery.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: No saves, game files, live Fornex, native engine or installer touched
+        shell: bash
+        run: echo B29_ISOLATED_PRODUCTION_FILES_ONLY_NO_SAVES_NO_FORNEX_NO_RELEASE_NO_FULL_ENGINE_REBUILD
