@@ -2766,7 +2766,10 @@ void ApplyTeamWorldOnLoad(bool trip) {
         if (!own || !store) {
             LOG_WARNING(Debug, "Co-op team world: slot {}'s own world {}", slot,
                         own ? "waits (the flags are not readable now)" : "does not read: left");
-            personal_world_due = own.has_value();
+            // A malformed but still-present snapshot is not "nothing to
+            // restore". Keep retrying and preserve the original file for
+            // recovery instead of silently accepting borrowed host flags.
+            personal_world_due = true;
             return;
         }
         std::erase_if(store->blocks, [&](const FlagBlockBits& block) {
