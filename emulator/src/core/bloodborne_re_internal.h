@@ -790,6 +790,7 @@ struct MapItemSpot {
 std::vector<std::pair<float, MapItemSpot>> UsableMapItemsNear(const std::array<float, 3>& from);
 void LogItemButtonAndMapItems();
 extern std::atomic<int> character_slot;
+extern std::atomic<u64> deferred_reward_character_generation;
 
 // Sets the kept world changes in the guest's world: how many took. The ones that took are done
 // unless `keep` (a trip's load: the game puts its own saved world back after it, so the trip's
