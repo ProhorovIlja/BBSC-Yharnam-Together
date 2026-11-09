@@ -1,0 +1,115 @@
+{
+  "schema": "bbsc-ultimate-v1",
+  "batch": "B15-2026-11-09",
+  "merge_commit": "6bac40e706821461a95620b2760e93fa8b4b0cf9",
+  "client_parent_sha": "c298d66de8afafb9138a804377e36afb0b7332e3",
+  "server_parent_sha": "db8597ad3800770fc8cdcd1d7b2190fe29083961",
+  "server_sources_origin": "feature/server-private-world-sync-health-v1 (complete stacked PR #7 + #8)",
+  "merge_strategy": "new Git tree based on the exact client parent with 18 changed server paths overlaid, then a true two-parent commit; no incompatible older game_link overwrite",
+  "no_live_deploy": true,
+  "no_proprietary_game_data": true,
+  "no_public_release": true,
+  "no_player_save_access": true,
+  "five_hunter_synthetic_test_only": true,
+  "claims_real_game_verified": false,
+  "changed_paths_count": 22,
+  "pinned_server_files": [
+    {
+      "path": "server/hosting/Dockerfile",
+      "blob": "27d2048653df07c02df2cf2ac4efe2507b34c754"
+    },
+    {
+      "path": "server/hosting/README.md",
+      "blob": "45733e09542c0058ac4112bd84a23eb6f62994e2"
+    },
+    {
+      "path": "server/loadtest/bbload.cpp",
+      "blob": "ab3f6b1757ca11c6685ae2896ede89c9ff5a0d89"
+    },
+    {
+      "path": "server/src/admin.cpp",
+      "blob": "5730a6df3291d7d22a654fbefd44cc5cf35ba5d0"
+    },
+    {
+      "path": "server/src/admin.h",
+      "blob": "18395c186121c0f79c299559c04f7cc3577cd670"
+    },
+    {
+      "path": "server/src/admission.cpp",
+      "blob": "1f0b8219412ab7bddcd1fa26899ce2534c1d9e62"
+    },
+    {
+      "path": "server/src/admission.h",
+      "blob": "146f9816e09aa1bf343a3366afe709afa7f7242d"
+    },
+    {
+      "path": "server/src/bloodborne_world.cpp",
+      "blob": "2b5f4e222949a9b53daa8b76f7cd5ab5fb7f9584"
+    },
+    {
+      "path": "server/src/bloodborne_world.h",
+      "blob": "059e2f099f5fcc6a6956d13b720b712a44be2995"
+    },
+    {
+      "path": "server/src/link_server.cpp",
+      "blob": "0257a079d95ce24879974598634fb8477211ae26"
+    },
+    {
+      "path": "server/src/link_server.h",
+      "blob": "9770bb28c6b9953214b62d08cdf5801cb4613932"
+    },
+    {
+      "path": "server/tests/test_admin.cpp",
+      "blob": "9de457055356a9017c2f689a553942dfbf150efa"
+    },
+    {
+      "path": "server/tests/test_admission.cpp",
+      "blob": "134814bea3c110da46aa71967cfee74e19d14736"
+    },
+    {
+      "path": "server/tests/test_world_writer.cpp",
+      "blob": "d8fd877ab75c8c1aa1d5ddfe2b3c1783995686fb"
+    }
+  ],
+  "protocol_source_pins": {
+    "server/src/shadnet.proto": "7dd51bc90891c454f004e0bc102a7c562a7000f5",
+    "server/coop/coop.proto": "92791f8ad3ca4e57fc601497b41a0cb0c672ce61",
+    "server/coop/game_link.h": "a51259f3228966ef0a75c2da4a082020c91913f7",
+    "server/coop/coop_messages.cpp": "5931881f09be97749222fbb5ae4e87944a12a72b",
+    "server/coop/world_log.cpp": "6f4bf777d667b15e265663b63d1d87f7a0b3f0bd",
+    "server/coop/link_crypto.cpp": "b91b3affaca7e2da0a357f1a747a90246b167b79",
+    "server/coop/coop_stream.h": "3f488861bd94ab1cdba8a07a9324267bab7a76a8"
+  },
+  "server_source_overlay_changed_paths": [
+    ".github/workflows/server-candidate-five-hunters.yml",
+    ".github/workflows/server-hardening.yml",
+    "docs/HOSTED_SERVER.md",
+    "docs/SERVER_HARDENING.md",
+    "server/hosting/Dockerfile",
+    "server/hosting/README.md",
+    "server/loadtest/bbload.cpp",
+    "server/src/admin.cpp",
+    "server/src/admin.h",
+    "server/src/admission.cpp",
+    "server/src/admission.h",
+    "server/src/bloodborne_world.cpp",
+    "server/src/bloodborne_world.h",
+    "server/src/link_server.cpp",
+    "server/src/link_server.h",
+    "server/tests/test_admin.cpp",
+    "server/tests/test_admission.cpp",
+    "server/tests/test_world_writer.cpp"
+  ],
+  "test_commands": [
+    "C++20 Qt6 admission, server_link and watchdog native fixtures",
+    "Docker server verification-tests 12 suites",
+    "Docker disposable five-hunter encrypted-link and lobby test (3 owners, 5 games, 55 sec)",
+    "Source-level join, Insight, savedata fixtures"
+  ],
+  "limitations": [
+    "Only protocol-blob and header source compatibility is established before CI",
+    "Five synthetic clients do not demonstrate 5 playable real game characters",
+    "B14 real Windows complete CI still RED after all Ninja stages reported PASS (copy/finalization unverified)",
+    "No Fornex, game assets, private saves or native no-ELF port release"
+  ]
+}
