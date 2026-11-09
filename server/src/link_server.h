@@ -131,6 +131,11 @@ private:
     };
     QHash<QByteArray, Refused> m_signInRefused;
     quint32 m_helloAddress = 0;            // the address of the hello the hub is reading
+    // One authenticated game identity per real UDP endpoint. A Gone event
+    // supplies only the endpoint, so retain the old online ID to revoke its
+    // virtual signaling address on disconnect or account handover. The entry
+    // is replaced on Linked and dropped on Gone.
+    QHash<quint64, QByteArray> m_linkOnlineIds;
     QHash<quint64, quint32> m_linkAddress; // link (Endpoint::Key) -> its address
     QHash<quint32, int> m_addressLinks;    // address -> its links
     QTimer* m_banTimer = nullptr;
