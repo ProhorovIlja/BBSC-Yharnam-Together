@@ -271,13 +271,21 @@ std::vector<std::pair<s32, bool>> TeamTimeOfDayAtLoad(const WorldFlags& team, u3
 // guest away from the host takes them as the host's reports bring them (Kaniel 2026-10-20: NPCs
 // showed up for guests on maps without the host), not only at its next trip. Only the host's
 // changes: what the guest's own game did to the others stays. Not the time of day
-// (TimeOfDayToFollow, never back). None when the blocks differ (loads take that world).
+// (TimeOfDayToFollow, never back). Changes in newly covered/uncovered blocks
+// wait for the area's load; other previously covered NPC flags still follow.
 // Compare shared, already-known flag blocks even when the host's world adds
 // or removes another map's block. New/uncovered blocks still wait for a map
 // load; they must never be forced into a live guest's NPC/story state.
 std::vector<std::pair<s32, bool>> TeamStoryToFollow(const WorldFlags& before,
                                                     const WorldFlags& after,
                                                     u32 flags_per_block);
+// When the game failed to apply an earlier host story delta, retry it only
+// while its flag still belongs to a block covered by the current team world
+// AND its desired value still matches that world. Never replay stale NPC
+// steps after the host changed or a block became unavailable.
+std::vector<std::pair<s32, bool>> TeamStoryRetriesForWorld(
+    std::span<const std::pair<s32, bool>> pending, const WorldFlags& current,
+    u32 flags_per_block);
 // A guest's kept session change (KeepWorldChanges, `kept_ms` when this game kept it, none when it
 // came from the file) that a team guest's load leaves to the team's world: a story step
 // (TeamStoryToFollow's kind) in a block the team's world covers, kept longer ago than the host's
