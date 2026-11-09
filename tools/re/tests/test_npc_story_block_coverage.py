@@ -46,13 +46,20 @@ class NpcStoryCoverage(unittest.TestCase):
             consumer.index("if (flags_per_block == 0)"),
             consumer.index("team_story_followed = std::move(target);"),
         )
-        # World switching must never reuse old quest flags from a different host.
-        self.assertIn("team_story_followed = {}; // never compare quest states across different worlds",
-                      self.world)
-        self.assertIn("team_story_followed = {}; // every freshly loaded save needs its own baseline",
-                      self.world)
-        self.assertIn("team_story_followed = {}; // new team/world must not inherit the old NPC-story delta",
-                      self.world)
+        # B32 moved the old single-field reset into a stronger helper that
+        # clears both the NPC story baseline and game-unconfirmed retry queue.
+        reset = self.world.split("void ResetTeamStoryTracking() {", 1)[1].split(
+            "constexpr s64 TeamWorldReportMs", 1
+        )[0]
+        self.assertIn("team_story_followed = {};", reset)
+        self.assertIn("team_story_retries.clear();", reset)
+        self.assertIn("++team_story_context_generation;", reset)
+        for context in (
+            "never compare quest states across different worlds",
+            "every freshly loaded save needs its own baseline",
+            "new team/world must not inherit the old NPC-story delta",
+        ):
+            self.assertIn("ResetTeamStoryTracking(); // " + context, self.world)
         self.assertIn("NpcStoryChangesSurviveHostWorldBlockExpansionAndContraction",
                       GTEST.read_text(encoding="utf-8"))
 
