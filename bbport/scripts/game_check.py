@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """The game files bbport runs: Bloodborne with the 1.09 update merged in. The retail releases (the
 US CUSA00900, the European Game of the Year edition CUSA03173, the Asian The Old Hunters Edition
-CUSA03023, ...) share the same 1.09 executable.
+CUSA03023, ...) are expected to accept the same verified 1.09 executable image,
+but some users' retail copies may include modified or repacked eboot.bin files. An unknown
+hash is NOT proof the regional CUSA itself is unsupported.
 
 Other versions start and then fail inside the game's code (the base game 1.00 faults at guest
-offset 0x20348b8): hooks and patches use the addresses of this one executable. The check compares
-the loaded executable image, whose hash is the same whatever tool dumped it (the SELF headers
-around it differ). The shaders must also unpack: an extraction tool that leaves
+offset 0x20348b8): hooks and patches use the addresses of this verified executable. The check compares
+the LOADED executable image, whose hash is the same when the underlying game code is identical
+even if the dump tool changed only SELF headers. The shaders must also unpack: an extraction tool that leaves
 parts of compressed sectors stale (LibOrbisPkg PkgTool on .NET 6 or newer, issue #81) makes the
 game hang while it loads them, with no error. BB_SKIP_GAME_CHECK=1 skips both.
 
