@@ -1,0 +1,37 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B23-2026-11-09",
+  "parent_pr": 54,
+  "parent_branch": "experiment/ultimate-batch-22-launcher-timers-20261109",
+  "status": "SOURCE_FIX_FINAL_DLL_CLOSURE_AFTER_OPTIONAL_VENDOR_RUNTIME_STAGING",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-23-final-runtime-gate.yml",
+    "bbport/packaging/windows/package.sh",
+    "tools/ultimate/test_batch_21_dll_closure.py",
+    "tools/ultimate/test_batch_23_final_runtime_gate.py",
+    "tools/ultimate/batch_23_manifest.json",
+    "docs/ULTIMATE_BATCH_23.md"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/packaging/windows/package.sh",
+      "git_blob_sha1": "a14680fbbd89e9f48b67b3b02c3964c3a04b2ce2"
+    },
+    {
+      "path": "tools/ultimate/test_batch_21_dll_closure.py",
+      "git_blob_sha1": "504f1a626a4878962a5e23706617b6f18912950b"
+    }
+  ],
+  "safety": {
+    "no_game_assets": true,
+    "no_fornex_writes": true,
+    "no_player_saves": true,
+    "no_public_release": true,
+    "no_native_engine_rebuild": true
+  },
+  "limitations": [
+    "Static PE imports for all final bin/*.dll, not dynamic LoadLibrary or nested plugin folders",
+    "No complete staged Windows install runtime validation",
+    "No five-player real game testing"
+  ]
+}
