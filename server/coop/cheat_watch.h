@@ -13,16 +13,16 @@
 
 #include "coop/coop_types.h"
 
-// Cheat watch (Kaniel 2026-11-04: "track if any people are cheating or using any save edit in the
-// server multiplayer"): shadNet looks at what each game says of its character (CharacterSheet:
-// level, attributes, echoes, insight, HP, and how the game was built and started), its vitals and
-// its trades, and notes what no unmodified game can show: values past the game's limits, a level
-// its attributes do not add up to, attributes that went down, a level up that cost nothing, echoes
-// or insight out of nowhere, cheats or the save editor on. It only reports (the server's log and
-// suspects.jsonl, the admin's `suspects`); nobody is refused or banned for it.
+// Cheat watch reports character and game data to the server's log/suspects.jsonl.
+// It does not reject or ban users. Ultimate explicitly ALLOWS a character edited
+// offline to join public co-op with its persisted stats, items and build. A
+// non-vanilla FIRST sheet is therefore diagnostic information, NOT proof of a
+// live cheat. Separately, changes observed *after* a connected-run baseline,
+// active cheat patches and invalid trade events are still worth investigating.
+// Client-sent sheets are not a secure anti-cheat authority by themselves.
 //
-// Within one run of a game (a restart, a new character or a hello again starts over) changes are
-// judged against the last sheet; between runs nothing is (players play offline too).
+// A new run/new character/hello starts a new baseline; the prior offline
+// character state must not be compared across sessions.
 namespace BloodborneCoop {
 
 // How sure a finding is.
@@ -127,8 +127,17 @@ public:
         if (now.level == 0) {
             return Keep(std::move(found)); // no character in the world (the title, a load)
         }
+        // Offline-modified saved values are permitted as this run's baseline.
+        // A subsequent increase of the save editor's counter may indicate
+        // active editing while connected; its preexisting value does not.
         Limits(now, found);
         if (last) {
+            if (now.save_edits > last->save_edits) {
+                found.push_back({"save-editor-active", Suspicion::Likely,
+                                 "save editor counter grew during this connected run (" +
+                                     std::to_string(last->save_edits) + " -> " +
+                                     std::to_string(now.save_edits) + ")"});
+            }
             Changes(*last, now, found);
         }
         echoes_peak = std::max(echoes_peak, now.echoes);
@@ -141,24 +150,24 @@ public:
     std::vector<CheatFinding> Vitals(u32 vials, u32 bullets, s32 hp_max, u32 level) {
         std::vector<CheatFinding> found;
         if (vials > VialsMax) {
-            found.push_back({"vials", Suspicion::Likely,
+            found.push_back({"vials", Suspicion::Info,
                              "carries " + std::to_string(vials) + " Blood Vials (at most " +
                                  std::to_string(VialsMax) + ")"});
         }
         if (bullets > BulletsMax) {
-            found.push_back({"bullets", Suspicion::Likely,
+            found.push_back({"bullets", Suspicion::Info,
                              "carries " + std::to_string(bullets) +
                                  " Quicksilver Bullets (at most " + std::to_string(BulletsMax) +
                                  ")"});
         }
         if (hp_max > HpMaxLimit) {
-            found.push_back({"hp-max", Suspicion::Likely,
+            found.push_back({"hp-max", Suspicion::Info,
                              "max HP " + std::to_string(hp_max) + " (no character passes " +
                                  std::to_string(HpMaxLimit) + ")"});
         }
         if (level > static_cast<u32>(LevelMax)) {
             found.push_back(
-                {"level-range", Suspicion::Certain,
+                {"level-range", Suspicion::Info,
                  "level " + std::to_string(level) + " (at most " + std::to_string(LevelMax) + ")"});
         }
         return Keep(std::move(found));
@@ -203,11 +212,9 @@ private:
                                                         : "cheats on: "} +
                                  now.cheats});
         }
-        if (now.save_edits > 0) {
-            found.push_back(
-                {"save-editor", Suspicion::Certain,
-                 "used the save editor (" + std::to_string(now.save_edits) + " changes this run)"});
-        }
+        // A nonzero save_edits counter on the first sheet can come from an
+        // authorized OFFLINE edit before login in this same game process.
+        // Only an increase after the baseline is reported by Sheet().
         if (!now.dev_tools.empty()) {
             found.push_back({"dev-tools", now.production ? Suspicion::Certain : Suspicion::Likely,
                              std::string{now.production ? "a release build with " : ""} +
@@ -222,40 +229,43 @@ private:
         }
     }
 
+    // A first-sheet vanilla-limit mismatch is consistent with an allowed
+    // OFFLINE-modified save. This informational baseline can never by itself
+    // establish active cheating or justify blocking the connection.
     static void Limits(const CharacterSheet& now, std::vector<CheatFinding>& found) {
         for (std::size_t i = 0; i < now.attributes.size(); ++i) {
             const s32 value = now.attributes[i];
             if (value < AttributeMin || value > AttributeMax) {
                 found.push_back(
-                    {"attribute-range", Suspicion::Certain,
+                    {"attribute-range", Suspicion::Info,
                      std::string{AttributeNames[i]} + " " + std::to_string(value) + " (1 to 99)"});
                 break;
             }
         }
         if (now.level < 1 || now.level > LevelMax) {
-            found.push_back({"level-range", Suspicion::Certain,
+            found.push_back({"level-range", Suspicion::Info,
                              "level " + std::to_string(now.level) + " (1 to " +
                                  std::to_string(LevelMax) + ")"});
         }
         const s32 sum = AttributeSum(now);
         if (now.level != sum - LevelBelowAttributes) {
-            found.push_back({"level-mismatch", Suspicion::Certain,
+            found.push_back({"level-mismatch", Suspicion::Info,
                              "level " + std::to_string(now.level) +
                                  ", but its attributes make level " +
                                  std::to_string(sum - LevelBelowAttributes)});
         }
         if (now.echoes < 0 || now.echoes > EchoesMax) {
-            found.push_back({"echoes-range", Suspicion::Certain,
+            found.push_back({"echoes-range", Suspicion::Info,
                              std::to_string(now.echoes) + " echoes (at most " +
                                  std::to_string(EchoesMax) + ")"});
         }
         if (now.insight < 0 || now.insight > InsightMax) {
-            found.push_back({"insight-range", Suspicion::Certain,
+            found.push_back({"insight-range", Suspicion::Info,
                              std::to_string(now.insight) + " insight (at most " +
                                  std::to_string(InsightMax) + ")"});
         }
         if (now.hp_max > HpMaxLimit) {
-            found.push_back({"hp-max", Suspicion::Likely,
+            found.push_back({"hp-max", Suspicion::Info,
                              "max HP " + std::to_string(now.hp_max) + " (no character passes " +
                                  std::to_string(HpMaxLimit) + ")"});
         }

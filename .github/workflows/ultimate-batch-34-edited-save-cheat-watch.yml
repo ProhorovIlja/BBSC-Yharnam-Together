@@ -1,0 +1,102 @@
+name: "Ultimate B34 allow offline-edited saves and track only in-session editor deltas"
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ultimate-batch-34-edited-save-cheat-watch.yml"
+      - "docs/ULTIMATE_BATCH_34.md"
+      - "server/coop/cheat_watch.h"
+      - "server/tests/test_cheat_watch.cpp"
+      - "tools/ultimate/batch_34_manifest.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b34-editable-saves-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-cheat-watch-source:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-33-time-of-day-host-block-coverage-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify five exact changed files against B33 and pinned Git blob SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-33-time-of-day-host-block-coverage-20261109:refs/remotes/origin/b33
+          git diff --name-only origin/b33 HEAD >/tmp/b34-changed
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_34_manifest.json').read_text())
+          actual=set(Path('/tmp/b34-changed').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==5 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['parent_pr']==68 and m['batch_id']=='B34-2026-11-09'
+          assert all(m['safety'].values())
+          for pin in m['pinned_blobs']:
+              actual_sha=subprocess.check_output(['git','hash-object',pin['path']],text=True).strip()
+              assert actual_sha==pin['git_blob_sha1'],(pin['path'],actual_sha)
+          print('B34_EXACT_SOURCE_SHA_AND_FIVE_FILE_DELTA_PASS')
+          PY
+      - name: Check saved baseline is informational, active editor and active cheat patches still reported
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('server/coop/cheat_watch.h').read_text()
+          t=Path('server/tests/test_cheat_watch.cpp').read_text()
+          assert 'save-editor-active' in s and 'now.save_edits > last->save_edits' in s
+          assert 'Suspicion::Likely' in s and 'Suspicion::Certain' in s
+          assert 'save-editor", Suspicion::Certain' not in s
+          section=s.split('static void Limits(',1)[1].split('void Changes(',1)[0]
+          assert 'Suspicion::Certain' not in section and 'Suspicion::Likely' not in section
+          assert 'active cheat patches' in t and 'saved.save_edits = 12' in t
+          print('B34_OFFLINE_SAVED_BASELINE_ALLOWED_AND_LIVE_CHEAT_SIGNAL_PRESERVED')
+          PY
+
+  compile-and-run-real-server-cheat-watch-linux:
+    needs: exact-cheat-watch-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Compile actual CheatWatch production header and run server tests on GCC
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Iserver server/tests/test_cheat_watch.cpp -o ./cheat_watch_b34
+          ./cheat_watch_b34
+
+  compile-and-run-real-server-cheat-watch-windows:
+    needs: exact-cheat-watch-source
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Enable Microsoft C++20 compiler
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile actual CheatWatch production header and run server tests on MSVC
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Git Bash otherwise rewrites MSVC /nologo and /I paths to its install dir.
+          MSYS_NO_PATHCONV=1 cl /nologo /std:c++20 /EHsc /W4 /Iserver server/tests/test_cheat_watch.cpp /Fe:cheat_watch_b34.exe
+          ./cheat_watch_b34.exe
+      - name: No live service, game files or release packaging
+        shell: bash
+        run: echo B34_REAL_NATIVE_CPP20_TESTS_ONLY_NO_FORNEX_NO_USER_SAVES
