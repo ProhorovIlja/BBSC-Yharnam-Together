@@ -20,7 +20,7 @@ This is a **proven source-level dropped retry path**, not proof that the user's 
 
 - Extend real `emulator/tests/bloodborne/test_bloodborne_team.cpp` with tests for failed host NPC writes, same snapshot retry, changed-host rejection, lost block, duplicate dedup, personal Iosefka gift flag, map flag and time-of-day exclusion.
 - Add `tools/re/tests/test_npc_story_write_retry.py`: extracts and **actually compiles the unchanged production C++20 classifier, story delta and retry helper** under GCC/Ubuntu and MSVC/Windows; uses a synthetic game that rejects the first write. Source audit verifies real code reads flag **after** invoking the native setter, bounds retries and resets team context.
-- CI checks exactly eight changed files against B31, hashes of all five production/test blobs, cross-platform native execution plus B31's previous source-exact NPC coverage fixture.
+- CI checks exactly nine changed files against B31, hashes of all six production/test blobs, cross-platform native execution plus B31's updated source-exact NPC coverage fixture, which now checks that ResetTeamStoryTracking clears both the old world snapshot and failed-write retry queue.
 
 No full emulator, game binary, server or installer rebuild. No real files/saves or Fornex accessed. Live game verification still mandatory.
 
