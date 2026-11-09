@@ -1,0 +1,68 @@
+{
+  "schema": "bbsc-ultimate-global-intake-v1",
+  "batch": "B11-2026-11-09",
+  "parent_pr": 42,
+  "base_branch": "experiment/ultimate-batch-10-bounded-build-diagnostics-20261108",
+  "mission_A": "ultimate playable PC client, launcher, co-op, dedicated server and hybrid network",
+  "mission_B": "truly native Windows Bloodborne.exe with no original PS4 eboot/ELF at runtime",
+  "discovery": {
+    "search_queries": 20,
+    "first_page_hits": 301,
+    "distinct_candidate_repositories": 241,
+    "first_page_limit_per_query": 35,
+    "github_coverage_claim": "bounded partial discovery, NOT an exhaustive search of GitHub",
+    "drive_sources": "READ FIRST TWO EQUAL MISSIONS, private AOT research summary and co-op/mod compatibility notes inspected in authorized account; no private bytes included"
+  },
+  "triage": {
+    "reviewed_pr_metadata_items": 21,
+    "code_imports_from_this_batch": 0,
+    "existing_deduplicated_source": "YT #543 already adopted in B01",
+    "states": "discovered candidates NOT integrated or tested on the game"
+  },
+  "files": [
+    {
+      "path": "tools/ultimate/source_radar_20261109_primary.json",
+      "blob": "1765979c94b08a83cd6a799f119bb8c380e54caf"
+    },
+    {
+      "path": "tools/ultimate/source_radar_20261109_adjacent.json",
+      "blob": "0cec433a9c46e9bfaaa0056e3478899ea3851bfd"
+    },
+    {
+      "path": "tools/ultimate/global_intake_priorities_20261109.json",
+      "blob": "b587f0b1361537085706681dc62c83636970d785"
+    },
+    {
+      "path": "docs/ULTIMATE_GLOBAL_SOURCE_INTAKE_20261109.md",
+      "blob": "2b064554e6dced9e0375ef08e043edb1b57ad959"
+    },
+    {
+      "path": "tools/ultimate/test_global_intake_20261109.py",
+      "blob": "cfc099ee2e5106c41769baee8c07641112044a1d"
+    }
+  ],
+  "changed_paths": [
+    "tools/ultimate/source_radar_20261109_primary.json",
+    "tools/ultimate/source_radar_20261109_adjacent.json",
+    "tools/ultimate/global_intake_priorities_20261109.json",
+    "docs/ULTIMATE_GLOBAL_SOURCE_INTAKE_20261109.md",
+    "tools/ultimate/test_global_intake_20261109.py",
+    "tools/ultimate/batch_11_manifest.json",
+    ".github/workflows/ultimate-batch-11-source-intake.yml"
+  ],
+  "safety": {
+    "no_deploy": true,
+    "no_proprietary_files": true,
+    "no_credentials": true,
+    "no_game_data_in_repo": true,
+    "no_full_engine_build": true,
+    "no_auto_merge": true,
+    "live_fornex_untouched": true
+  },
+  "next_evidence_gates": [
+    "review exact YT 1.4 vs CLS #48 loader race, CLS #47 dead guest exit and visy #13 hostile NPC source before any import",
+    "validate B10 cumulative Windows compiler #31 diagnostics and identical standalone engine CI",
+    "native no-ELF mission progress remains separate",
+    "real 2/3/5 player network, p99 performance, gameplay and save regression rig"
+  ]
+}
