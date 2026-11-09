@@ -1707,11 +1707,13 @@ class Motion:
         self.enabled = enabled
 
     def kick(self):
-        if self.job is None:
+        if self.enabled and self.job is None:
             self.job = self.root.after(1, self.tick)
 
     def tick(self):
         self.job = None
+        if not self.enabled:
+            return
         began = time.perf_counter()
         for key, entry in list(self.tweens.items()):
             if self.tweens.get(key) is not entry:
@@ -1753,6 +1755,18 @@ class Motion:
             return False
 
     def close(self):
+        # Prevent queued Tcl commands from running after the canvas dies.
+        self.enabled = False
+        if self.job is not None:
+            cancel = getattr(self.root, 'after_cancel', None)
+            if cancel is not None:
+                try:
+                    cancel(self.job)
+                except self.tcl_error:
+                    pass
+            self.job = None
+        self.tweens.clear()
+        self.loops.clear()
         if self.fine_timer:
             try:
                 ctypes.windll.winmm.timeEndPeriod(1)
@@ -2891,6 +2905,10 @@ class Launcher:
         # Advanced views; the one-time line that says the saved upscaler was changed.
         self.upscaler_support, self.upscaler_boxes, self.upscaler_notice = None, [], ''
         self.ui_calls = queue.Queue()  # work for the Tk thread from helper threads
+        self._pending_after = set()
+        self._closing = False
+        # Covers direct root.destroy() (handover and external Tk teardown).
+        root.bind('<Destroy>', self._root_destroyed, add='+')
         self.mod_order, self.mod_vars, self.patch_vars = [], {}, {}
         self.cards, self.hot_card, self.measures = set(), None, {}
         # Controls page: the row waiting for a key, the rows' widgets, the gamepads SDL listed (None: not asked; False:
@@ -2930,15 +2948,52 @@ class Launcher:
         if COOP_INSTALL:
             self.coop_offer_public()
         root.protocol('WM_DELETE_WINDOW', self.close)
-        root.after(100, self.drain_output)
-        root.after(30, self.start_motion)
+        self.after_owned(100, self.drain_output)
+        self.after_owned(30, self.start_motion)
         if COOP_INSTALL:
-            root.after(500, self.coop_watch_server)
+            self.after_owned(500, self.coop_watch_server)
         threading.Thread(target=self.detect_gpu, daemon=True).start()
         if self.app.get('check_updates', True) and not COOP_TEST:
             threading.Thread(target=self.check_update, daemon=True).start()
         if COOP_INSTALL:
             threading.Thread(target=self.coop_check_update, kwargs={'auto': True}, daemon=True).start()
+
+    def after_owned(self, delay, callback):
+        """Schedule a Tk callback that must be canceled on window teardown.
+
+        Without after_cancel, Tcl can report "invalid command name"
+        when a callback is due after its widget has already been destroyed.
+        """
+        if self._closing:
+            return None
+        token = [None]
+
+        def invoke():
+            self._pending_after.discard(token[0])
+            if not self._closing:
+                callback()
+
+        job = (self.root.after_idle(invoke) if delay is None
+               else self.root.after(delay, invoke))
+        token[0] = job
+        self._pending_after.add(job)
+        return job
+
+    def _stop_after_jobs(self):
+        if self._closing:
+            return
+        self._closing = True
+        for job in tuple(self._pending_after):
+            try:
+                self.root.after_cancel(job)
+            except self.tk.TclError:
+                pass
+        self._pending_after.clear()
+        self.motion.close()
+
+    def _root_destroyed(self, event):
+        if event.widget is self.root:
+            self._stop_after_jobs()
 
     def px(self, size):
         return int(size * self.dpi)
@@ -3917,7 +3972,7 @@ class Launcher:
         before, self.coop_fps_shown = self.coop_fps_shown, mode
         if mode == before or not bbport_coop.unlocked_fps(mode):
             return
-        self.root.after_idle(lambda: self.messagebox.showwarning(
+        self.after_owned(None, lambda: self.messagebox.showwarning(
             _('Frame rate in co-op', 'Частота кадров в кооперативе'),
             _('Above 60 FPS in co-op is still in testing. Unlocked goes up to 120 FPS and 90 FPS up to 90; '
               'your game still sends its updates to the team as often as at 60.\n\n'
@@ -4383,7 +4438,7 @@ class Launcher:
         def back():
             if button.canvas.winfo_exists():
                 button.configure(text=_('Copy', 'Копировать'))
-        self.root.after(2000, back)
+        self.after_owned(2000, back)
 
     def coop_auth_pressed(self):
         """The view's main button."""
@@ -4856,7 +4911,7 @@ class Launcher:
         game up several times and redrew the art: the launcher lagged, 2026-10-15)."""
         if getattr(self, 'coop_change_job', None):
             self.root.after_cancel(self.coop_change_job)
-        self.coop_change_job = self.root.after(250, self.coop_changed)
+        self.coop_change_job = self.after_owned(250, self.coop_changed)
 
     def coop_changed(self):
         self.coop_change_job = None
@@ -5230,7 +5285,7 @@ class Launcher:
         if not self.server_checking and not self.server_starting:
             self.server_checking = True
             threading.Thread(target=self.coop_check_server, daemon=True).start()
-        self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
+        self.after_owned(SERVER_CHECK_MS, self.coop_watch_server)
 
     def coop_check_server(self):
         try:
@@ -5838,7 +5893,7 @@ class Launcher:
         if self.controls_after:
             self.root.after_cancel(self.controls_after)
         self.controls_message.configure(text=text, fg=color)
-        self.controls_after = self.root.after(4000, lambda: self.controls_message.configure(
+        self.controls_after = self.after_owned(4000, lambda: self.controls_message.configure(
             text=self.controls_hint, fg=MUTED))
 
     def start_capture(self, name, add):
@@ -5858,7 +5913,7 @@ class Launcher:
                             'Нажмите клавишу, кнопку мыши или крутите колесо; для сочетания сначала зажмите Shift, '
                             'Ctrl или Alt. Для левой кнопки щёлкните по выделенному тексту.'))
         self.root.focus_set()  # the key goes to the window, not to a button that would act on Space
-        self.side_poll = self.root.after(50, self.poll_side_buttons)
+        self.side_poll = self.after_owned(50, self.poll_side_buttons)
 
     def stop_capture(self):
         if not self.capturing:
@@ -5931,7 +5986,7 @@ class Launcher:
             self.assign_key(name, add, bbport_controls.with_modifiers(
                 sorted(pressed)[0], *bbport_controls.held_modifiers(bbport_controls.windows_key_down)))
             return
-        self.side_poll = self.root.after(50, self.poll_side_buttons)
+        self.side_poll = self.after_owned(50, self.poll_side_buttons)
 
     def assign_key(self, name, add, key):
         """Gives the waiting input the captured key, button or wheel step (Add keeps the ones it has)."""
@@ -6621,14 +6676,14 @@ class Launcher:
                         self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
                         if self.app.get('close_on_play') and not self.close_scheduled:  # both GAME_UP_LINES arrive
                             self.close_scheduled = True
-                            self.root.after(CLOSE_AFTER_UP_MS, self.root.destroy)  # the game keeps running
+                            self.after_owned(CLOSE_AFTER_UP_MS, self.root.destroy)  # the game keeps running
                     elif 'restarting through run.py' in item:
                         self.set_running(True, preparing=True)
                         self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)
                     self.append(item)
         except queue.Empty:
             pass
-        self.root.after(100, self.drain_output)
+        self.after_owned(100, self.drain_output)
 
     def stop(self):
         if self.installing:  # Stop also ends a package installation
@@ -7097,7 +7152,7 @@ class Launcher:
         self.install_card.configure(highlightbackground=OK if ok else BAD)
         self.install_close.pack(anchor='e', pady=(self.px(10), 0))
         if ok:
-            self.install_hide = self.root.after(15000, self.hide_install_card)
+            self.install_hide = self.after_owned(15000, self.hide_install_card)
         self.refresh_status()
 
     # ---- updates -------------------------------------------------------------------------------
@@ -7208,7 +7263,7 @@ class Launcher:
         self.install_bar.set(1.0)
         self.install_detail.configure(text=update_install_note())
         # the setup's window (bbport_coop.setup_command: /SILENT shows its progress) is up before this one goes
-        self.root.after(UPDATE_HANDOVER_MS, self.close)
+        self.after_owned(UPDATE_HANDOVER_MS, self.close)
 
     def check_update(self, manual=False, beta=None):
         """Helper thread: asks GitHub for the newest release (a pre-release only with the Beta versions
@@ -7399,7 +7454,7 @@ class Launcher:
             pass
         if self.installing:
             self.stop()
-        self.motion.close()
+        self._stop_after_jobs()
         self.root.destroy()
 
 
