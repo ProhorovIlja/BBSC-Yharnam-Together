@@ -418,13 +418,13 @@ ICONS_FILE = 'dvdroot_ps4/menu/common.tpf.dcx'
 ICONS_LAYER = 'button icons'
 
 
-def user_layers(game, mods_dir, config=None, enabled='1'):
+def user_layers(game, mods_dir, config=None, enabled='1', include_legacy=True):
     """[(name, folder)] of the player's mods, lowest priority first (none when mods are switched off)."""
     layers = []
     if enabled == '1':
         # shadPS4's loose overlay convention, beside the original game.
         legacy = Path(str(Path(game).resolve()) + '-mods')
-        if legacy.is_dir():
+        if include_legacy and legacy.is_dir():
             layers.append((legacy.name, legacy))
         # A directly selected loose overlay is also accepted.
         if child(mods_dir, 'dvdroot_ps4').is_dir():
@@ -447,13 +447,14 @@ def icons_source(game, layers):
     return found
 
 
-def mod_layers(game, mods_dir, config=None, enabled='1', icons=None, port_layers=()):
+def mod_layers(game, mods_dir, config=None, enabled='1', icons=None, port_layers=(),
+               include_legacy=True):
     """[(name, folder)]: the layers of an overlay, lowest priority first. The port's own layers (`port_layers`,
     such as the field of view's camera table) go first, then the button icons, so that any mod replaces them. When
     a mod has its own menu/common.tpf.dcx the icons were drawn on that one (button_icons.py, icons_source) and go
     over the mods instead; they hold that file alone."""
     own = [(Path(layer).name, Path(layer)) for layer in port_layers if Path(layer).is_dir()]
-    layers = user_layers(game, mods_dir, config, enabled)
+    layers = user_layers(game, mods_dir, config, enabled, include_legacy=include_legacy)
     if not icons:
         return [*own, *layers]
     icons_layer = (ICONS_LAYER, Path(icons))
@@ -469,13 +470,16 @@ def main():
     parser.add_argument('--mods-dir', required=True, type=Path)
     parser.add_argument('--config', type=Path)
     parser.add_argument('--enabled', choices=('0', '1'), default='1')
+    parser.add_argument('--ignore-legacy', action='store_true',
+                        help='do not layer sibling CUSA03173-mods (co-op story events) in offline sandbox')
     parser.add_argument('--icons-layer', type=Path, help='a folder with the generated button icons (a layer under the mods)')
     parser.add_argument('--layer', type=Path, action='append', default=[],
                         help="a folder of the port's own (fov.py's camera table): a layer under the icons and the mods")
     parser.add_argument('--party-hud', action='store_true',
                         help='put the party HUD (hud_patch.py: the HUD the layers show, patched) over the mods')
     args = parser.parse_args()
-    layers = mod_layers(args.game, args.mods_dir, args.config, args.enabled, args.icons_layer, args.layer)
+    layers = mod_layers(args.game, args.mods_dir, args.config, args.enabled, args.icons_layer, args.layer,
+                        include_legacy=not args.ignore_legacy)
     if args.party_hud:
         import hud_patch
         layers, notes = hud_patch.with_party_hud(args.game, layers, args.out)
