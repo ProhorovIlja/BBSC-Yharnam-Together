@@ -1,0 +1,52 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B40-2026-11-09",
+  "parent_pr": 91,
+  "parent_branch": "experiment/ultimate-batch-39-local-host-link-members-count-20261109",
+  "status": "CUSA_109_SFO_AND_LOADED_IMAGE_INDEPENDENT_COMPATIBILITY_GATES",
+  "related_issues": [
+    84,
+    9,
+    76
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-40-109-eboot-diagnostics.yml",
+    "bbport/scripts/game_check.py",
+    "bbport/tests/test_game_check.py",
+    "docs/ULTIMATE_BATCH_40.md",
+    "tools/ultimate/batch_40_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/scripts/game_check.py",
+      "git_blob_sha1": "4cdfb042edb64c8f47dbf9b3f0e0ce0c5986c8cb"
+    },
+    {
+      "path": "bbport/tests/test_game_check.py",
+      "git_blob_sha1": "6001cefea593929a001c67f3fb5e97b6bbd1d256"
+    }
+  ],
+  "proof": [
+    "validate supported retail Title ID independently of executable hash",
+    "validate APP_VER 01.09 independently of executable hash",
+    "known Lance 60FPS-loaded-image hash retains precise patched_eboot reason",
+    "unknown loaded eboot hash explicitly not taken as proof that a region is unsupported or a certain patch present",
+    "all nine retail CUSA IDs can pass when verified same loaded 1.09 image matches; this is not physical edition compatibility proof",
+    "test corrupt shader extraction and startup diagnostic behavior still in old source unit tests",
+    "Windows and Linux synthetic ELF/SFO fixture regression tests and exact five-file diff"
+  ],
+  "limitations": [
+    "different genuinely clean regional 1.09 executable SHA still needs reverse-engineering and game patch site verification before allow-list",
+    "DLC entitlement, base and GOTY co-op events still need real game tests",
+    "no actual user's repack/eboot were inspected or modified",
+    "no automatic workaround to bypass clean game signature or per-CUSA checks",
+    "no real Windows game/installer run, Fornex or private assets changes"
+  ],
+  "safety": {
+    "no_fornex": true,
+    "no_private_game_files": true,
+    "no_user_saves": true,
+    "no_release": true,
+    "no_unsigned_image_bypass": true
+  }
+}

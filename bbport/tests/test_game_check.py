@@ -72,6 +72,38 @@ class GameCheckTests(unittest.TestCase):
         with mock.patch.object(game_check, 'SUPPORTED_IMAGE', game_check.image_sha256(game)):
             self.assertIsNone(game_check.problem(game))
 
+    def test_even_a_known_clean_image_cannot_override_wrong_cusa_or_version(self):
+        # Before B40 a matching executable SHA bypassed SFO validation and
+        # accepted a 1.00 label or a nonretail title as a supported 1.09 game.
+        game = self.game('CUSA03173', '01.09')
+        digest = game_check.image_sha256(game)
+        with mock.patch.object(game_check, 'SUPPORTED_IMAGE', digest):
+            self.assertIsNone(game_check.problem(game))
+            self.game('CUSA03173', '01.00')
+            self.assertEqual(game_check.problem(game)[0], 'missing_update')
+            self.game('CUSA01322', '01.09')
+            self.assertEqual(game_check.problem(game)[0], 'other_title')
+
+    def test_all_nine_retail_cusa_ids_pass_if_exact_loaded_109_image_matches(self):
+        # This is a source-contract test, not proof that every physical
+        # region's genuine retail disk has an identical image/quest resources.
+        game = self.game('CUSA03173', '01.09')
+        digest = game_check.image_sha256(game)
+        with mock.patch.object(game_check, 'SUPPORTED_IMAGE', digest):
+            for title in game_check.SUPPORTED_TITLES:
+                with self.subTest(title=title):
+                    self.game(title, '01.09')
+                    self.assertIsNone(game_check.problem(game))
+
+    def test_unknown_109_executable_is_not_called_a_proven_incompatible_region(self):
+        game = self.game('CUSA03023', '01.09')
+        self.assertEqual(game_check.problem(game)[0], 'wrong_eboot')
+        warning = game_check.explain('wrong_eboot', 'CUSA03023', '01.09')
+        self.assertIn('repack', warning)
+        self.assertIn('different clean regional executable', warning)
+        self.assertIn('NOT proof the region is unsupported', warning)
+        self.assertIn('SHA-256', warning)
+
     def shaders(self, game, data):
         folder = game / game_check.CHECKED_FOLDER
         folder.mkdir(parents=True, exist_ok=True)

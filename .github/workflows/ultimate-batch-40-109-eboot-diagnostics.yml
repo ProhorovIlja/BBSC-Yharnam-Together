@@ -1,0 +1,99 @@
+name: "Ultimate B40 CUSA 1.09 clean/modified eboot compatibility diagnostics"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-40-109-eboot-diagnostics.yml'
+      - 'bbport/scripts/game_check.py'
+      - 'bbport/tests/test_game_check.py'
+      - 'docs/ULTIMATE_BATCH_40.md'
+      - 'tools/ultimate/batch_40_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b40-eboot-sfo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-game-image-source:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-39-local-host-link-members-count-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact five-file B39 to B40 diff and two SHA-pinned sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-39-local-host-link-members-count-20261109:refs/remotes/origin/b39
+          git diff --name-only origin/b39 HEAD >/tmp/b40-diff
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_40_manifest.json').read_text())
+          actual=set(Path('/tmp/b40-diff').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==5 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert m['parent_pr']==91 and m['batch_id']=='B40-2026-11-09'
+          assert all(m['safety'].values())
+          for pin in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',pin['path']],text=True).strip()
+              assert sha==pin['git_blob_sha1'],(pin['path'],sha)
+          print('B40_FIVE_FILES_PINNED_GAME_SIGNATURE_SOURCE_PASS')
+          PY
+      - name: Verify SFO Title ID/version guard comes before image signature acceptance
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('bbport/scripts/game_check.py').read_text()
+          body=s.split('def problem(game, image_hash=None):',1)[1].split('def explain(',1)[0]
+          assert body.index('if title not in SUPPORTED_TITLES:')<body.index('if image_hash != SUPPORTED_IMAGE:')
+          assert body.index('if version != SUPPORTED_VERSION:')<body.index('if image_hash != SUPPORTED_IMAGE:')
+          assert 'different clean regional executable' in s
+          assert 'NOT proof the region is unsupported' in s
+          print('B40_METADATA_INDEPENDENT_GUARD_AND_UNKNOWN_IMAGE_DIAG_PASS')
+          PY
+
+  actual-game-check-fixtures-linux:
+    needs: exact-game-image-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Existing full game-check synthetic fixture suite
+        shell: bash
+        run: |
+          cd bbport/tests
+          python -m unittest test_game_check -v
+
+  actual-game-check-fixtures-windows:
+    needs: exact-game-image-source
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Existing full game-check synthetic fixture suite
+        shell: bash
+        run: |
+          cd bbport/tests
+          python -m unittest test_game_check -v
+      - name: No private game assets or real users
+        shell: bash
+        run: echo B40_SYNTHETIC_ELF_SFO_HASH_TESTS_ONLY_NO_GAME_DUMPS
