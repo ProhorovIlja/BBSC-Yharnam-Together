@@ -613,12 +613,17 @@ std::vector<s32> TimeOfDayToFollow(const WorldFlags& team, u32 flags_per_block,
 std::vector<std::pair<s32, bool>> TeamTimeOfDayAtLoad(const WorldFlags& team, u32 flags_per_block,
                                                       const std::function<bool(s32)>& on) {
     std::vector<std::pair<s32, bool>> changes;
-    const u32 block = flags_per_block != 0 ? u32(TimeOfDayFlags[0]) / flags_per_block : 0;
-    if (flags_per_block == 0 ||
-        !std::binary_search(team.blocks.begin(), team.blocks.end(), block)) {
+    if (flags_per_block == 0 || team.blocks.empty()) {
         return changes;
     }
     for (const s32 flag : TimeOfDayFlags) {
+        // Although Bloodborne 1.09 normally places the three stage flags in
+        // the same store block, check EACH flag against the current geometry.
+        // Never clear or assert a stage outside the host's known coverage.
+        if (!std::binary_search(team.blocks.begin(), team.blocks.end(),
+                                static_cast<u32>(flag) / flags_per_block)) {
+            continue;
+        }
         const bool team_on = std::binary_search(team.on.begin(), team.on.end(), flag);
         if (on(flag) != team_on) {
             changes.emplace_back(flag, team_on);
