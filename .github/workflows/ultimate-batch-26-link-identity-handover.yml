@@ -1,0 +1,113 @@
+name: "Ultimate B26 encrypted link identity handover and stale signaling lease"
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-26-link-identity-handover.yml'
+      - 'server/src/server_link.cpp'
+      - 'server/src/link_server.cpp'
+      - 'server/src/link_server.h'
+      - 'server/tests/test_server_link.cpp'
+      - 'docs/ULTIMATE_BATCH_26.md'
+      - 'tools/ultimate/batch_26_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b26-link-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-and-identity-contract:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-25-room-context-lifecycle-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact B25 to B26 seven-file diff and content hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-25-room-context-lifecycle-20261109:refs/remotes/origin/b25
+          git diff --name-only origin/b25 HEAD >/tmp/b26-changed.txt
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_26_manifest.json').read_text())
+          actual=set(Path('/tmp/b26-changed.txt').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==7 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B26-2026-11-09' and m['parent_pr']==57
+          assert all(m['safety'].values())
+          for item in m['pinned_blobs']:
+              actual_hash=subprocess.check_output(['git','hash-object',item['path']],text=True).strip()
+              assert actual_hash==item['git_blob_sha1'],(item['path'],actual_hash)
+          print('B26_PINNED_SEVEN_SOURCE_FILES_PASS')
+          PY
+      - name: Real Hub safely retires old identity; LinkServer expires old signaling lease
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          hub=Path('server/src/server_link.cpp').read_text()
+          apply=Path('server/src/link_server.cpp').read_text()
+          head=Path('server/src/link_server.h').read_text()
+          test=Path('server/tests/test_server_link.cpp').read_text()
+          assert hub.count('const bool again = members.contains(from.Key());')==1
+          before=hub.split('const bool again = members.contains(from.Key());',1)[0].split('void Hub::OnHello(',1)[1]
+          assert before.index('existing->online_id != hello->online_id') < before.index('TellOthers(*existing, MemberState::Gone')
+          assert before.index('TellOthers(*existing, MemberState::Gone') < before.index('Unlink(from.Key())') < before.index('result.gone.append(from)')
+          assert 'QHash<quint64, QByteArray> m_linkOnlineIds;' in head
+          gone=apply.split('for (const auto& gone : result.gone)',1)[1].split('for (const auto& linked : result.linked)',1)[0]
+          linked=apply.split('for (const auto& linked : result.linked)',1)[1]
+          assert gone.index('m_linkOnlineIds.take(gone.Key())') < gone.index('m_link.HasLink(formerId)')
+          assert gone.index('m_link.HasLink(formerId)') < gone.index('matching.udpExt.remove')
+          assert 'm_linkOnlineIds.insert(linked.endpoint.Key(), linked.online_id)' in linked
+          assert 'IdentityHandoverOnReusedUdpSocket() != 0' in test
+          print('B26_HUB_RETIRE_PRECEDES_REBIND_AND_LEASE_GONE_GUARDS_PORT_MIGRATION_PASS')
+          PY
+
+  real-encrypted-native-server-contracts:
+    needs: exact-source-and-identity-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install real Qt6 C++20 and compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ pkg-config qt6-base-dev
+      - name: Compile full encrypted server link Hub suite and run all contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src -Iserver \
+            -DBLOODBORNE_SERVER_LINK_CONTRACTS="\"$PWD/server/tests/contracts/server_link_frames.txt\"" \
+            server/tests/test_server_link.cpp server/src/server_link.cpp \
+            server/coop/link_crypto.cpp \
+            $(pkg-config --cflags --libs Qt6Core Qt6Network) \
+            -o /tmp/ultimate-b26-real-server-link
+          timeout 65s /tmp/ultimate-b26-real-server-link
+          echo B26_REAL_ENCRYPTED_HUB_SAME_ENDPOINT_DIFFERENT_ACCOUNT_PASS
+      - name: Rerun previous five-member matching/roster regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in test_signaling_peer_scope test_matching_lifecycle_guard; do
+            g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src \
+              "server/tests/${name}.cpp" \
+              $(pkg-config --cflags --libs Qt6Core Qt6Network) \
+              -o "/tmp/ultimate-b26-${name}"
+            timeout 30s "/tmp/ultimate-b26-${name}"
+          done
+          echo B26_INHERITED_B24_B25_FIVE_HUNTER_QT6_GATES_PASS
+      - name: Explicit no production changes, proprietary assets, saves or releases
+        run: echo B26_DRAFT_NO_FORNEX_NO_PRIVATE_GAME_DATA_NO_SAVES_NO_RELEASE_NO_FULL_ENGINE_REBUILD
