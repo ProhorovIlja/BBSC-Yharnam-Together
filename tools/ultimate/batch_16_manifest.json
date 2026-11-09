@@ -14,7 +14,6 @@
     "docs/ULTIMATE_BATCH_16.md",
     "tools/ultimate/batch_16_manifest.json",
     "tools/ultimate/test_batch_14_windows_native_resources.py",
-    "tools/ultimate/test_batch_14_windows_native_resources.py",
     "tools/ultimate/test_batch_16_windows_finalization.py"
   ],
   "pinned_blobs": [
