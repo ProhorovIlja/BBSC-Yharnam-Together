@@ -56,3 +56,13 @@ Canonical project charter: `ProhorovIlja/bloodborne_pc_windows_port/docs/SEAMLES
 - **Next source-level focus after B11:** compare YT 1.4.0 against the exact CLS #48 BBPort loader race, #47 dead-guest grey screen, visy #13 hostile NPC team corrections and B03/B04 deferred rewards, with an owned failing regression before moving code.
 
 **Policy:** Fornex stays untouched, no auto publication, no false “all fixed”, no huge logs/dumps in chat. Update source snapshots/decision states as new evidence arrives and only perform full integrated binaries at measured milestones.
+
+## Initial exact source-location review: no blind transplant
+
+On the B11 head the targeted YT 1.4.0 source paths were queried directly through GitHub. The independent [CLS #48](https://github.com/CLSAMG22/BBSC/pull/48) diff modifies `emulator/mod/bbsc_mod.cpp`, but that file is **absent** from this YT branch. It therefore cannot be adopted as a direct two-line loader fix. First identify the relevant YT/BBPort loader initialization and test its image-patch ordering, including whether the CLS failure mode applies.
+
+Similarly, [CLS #47](https://github.com/CLSAMG22/BBSC/pull/47) changes `TickBbscStrandedGuest` and `ReleaseBbscLeaveLocks` in the CLS `bloodborne_re.cpp`, but those functions are **absent** from our current `emulator/src/core/bloodborne_re.cpp`. The underlying dead-guest grey-screen scenario is a real *candidate test*, not a drop-in source patch. Investigate our own YT/DBNO end-session state and leave locks.
+
+The merged [visy #13](https://github.com/visy/bloodborne_pc_windows_port/pull/13) adds hostile NPC team events to `gpu/shim/party/party_npcfight_rules.h`, also **absent** from our YT source tree. Translate the affected 1.09 event/team semantics only after locating YT's own world/event patcher, and prove with host and guest scripted fixtures.
+
+These three rows are now designated **candidate_design_review**, not `candidate_diff_review`. This is exactly why the best-of process has a **source-location gate** and does not import entire PRs on title similarity.
