@@ -23,6 +23,9 @@ concurrency:
 
 jobs:
   source-boundary-and-pins:
+    # Exact B11 -> B12 diff gate is valid only on its own stacked PR #44.
+    # Descendant B13+ PRs validate their own parent-to-head source boundaries.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-11-global-source-intake-20261109')
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
