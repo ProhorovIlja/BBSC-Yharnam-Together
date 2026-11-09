@@ -167,6 +167,9 @@ jobs:
           export BB_LTO=OFF
           export BB_BUILD_JOBS=2
           export BB_WINDOWS_NO_DEBUG_SYMBOLS=1
+          # Three deterministic phases: network/archive, GPU library, final EXEs.
+          # Avoid overlap of large network translation units and final linker.
+          export BB_WINDOWS_STAGED_LINK=1
           export CMAKE_BUILD_PARALLEL_LEVEL=2
           # The *production* build.sh now passes BB_BUILD_JOBS to the real
           # Ninja invocation and keeps RelWithDebInfo -O2, omitting -g only
