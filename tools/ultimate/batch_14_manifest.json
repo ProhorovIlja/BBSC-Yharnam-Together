@@ -16,6 +16,7 @@
     "bbport/build.sh",
     "docs/ULTIMATE_BATCH_14.md",
     "tools/ultimate/batch_14_manifest.json",
+    "tools/ultimate/test_batch_10_build_failure.py",
     "tools/ultimate/test_batch_14_windows_native_resources.py"
   ],
   "pinned_blobs": [
@@ -30,6 +31,10 @@
     {
       "path": ".github/workflows/ultimate-batch-10-build-diagnostics.yml",
       "git_blob_sha1": "7ea79375f0e2bd0accf6a8a165037fb71b9403cb"
+    },
+    {
+      "path": "tools/ultimate/test_batch_10_build_failure.py",
+      "git_blob_sha1": "df5241434214b255ab3e929d9efcaba8b4f22570"
     }
   ],
   "source_comparison": {
@@ -59,7 +64,8 @@
     "existing B10 Ninja failure reporter fixture",
     "inherited B12 member-specific join C++ fixture",
     "inherited B13 owner-bound Insight C++ fixture",
-    "Windows full target compile PE and actual CMake cache"
+    "Windows full target compile PE and actual CMake cache",
+    "inherited B10 source test now matches Ninja targets rather than hard-coded no -j spelling"
   ],
   "limits": [
     "Prior #31 full Windows first Ninja invocation failed and incremental retry linked all targets; cannot assume new first full build will pass",
