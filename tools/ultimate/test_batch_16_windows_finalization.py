@@ -26,9 +26,9 @@ class WindowsNativeFinalization(unittest.TestCase):
         end = cls.production.index("\n    exit 0", start) + len("\n    exit 0")
         cls.real_finalization = cls.production[start:end]
 
-    def run_actual_finalization(self, missing=None, override_cp=""):
-        if not self.bash:
-            self.skipTest("Bash unavailable")
+    def run_actual_finalization(self, missing=None, override_command=""):
+        if not self.bash or not shutil.which("cmake"):
+            self.skipTest("Bash and real CMake are required")
         with tempfile.TemporaryDirectory(prefix="bbsc-16-win-final-") as td:
             root = Path(td)
             (root / "out/gpu").mkdir(parents=True)
@@ -40,7 +40,7 @@ class WindowsNativeFinalization(unittest.TestCase):
                 "build_mode=production\n"
                 "bbsc_win_phase=initial\n"
                 'trap \'rc=$?; if ((rc != 0)); then echo "EXIT_AT:$bbsc_win_phase rc=$rc" >&2; fi\' EXIT\n'
-                + override_cp + "\n"
+                + override_command + "\n"
                 + self.real_finalization + "\n"
             )
             result = subprocess.run(
@@ -86,7 +86,8 @@ class WindowsNativeFinalization(unittest.TestCase):
 
     def test_real_script_reports_copy_failure_and_retains_raw_error_code(self):
         r, copied, mode = self.run_actual_finalization(
-            override_cp="cp() { return 37; }"
+            override_command=('cmake() { if [[ "${1:-}" == "-E" && "${2:-}" == "copy_if_different" ]]; '
+                              'then return 37; fi; command cmake "$@"; }')
         )
         self.assertEqual(r.returncode, 37, r.stderr)
         self.assertIn("WINDOWS_NATIVE_COPY_BEGIN", r.stdout)
@@ -96,14 +97,38 @@ class WindowsNativeFinalization(unittest.TestCase):
 
     def test_real_script_rejects_modified_output_without_writing_mode(self):
         corrupt = (
-            'cp() { command cp "$@"; '
-            'printf "damaged" >> out/bb-play.exe; return 0; }'
+            'cmake() { if [[ "${1:-}" == "-E" && "${2:-}" == "copy_if_different" ]]; then '
+            'command cmake "$@" || return $?; '
+            'printf "damaged" >> out/bb-play.exe; return 0; '
+            'fi; command cmake "$@"; }'
         )
-        r, copied, mode = self.run_actual_finalization(override_cp=corrupt)
+        r, copied, mode = self.run_actual_finalization(override_command=corrupt)
         self.assertEqual(r.returncode, 47, r.stderr)
         self.assertIn("WINDOWS_NATIVE_COPIED_OUTPUT_MISMATCH: bb-play.exe", r.stderr)
         self.assertIn("EXIT_AT:verify-copied-outputs rc=47", r.stderr)
         self.assertIsNone(mode)
+
+    def test_real_windows_finalize_requires_no_coreutils_cp_wc_cmp(self):
+        # The minimal MSYS2 CLANG64 runner that compiled all three EXEs lacked
+        # coreutils. Verify the extracted REAL production script succeeds even
+        # if the conventional Unix commands are explicitly unavailable.
+        no_unix_tools = (
+            'cp() { return 127; }; '
+            'wc() { return 127; }; '
+            'cmp() { return 127; }'
+        )
+        r, copied, mode = self.run_actual_finalization(
+            override_command=no_unix_tools
+        )
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(mode.strip(), "production")
+        self.assertTrue(all(copied[name] and copied[name].startswith(b"MZ")
+                            for name in EXECUTABLES))
+        self.assertIn("cmake -E copy_if_different", self.real_finalization)
+        self.assertIn("cmake -E compare_files", self.real_finalization)
+        self.assertNotIn("$(wc -c", self.real_finalization)
+        self.assertNotIn("if cp --", self.real_finalization)
+        self.assertNotIn("if ! cmp -s", self.real_finalization)
 
     def test_actual_windows_ci_checks_pre_retry_output_file_presence(self):
         w = WINDOWS_CI.read_text(encoding="utf-8")
