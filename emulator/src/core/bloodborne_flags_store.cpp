@@ -1599,6 +1599,19 @@ DeferredRewardOwner CurrentDeferredRewardOwner() {
     return {Coop::character_slot.load(std::memory_order_relaxed),
             Coop::deferred_reward_character_generation.load(std::memory_order_relaxed)};
 }
+// A death drop was granted in one live hunter's co-op visit, not in every
+// character that may later reuse the same save slot. Slot alone misses a new
+// character loaded into slot N before leaving the same team session.
+// Return false when no save slot is known: never award loot to an
+// unidentifiable character. Shared with the C++20 source-exact regression.
+bool RefreshNpcDeathDropLedger(DeferredRewardOwner current, bool in_session,
+                               DeferredRewardOwner& recorded, std::set<s32>& awarded) {
+    if (!in_session || current != recorded) {
+        recorded = current;
+        awarded.clear();
+    }
+    return in_session && current.slot >= 0;
+}
 struct HeldBossItem {
     s32 lot;
     std::chrono::steady_clock::time_point due;
@@ -1821,14 +1834,17 @@ void GiveDueNpcGifts(std::chrono::steady_clock::time_point now) {
 // (the host's world says so), as the host's event gave the host. The game's thread.
 void GiveNpcDeathDrops(bool in_session, u32 map) {
     static s64 checked_ms = 0;
-    static int given_slot = -2;
-    static std::set<s32> given; // death flags, this character in this session
+    static DeferredRewardOwner given_owner;
+    static std::set<s32> given; // death flags for THIS slot + character generation
     const s64 now_ms = SteadyMilliseconds();
-    if (const int slot = character_slot.load(); slot != given_slot || !in_session) {
-        given_slot = slot;
-        given.clear();
+    // Per-slot dedup is not sufficient when a new character takes that same
+    // slot. The same generation used by deferred boss/NPC gifts owns the
+    // death-drop dedup cache too. No known slot means no reward can be given.
+    const DeferredRewardOwner owner = CurrentDeferredRewardOwner();
+    if (!RefreshNpcDeathDropLedger(owner, in_session, given_owner, given)) {
+        return;
     }
-    const bool guest = in_session && IsPartyGuestRole();
+    const bool guest = IsPartyGuestRole();
     if (!guest || now_ms - checked_ms < 2'000 || GetLocalPlayer() < 0x10000 ||
         !PlayerItemsReadable()) {
         return;
@@ -1853,7 +1869,6 @@ void GiveNpcDeathDrops(bool in_session, u32 map) {
         if (!HasVtable(item_man, MapItemManVtable, "NPC death drop item lot")) {
             return;
         }
-        given.insert(drop.death_flag);
         // The lot gives nothing while its flag is on: the host's (6671, the host holds the badge)
         // is not this guest's.
         if (lot_flag_on && lot_flag_hosts) {
@@ -1863,6 +1878,10 @@ void GiveNpcDeathDrops(bool in_session, u32 map) {
         giving_deferred_item_lot = true;
         reinterpret_cast<AwardItemLot>(image_base + AwardItemLotOffset)(item_man, drop.lot, 0);
         giving_deferred_item_lot = false;
+        // Record only after invoking the native item-lot function. Its
+        // void return is not proof of inventory success; this still needs
+        // real-game validation and a durable grant protocol.
+        given.insert(drop.death_flag);
         LOG_INFO(Debug,
                  "Bloodborne party: NPC death flag {} on (map {:#x}); gave the guest its drop, "
                  "item lot {} (its flag {} {})",
