@@ -1,0 +1,60 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B37-2026-11-09",
+  "parent_pr": 83,
+  "parent_branch": "experiment/ultimate-batch-36-coop-offline-play-no-coop-event-overlay-20261109",
+  "status": "GLOBAL_DIRECTORY_HUNTERS_ONLINE_PRIVACY_SAFE_BOUNDED_HTTPS_UI",
+  "related_issues": [
+    85,
+    24,
+    84,
+    87,
+    9
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-37-hunters-online.yml",
+    "bbport/launcher/bbport_coop.py",
+    "bbport/launcher/bbport_launcher_win.py",
+    "bbport/tests/test_hunters_online.py",
+    "docs/ULTIMATE_BATCH_37.md",
+    "tools/ultimate/batch_37_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/launcher/bbport_coop.py",
+      "git_blob_sha1": "ccff9bd3a27feeb0b87a392c6b2aee2aa77adcd6"
+    },
+    {
+      "path": "bbport/launcher/bbport_launcher_win.py",
+      "git_blob_sha1": "035bd3c193d2f6c87b866507d499823ebd335687"
+    },
+    {
+      "path": "bbport/tests/test_hunters_online.py",
+      "git_blob_sha1": "24a05191b6645ef8e6d5947af2c8c8c0b5fe5a67"
+    }
+  ],
+  "verification": [
+    "real launcher directory URL generation and JSON count parser",
+    "real source B36 co-op footer has a nonblocking Hunters Online label, 45-second polling and server-key stale-snapshot guard",
+    "verified HTTPS only and no trust bypass",
+    "directory-provided healthy shard rows aggregated with de-duplication",
+    "unknown/missing/failed directory shows dash not zero, true verified empty list means zero",
+    "no player names/IP/account secrets emitted by summary",
+    "Ubuntu 24.04 and Windows 2022 Python test suite using production import and no network"
+  ],
+  "limitations": [
+    "global directory only: local standalone host has no authoritative count endpoint and reports unavailable",
+    "counts Link members of healthy shards, not necessarily characters actively fighting in map",
+    "port-level remote reachability diagnostics need separate component; existing local server state and standalone check are not complete",
+    "SSL chain root cause user screenshot #24 still requires real Windows and hosted TLS chain repro",
+    "real game and UI render not validated in Windows session"
+  ],
+  "safety": {
+    "no_fornex": true,
+    "no_credentials": true,
+    "no_user_saves": true,
+    "no_game_assets": true,
+    "no_installer": true,
+    "no_full_game_build": true
+  }
+}
