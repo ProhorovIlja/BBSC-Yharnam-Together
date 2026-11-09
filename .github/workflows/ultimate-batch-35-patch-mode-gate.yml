@@ -65,13 +65,9 @@ jobs:
           print('B35_REAL_GAME_LAUNCH_ONLINE_GUARD_PATHS_VERIFIED')
           PY
 
-  actual-python-patch-selector-regressions:
+  actual-python-patch-selector-regressions-linux:
     needs: verified-production-patch-mode
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-2022]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -81,13 +77,36 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Unit test the ACTUAL built-in patch compiler and online/co-op markers
+      - name: Test actual production Python patch selector and legacy in-tree policy tests
         shell: bash
         run: |
           set -euo pipefail
           python -m unittest discover -s bbport/tests -p 'test_patch_mode_guard.py' -v
           cd bbport/tests
           python -m unittest test_patches.DebugPatchTests.test_offline_release_allows_cheats_online_release_and_dev_disable_them -v
-      - name: No game binaries, external mod trust, real saves or service deployment
+      - name: This is a patch-select test, not a full game anti-cheat or release
         shell: bash
-        run: echo B35_TESTED_BUILTIN_CHEAT_PATCH_SELECTION_ONLY_NOT_FULL_ANTICHEAT_OR_RELEASE
+        run: echo B35_TESTED_BUILTIN_CHEAT_PATCH_SELECTION_ONLY
+
+  actual-python-patch-selector-regressions-windows:
+    needs: verified-production-patch-mode
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test actual production Python patch selector and legacy in-tree policy tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s bbport/tests -p 'test_patch_mode_guard.py' -v
+          cd bbport/tests
+          python -m unittest test_patches.DebugPatchTests.test_offline_release_allows_cheats_online_release_and_dev_disable_them -v
+      - name: This is a patch-select test, not a full game anti-cheat or release
+        shell: bash
+        run: echo B35_TESTED_BUILTIN_CHEAT_PATCH_SELECTION_ONLY
