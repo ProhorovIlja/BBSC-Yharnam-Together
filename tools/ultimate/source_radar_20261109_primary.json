@@ -1,0 +1,1490 @@
+{
+  "schema": "bbsc-source-discovery-snapshot-v1",
+  "date_utc": "2026-11-09",
+  "purpose": "Public GitHub discovery radar for BOTH Ultimate playable and independent truly native Windows port. Not a claim of exhaustive GitHub coverage, runtime code quality, license clearance or successful integration.",
+  "collection_limitations": [
+    "first 35 returned repository hits per query; pagination/other search words can reveal further candidates",
+    "GitHub relevance search can include unrelated repositories, mirrors, stale code and name collisions",
+    "found does not mean inspected, compatible, legally importable or better",
+    "Each candidate requires branch, commit, PR, license, build and runtime validation"
+  ],
+  "queries": [
+    {
+      "query": "bloodborne pc in:name,description",
+      "first_page_count": 35,
+      "error": null
+    },
+    {
+      "query": "bloodborne seamless coop",
+      "first_page_count": 8,
+      "error": null
+    },
+    {
+      "query": "shadps4 bloodborne",
+      "first_page_count": 35,
+      "error": null
+    },
+    {
+      "query": "Bloodborne Vulkan",
+      "first_page_count": 35,
+      "error": null
+    },
+    {
+      "query": "bloodborne launcher",
+      "first_page_count": 35,
+      "error": null
+    },
+    {
+      "query": "Bloodborne mod loader",
+      "first_page_count": 1,
+      "error": null
+    },
+    {
+      "query": "bloodborne coop",
+      "first_page_count": 11,
+      "error": null
+    },
+    {
+      "query": "bloodborne decomp",
+      "first_page_count": 35,
+      "error": null
+    },
+    {
+      "query": "Dark Souls 3 Bloodborne mod",
+      "first_page_count": 2,
+      "error": null
+    },
+    {
+      "query": "bloodborne save manager",
+      "first_page_count": 2,
+      "error": null
+    }
+  ],
+  "discovered_repositories": [
+    {
+      "name": "0ozaru22/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "0xCydral/bloodborne_pc",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "shadps4 bloodborne",
+        "Bloodborne Vulkan",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "2847181243-ops/bloodborne-seamless-coop",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne seamless coop",
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "4THHalf/bloodborne-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "4THHalf/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "adeldantas/shadPS4_Bloodborne",
+      "default_branch": "Shadlix",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "adhdandy/bb-restock",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne mod loader"
+      ]
+    },
+    {
+      "name": "AHQAHQshenhuxi/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "AizerMortenort/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "ajungg/BBShadPS4Mouse",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "Alexp9103/bloodborne_pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "Alonessam/bloodborne-w11-port",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "AltimorTASDK/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "AmirWhiteHat/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "ASNH0/Bloodborne-shadps4-mod-menu",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "Astrr00/BloodbornePC",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "Awakenchan/LanternEngine",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "AwesomeObserver/bloodborne_pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "Bloodborne Vulkan",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "ayozetr/bloodborne_linux",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne seamless coop",
+        "Bloodborne Vulkan",
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "BastienLopez/Bloodborne_ShadPS4_60fps",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "BetterCodeGoblin/bloodborne_pc_windows_port",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "bhuaysan/bloodborne-linux",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "bloodborne-native/bloodborne-ios",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "bloodborne-native/bloodborne-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "bloodborne-native/bloodborne-mac",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "bloodborne-native/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "bluemike61/bloodborne_pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "ByLuis360/PROG-TutorialGit",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "C0rn3j/BB_Launcher",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "cano159/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "Chiu0918/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "classicrob/bloodborne-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "classicrob/bloodborne-mac",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "classicrob/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "CLSAMG22/BBSC",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "cltzz666/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "CyclicaIIy/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "d45h71/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "Daniel-27111/bloodbornePC",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "DarkIzuku/bloodborne_pc",
+      "default_branch": "public-performance-stability-v2",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "Bloodborne Vulkan",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "Davinw11/BloodborneRandomizer",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "deadinside28/bloodborne_pc",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "dizzi1222/bloodborne_pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "droogie/bbhost",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "eFMann/shadPS4-Bloodborne-DLSS-FSR",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "ElaDiDu/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "En3ide/Bloodborne_auto_decomp",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "FIocker/bloodborne_pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "framilano/BloodborneNucleusCoopHandler",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "FraSharp/bloodborne-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "FraSharp/bloodborne-mac",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "FraSharp/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "Furegato/BloodborneSoundRepack",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "garyttierney/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "GeTerow/bloodborne_pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "guichiapini/sotcport",
+      "default_branch": "sotc",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "Hengle/bloodborne-mac",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "Hengle/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "ibrahim828282/bloodborne-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "ImComy/LowEnd-PC-Bloodborne",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "in0brain/bloodborne_pc",
+      "default_branch": "windows-port",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "ItsAzM8/BB_Launcher",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "jadepilled/souls-model-viewer",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Dark Souls 3 Bloodborne mod"
+      ]
+    },
+    {
+      "name": "JamesCicada/bb-tools",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "Jgamrot/yharnam-pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "Bloodborne Vulkan",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "Jhony-Jhansen/bloodborne_pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "Jovindhar/bloodborne-mac",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "Jovindhar/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "katalash/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "KK2-5/souls-model-viewer",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Dark Souls 3 Bloodborne mod"
+      ]
+    },
+    {
+      "name": "Klonty/bloodborne-pc-hunters-dream",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "Klonty/bloodborne-pc-hunters-dream-workaround",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "kotn3l/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "krishbains/bloodborne-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "Kutius/NightwatchCoop",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne seamless coop",
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "lapothecary/bloodborne-pc-vulkan",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "LionAmir/NightwatchCoop",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne seamless coop",
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "ljb81565248/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "lordjunnior/bloodborne-pc",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "LRF17/LanternEngine-NativePlusHDR",
+      "default_branch": "lantern-Native+HDR",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "LRF17/NightwatchCoop-NativePlusHDR",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne seamless coop",
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "luyufeng1999/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "mark3317/bbgl",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "MaSieS4Fun/ARM_bloodborne_pc",
+      "default_branch": "arm64-fex",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "mburbea/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "MerchantISO/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "mickorz/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "mirimsees/shadPS4-Bloodborne-DLSS-FSR",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "Mob100percent/BBMCC",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "mooofin/Bloodborne",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "Mrsuss60/bloodborne_pc_windows_port",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "shadps4 bloodborne",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "NamelessHoodie/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "nekodesusan-prog/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "nex3/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "notrevenant/bloodborne_pc",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "nr1971/BB_Launcher",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "ottoGithub/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "PAIMON2000/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "par274/BB_Launcher",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "par274/lantern-bloodborne-launcher",
+      "default_branch": "main",
+      "archived": true,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "paulosdgrp/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "paylanon/bbfov",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "PhantomJ-M/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "Phroster/bloodborne_pc_windows",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "pyL1nx/bloodborne_pc",
+      "default_branch": "Achievement-System-Patch",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "pyL1nx/Bloodborne-PC-native-Enhanced-",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "rainmakerv3/BB_Launcher",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "Rammsiris/Bloodborne-Americas-Language-Pack",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "RandomAlien0x33/bloodborne-win-native",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "ReveKo0o/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "ROpenData/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "RT-Soldat/bloodborne-splitscreen-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "Ryansousa10/bloodborne_windows_mouse_and_keyboard",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "S983860/bloodborne-pc-zh",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "Salted74/shadPS4-Bloodborne-DLSS-NR",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "santiagovalencia109/BloodborneCheckpointManager",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne save manager"
+      ]
+    },
+    {
+      "name": "Savestate2A03/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "SEKY443/bloodborne-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "SEKY443/bloodborne-runtime",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "shigomany/bloodborne-coop-releases",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "sirlion87/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "skuza-oss/bloodborne_pc",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "smilinleader/NightwatchCoop-BBFSS",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne seamless coop",
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "SonyEntertainmentNetwork/BBPSX-Decompilation",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "SrShadowy/bloodborne_pc",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "Supermedo/bloodborne_pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "Swn555666/bloodborne-bbport-keybinds",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "T0ug/bloodborne_pc_Ivy-Bridge",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "TatsunaKyo/bloodborne_pc",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "team-cereus/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "TechmoNoway/techmo_bloodborne_pc",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "theitsnschool/bloodborne-windows-native-loader",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "tlarok/fsb_remaker",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "TuriansNotBad/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "udtfcncuyttp/bloodborne-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "visy/bloodborne_pc_windows_port",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "vladtepes22/NightwatchCoop",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "bloodborne seamless coop",
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "VyPhuong331/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "wanderabyss/sunbros-bloodborne-launcher",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "Whalesea-Gustav/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "wheat32/bbpc",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "while-basic/bloodborne",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "WiredThings/blood-echoes",
+      "default_branch": "optimized",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "yahyanaved/bloodborne_pc",
+      "default_branch": "hunters-dream-online",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "bloodborne launcher"
+      ]
+    },
+    {
+      "name": "yaonikaixin999999/bloodborne_pc_windows",
+      "default_branch": "codex/windows-port",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description",
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "YBlck/bloodborne-save-manager",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne",
+        "bloodborne save manager"
+      ]
+    },
+    {
+      "name": "yerasuu/psport",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "Bloodborne Vulkan"
+      ]
+    },
+    {
+      "name": "Yoniuz/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "yumlevi/bloodborne_pc",
+      "default_branch": "windows-port",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne pc in:name,description"
+      ]
+    },
+    {
+      "name": "zacharyweiss/BB_Launcher",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "shadps4 bloodborne"
+      ]
+    },
+    {
+      "name": "zarok-lazarus/NightwatchCoop",
+      "default_branch": "main",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne seamless coop",
+        "bloodborne coop"
+      ]
+    },
+    {
+      "name": "ZiJinZiMing/DSLuaDecompiler",
+      "default_branch": "master",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne decomp"
+      ]
+    },
+    {
+      "name": "ZuanCrisp/BloodbornePort",
+      "default_branch": "windows",
+      "archived": false,
+      "visibility": "public",
+      "matched_queries": [
+        "bloodborne launcher"
+      ]
+    }
+  ],
+  "decision_status": "DISCOVERED_ONLY_ALL_CANDIDATES_NEED_TRIAGE",
+  "exclusions": "Proprietary game files and non-public user content are never included in this public inventory"
+}
