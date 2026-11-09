@@ -1,6 +1,6 @@
-"""Kaniel 2026-11-04 ("remove cheats in production mode"): a release's launcher (package.sh writes
-scripts/build_info.json {"production": true}) offers no cheats and no debug menu or camera; a dev
-build's (no such file) keeps them."""
+"""B36: production release metadata still gates engine debug extras, but a co-op
+release now presents offline-only built-in cheat selections. Actual game patch
+selection refuses them on any online launch (B35), independent of build_info."""
 import sys
 import tempfile
 import unittest
@@ -35,6 +35,17 @@ class ProductionBuildTests(unittest.TestCase):
     def test_the_hidden_extras_are_the_debug_tools(self):
         keys = {key for key, _title, _on in launcher.EXTRAS}
         self.assertEqual(set(launcher.DEV_TOOL_EXTRAS), keys & {'debug_camera', 'debug_menu'})
+
+    def test_offline_ui_keeps_all_known_cheats_and_online_patch_selector_is_independent(self):
+        self.assertIn('cheat_no_death', {key for key, _title, _on in launcher.CHEATS})
+        self.assertIn('cheat_rally_no_decay', {key for key, _title, _on in launcher.CHEATS})
+        source = Path(launcher.__file__).read_text(encoding='utf-8')
+        production = source.split('def build_cheats(self):', 1)[1].split('def build_online(self):', 1)[0]
+        self.assertIn("if PRODUCTION:", production)
+        self.assertIn("for key, title, _on in CHEATS:", production)
+        self.assertIn("for key, title, _on in TWEAKS:", production)
+        self.assertIn("self.play_coop_offline", source)
+
 
 
 if __name__ == '__main__':
