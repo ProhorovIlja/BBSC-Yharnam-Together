@@ -585,16 +585,25 @@ WorldFlags WorldFlagsOf(const bbcoop::TeamWorld& message) {
     return world;
 }
 
-std::vector<s32> TimeOfDayToFollow(const WorldFlags& team, const std::function<bool(s32)>& on) {
+std::vector<s32> TimeOfDayToFollow(const WorldFlags& team, u32 flags_per_block,
+                                   const std::function<bool(s32)>& on) {
+    std::vector<s32> take;
+    if (flags_per_block == 0 || team.blocks.empty()) {
+        // The host never reported the block holding this story stage:
+        // a flag ID in an on-list alone is not evidence of its current world.
+        return take;
+    }
     s32 latest_own = 0;
     for (const s32 flag : TimeOfDayFlags) {
         if (on(flag)) {
             latest_own = flag;
         }
     }
-    std::vector<s32> take;
     for (const s32 flag : TimeOfDayFlags) {
-        if (flag > latest_own && std::binary_search(team.on.begin(), team.on.end(), flag)) {
+        if (flag > latest_own &&
+            std::binary_search(team.blocks.begin(), team.blocks.end(),
+                               static_cast<u32>(flag) / flags_per_block) &&
+            std::binary_search(team.on.begin(), team.on.end(), flag)) {
             take.push_back(flag);
         }
     }
