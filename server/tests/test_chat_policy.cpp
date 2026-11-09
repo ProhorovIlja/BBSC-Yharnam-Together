@@ -10,11 +10,11 @@ using namespace BloodborneCoop::Comms;
 
 int main() {
     std::vector<Peer> peers{
-        Peer{.id="a", .team="hunt-a"},
-        Peer{.id="b", .team="hunt-a"},
-        Peer{.id="c", .team="hunt-b"},
-        Peer{.id="d", .team="hunt-b"},
-        Peer{.id="e"},
+        Peer{.id="a", .team="hunt-a", .blocked={}},
+        Peer{.id="b", .team="hunt-a", .blocked={}},
+        Peer{.id="c", .team="hunt-b", .blocked={}},
+        Peer{.id="d", .team="hunt-b", .blocked={}},
+        Peer{.id="e", .team="", .blocked={}},
     };
     const auto send = [&](Gate& gate, Scope scope, std::string msg, std::string to = "",
                           std::int64_t at = 100, bool global = true) {
@@ -97,7 +97,7 @@ int main() {
     {
         Gate gate;
         // Inputs from a different server MUST NOT be placed in the current server's roster.
-        peers.push_back(Peer{.id="z", .team="another-server"}); // synthetic current-shard member
+        peers.push_back(Peer{.id="z", .team="another-server", .blocked={}}); // synthetic current-shard member
         assert(send(gate, Scope::Team, "isolated").recipients ==
                std::vector<std::string>{"b"});
         // A duplicated roster entry cannot duplicate a delivery.
