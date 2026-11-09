@@ -178,12 +178,41 @@ jobs:
           echo 'WINDOWS_NATIVE_CLIENT_BUILD_FINISHED'
           tail -n 12 out/ultimate-native-build.log
           test "$(tr -d '\r\n' <out/build-mode.txt)" = production
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          cache = Path("out/gpu/CMakeCache.txt").read_text(errors="replace")
+          for lang in ("C", "CXX"):
+              name = f"CMAKE_{lang}_FLAGS_RELWITHDEBINFO"
+              pattern = rf"(?m)^{name}:[^=]+=-O2 -g0 -DNDEBUG$"
+              assert re.search(pattern, cache), f"missing actual optimized low-memory build flag: {name}"
+          print("WINDOWS_ACTUAL_C_AND_CXX_LOW_DEBUG_CACHE_PASS")
+          PY
           for exe in bb-probe.exe bb-gpu-capabilities.exe bb-play.exe; do
             test -s "out/$exe" || { echo "Missing native executable: $exe"; exit 1; }
             magic=$(head -c 2 "out/$exe" | od -An -t x1 | tr -d '[:space:]')
             test "$magic" = 4d5a || { echo "Not a Windows PE executable: $exe"; exit 1; }
             sha256sum "out/$exe"
           done
+          python - <<'PY'
+          from pathlib import Path
+          import struct
+          for name in ("bb-probe.exe", "bb-gpu-capabilities.exe", "bb-play.exe"):
+              path = Path("out") / name
+              with path.open("rb") as exe:
+                  assert exe.read(2) == b"MZ", f"{name}: not an MZ executable"
+                  exe.seek(0x3c)
+                  pe_offset = struct.unpack("<I", exe.read(4))[0]
+                  assert 0x40 <= pe_offset < path.stat().st_size-26, f"{name}: invalid PE offset"
+                  exe.seek(pe_offset)
+                  assert exe.read(4) == bytes((0x50, 0x45, 0, 0)), f"{name}: missing PE signature"
+                  machine = struct.unpack("<H", exe.read(2))[0]
+                  assert machine == 0x8664, f"{name}: not AMD64 (machine={machine:#x})"
+                  exe.seek(pe_offset + 24)
+                  optional_magic = struct.unpack("<H", exe.read(2))[0]
+                  assert optional_magic == 0x20b, f"{name}: not PE32+"
+              print("VALID_AMD64_PE32_PLUS", name)
+          PY
           echo 'BBPORT_PRODUCTION_WINDOWS_PE_BUILD_PASS_NO_GAME'
 
       - name: Verify no game payload or public artifacts were produced
