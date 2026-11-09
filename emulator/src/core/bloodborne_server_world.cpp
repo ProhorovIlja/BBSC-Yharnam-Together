@@ -3056,6 +3056,12 @@ void FollowTeamStory(s64 now_ms) {
         if (global < 0x10000 || TryRead<u8>(global, 0x08).value_or(1) != 0) {
             return; // loading: the load takes it, or the next check
         }
+        // A partially loaded game flag store must not seed the NPC-story
+        // baseline: the next readable tick needs a real geometry + snapshot.
+        const u32 flags_per_block = ReadFlagStore().flags_per_block;
+        if (flags_per_block == 0) {
+            return;
+        }
         WorldFlags target = WorldFlagsOf(*team_world);
         if (team_story_followed.blocks.empty()) {
             team_story_followed = std::move(target);
@@ -3064,10 +3070,6 @@ void FollowTeamStory(s64 now_ms) {
         // Keep NPC/quest deltas for blocks the host reported both before and
         // after it loaded a different map. A missing block is NOT authority
         // to spawn or despawn an NPC in the live guest's map.
-        const u32 flags_per_block = ReadFlagStore().flags_per_block;
-        if (flags_per_block == 0) {
-            return;
-        }
         follow = TeamStoryToFollow(team_story_followed, target, flags_per_block);
         team_story_followed = std::move(target);
     }
