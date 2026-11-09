@@ -14,6 +14,10 @@ import subprocess
 
 NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 TAILNET = ipaddress.IPv4Network('100.64.0.0/10')
+# ipaddress.is_private also accepts RFC 5737 test ranges on some Python
+# versions. Ordinary physical LAN broadcast must be limited to RFC 1918.
+HOME_LAN = tuple(ipaddress.IPv4Network(net) for net in
+                 ('10.0.0.0/8','172.16.0.0/12','192.168.0.0/16'))
 PROVIDERS = ('radmin', 'tailscale', 'zerotier')
 # This program does NOT take commands or values from third-party network data.
 WINDOWS_ADAPTER_QUERY = r"""Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object {
@@ -197,7 +201,7 @@ def discovery_targets(adapter, tailscale_status=None):
             continue
         # Never broadcast to a publicly routed adapter merely because it
         # happens to be selected as an ordinary physical LAN adapter.
-        if provider=='lan' and not net.is_private:
+        if provider=='lan' and not any(net.subnet_of(home) for home in HOME_LAN):
             continue
         result.add(str(net.broadcast_address))
     return sorted(result-own)
