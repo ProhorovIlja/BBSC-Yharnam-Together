@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cl /nologo /std:c++20 /EHsc /W4 /Iserver server/tests/test_cheat_watch.cpp /Fe:cheat_watch_b34.exe
+            MSYS_NO_PATHCONV=1 cl /nologo /std:c++20 /EHsc /W4 /Iserver server/tests/test_cheat_watch.cpp /Fe:cheat_watch_b34.exe
             ./cheat_watch_b34.exe
           else
             g++ -std=c++20 -O2 -Wall -Wextra -Werror -Iserver server/tests/test_cheat_watch.cpp -o ./cheat_watch_b34
