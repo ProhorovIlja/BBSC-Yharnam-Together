@@ -32,7 +32,7 @@
     },
     {
       "path": "emulator/src/core/bloodborne_server_world.cpp",
-      "git_blob_sha1": "60c4307f9e25226fb8f648fa836ec4dfbe990121"
+      "git_blob_sha1": "c37340dd00c7a2aa07a52b0ff9b6fb8f6466ed91"
     },
     {
       "path": "emulator/tests/bloodborne/test_bloodborne_team.cpp",
