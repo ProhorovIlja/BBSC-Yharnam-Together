@@ -1,0 +1,71 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B14-2026-11-09",
+  "parent_pr": 45,
+  "parent_branch": "experiment/ultimate-batch-13-insight-character-ownership-20261109",
+  "pr31_diagnostic_source": "de3594ea06f4364566d40af4cdec74a56bbe1277",
+  "pr31_workflow_blob": "ada61bd690cf80ad611ff7b8f5bdcf11cd2a2af6",
+  "status": "EXPERIMENTAL_CUMULATIVE_WINDOWS_PRODUCTION_CPP_LINK_GATE",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_public_release": true,
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-10-build-diagnostics.yml",
+    ".github/workflows/ultimate-native-client-windows.yml",
+    "bbport/build.sh",
+    "docs/ULTIMATE_BATCH_14.md",
+    "tools/ultimate/batch_14_manifest.json",
+    "tools/ultimate/test_batch_14_windows_native_resources.py"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/build.sh",
+      "git_blob_sha1": "e47049756ee64f8c2bf945a6c39903bb779b6c4e"
+    },
+    {
+      "path": "tools/ultimate/test_batch_14_windows_native_resources.py",
+      "git_blob_sha1": "6d4a5b138bdbaecd2c0e5127e1b17aa906156d81"
+    },
+    {
+      "path": ".github/workflows/ultimate-batch-10-build-diagnostics.yml",
+      "git_blob_sha1": "7ea79375f0e2bd0accf6a8a165037fb71b9403cb"
+    }
+  ],
+  "source_comparison": {
+    "from": "experiment/ultimate-batch-13-insight-character-ownership-20261109",
+    "to": "experiment/ultimate-windows-native-client-build-20261108",
+    "status": "diverged",
+    "behind_b13": 2,
+    "ahead_b13": 125,
+    "only_pr31_missing_file": ".github/workflows/ultimate-native-client-windows.yml"
+  },
+  "hardware_modes": {
+    "runner": "windows-2022",
+    "shell": "msys2 CLANG64",
+    "full_build_targets": [
+      "bb-probe.exe",
+      "bb-gpu-capabilities.exe",
+      "bb-play.exe"
+    ],
+    "no_release_binaries_uploaded": true,
+    "ninja_real_jobs": 2,
+    "optimized_no_debug_flags": "RelWithDebInfo -O2 -g0 -DNDEBUG",
+    "full_PE_check": "MZ, PE signature, IMAGE_FILE_MACHINE_AMD64 0x8664, PE32+ 0x20b"
+  },
+  "source_tests": [
+    "exact six-file delta versus B13",
+    "actual build.sh Bash syntax and resource flags negative tests",
+    "existing B10 Ninja failure reporter fixture",
+    "inherited B12 member-specific join C++ fixture",
+    "inherited B13 owner-bound Insight C++ fixture",
+    "Windows full target compile PE and actual CMake cache"
+  ],
+  "limits": [
+    "Prior #31 full Windows first Ninja invocation failed and incremental retry linked all targets; cannot assume new first full build will pass",
+    "No real game startup, 2/3/5-player online, GPU rendering, account auth or savedata verification",
+    "No private Bloodborne 1.09 or DS3 assets accessed",
+    "No true no-PS4-ELF native Windows port, hosted BBPort remains separate track",
+    "No release or Fornex deployment"
+  ]
+}
