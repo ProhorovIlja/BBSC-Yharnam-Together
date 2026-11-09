@@ -734,6 +734,14 @@ bool HasAllMemberData(u8 parts) {
     return (parts & MemberDataParts) == MemberDataParts;
 }
 
+bool MemberDataRequestReady(bool member_here, std::optional<s32> slot, u64 parts) {
+    // A later party member may already be visible in the vitals board while
+    // the game's network/character-data slots are still being constructed.
+    // The lookup caller has checked the net object, the per-member identity,
+    // and the parts byte's write access. Refuse stale or missing slot data.
+    return member_here && slot.has_value() && *slot >= 0 && *slot < 4 && parts >= 0x10000;
+}
+
 MemberDataWait::Action MemberDataWait::Tick(s64 now_ms, bool member_here, u8 parts) {
     if (!member_here) {
         here_since.reset();
