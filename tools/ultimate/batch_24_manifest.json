@@ -1,0 +1,45 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B24-2026-11-09",
+  "parent_pr": 55,
+  "parent_branch": "experiment/ultimate-batch-23-final-runtime-gate-20261109",
+  "status": "SERVER_MATCHING2_PEER_ENDPOINT_AUTHORIZED_BY_CALLERS_EXACT_ROOM",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-24-signaling-room-scope.yml",
+    "server/src/cmd_matching.cpp",
+    "server/src/signaling_peer_scope.h",
+    "server/tests/test_signaling_peer_scope.cpp",
+    "docs/ULTIMATE_BATCH_24.md",
+    "tools/ultimate/batch_24_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "server/src/cmd_matching.cpp",
+      "git_blob_sha1": "dd41e1a47db756ee529c5a28d50efb7e276ff75f"
+    },
+    {
+      "path": "server/src/signaling_peer_scope.h",
+      "git_blob_sha1": "1d536675e4c8b85efdb50cd6be814d48e99e1167"
+    },
+    {
+      "path": "server/tests/test_signaling_peer_scope.cpp",
+      "git_blob_sha1": "8fafeb9be55448be7f327a25a83886d07a2baf3d"
+    }
+  ],
+  "test_scenarios": [
+    "5 member Room same-room lookup",
+    "reject other room or absent source",
+    "guest-to-guest",
+    "empty/self source or target",
+    "departed member no longer resolves",
+    "rejoin uses new identity",
+    "prefer complete public STUN endpoint after authorization"
+  ],
+  "safety": {
+    "no_game_assets": true,
+    "no_fornex_writes": true,
+    "no_player_saves": true,
+    "no_public_release": true,
+    "no_native_engine_rebuild": true
+  }
+}
