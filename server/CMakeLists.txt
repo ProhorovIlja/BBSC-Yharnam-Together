@@ -237,6 +237,11 @@ target_link_libraries(shadnet PRIVATE
 )
 
 if(BUILD_TESTING)
+    # Ultimate B41: actual transport-independent server chat admission policy tests.
+    add_executable(test_chat_policy EXCLUDE_FROM_ALL tests/test_chat_policy.cpp)
+    target_include_directories(test_chat_policy PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME chat_policy COMMAND test_chat_policy)
+
     add_executable(test_bloodborne_summon_broker EXCLUDE_FROM_ALL
         tests/test_bloodborne_summon_broker.cpp
         src/bloodborne_summon_broker.cpp
