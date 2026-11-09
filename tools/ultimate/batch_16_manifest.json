@@ -13,6 +13,7 @@
     "bbport/build.sh",
     "docs/ULTIMATE_BATCH_16.md",
     "tools/ultimate/batch_16_manifest.json",
+    "tools/ultimate/test_batch_14_windows_native_resources.py",
     "tools/ultimate/test_batch_16_windows_finalization.py"
   ],
   "pinned_blobs": [
@@ -23,6 +24,10 @@
     {
       "path": "tools/ultimate/test_batch_16_windows_finalization.py",
       "git_blob_sha1": "8e8ddb9c85c3641110e712f03340ae39f10db376"
+    },
+    {
+      "path": "tools/ultimate/test_batch_14_windows_native_resources.py",
+      "git_blob_sha1": "e13e5c66092b895555a833ef91259d134a1deaa8"
     }
   ],
   "real_windows_expected": [
@@ -53,5 +58,6 @@
     "Real 1.09 2/3/5 hunter gameplay, DBNO, saves and graphics tests",
     "B15 12 server suites and five synthetic hunter rig",
     "True independent native Win64 game without running PS4 ELF"
-  ]
+  ],
+  "extra_ci_repair": "B14 three-stage test previously anchored the old direct cp line; B16 moves copy to guarded finalization and test now anchors the unique new finalization start instead."
 }
