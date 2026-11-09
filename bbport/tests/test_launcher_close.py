@@ -228,6 +228,9 @@ class CloseOnPlayTests(unittest.TestCase):
             status=types.SimpleNamespace(configure=lambda **kwargs: None),
             set_running=lambda *args, **kwargs: None, append=lambda text: None, refresh_status=lambda: None,
             coop_watch_line=lambda line: None, coop_game_ended=lambda: None)
+        # Timers are now owned by the Launcher and canceled on Tk teardown.
+        # Keep this minimal stand-in's observable scheduling contract intact.
+        window.after_owned = lambda ms, fn: scheduled.append((ms, fn))
         for line in lines:
             window.output.put(line)
         launcher.Launcher.drain_output(window)
