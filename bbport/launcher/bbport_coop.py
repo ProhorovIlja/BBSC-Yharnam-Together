@@ -1098,6 +1098,63 @@ def prepare(install, settings, say=print):
     return root, note
 
 
+def prepare_offline_game(install, settings):
+    """Make/reuse the vanilla 1.09 update view, WITHOUT generating co-op events or logging in.
+
+    The actual game and update remain read-only. The sibling CUSA03173-mods
+    co-op event overlay is not part of an offline session: run.py receives
+    BB_IGNORE_LEGACY_GAME_MODS=1 from offline_game_environment. Safe user
+    mods from the chosen mods folder may still be layered independently.
+    """
+    install=Path(install)
+    game=find_game_folder(settings.get('game',''))
+    if not game:
+        raise RuntimeError('Choose your Bloodborne game folder before PLAY OFFLINE.')
+    version=game_version(game)
+    update=None
+    if not version or version[1]!=GAME_VERSION:
+        update=(find_game_folder(settings.get('update',''),0) if settings.get('update')
+                else update_folder(game))
+        if not update:
+            raise RuntimeError('PLAY OFFLINE needs the 1.09 update for 1.09 game patches.')
+    root=view_root(install)
+    view=root/'CUSA03173'
+    if (settings.get('prepared')!=prepared_key(settings) or not view_complete(view)
+            or not game_version(view) or game_version(view)[1]!=GAME_VERSION):
+        build_game_view(game,update,view)
+    if not game_version(view) or game_version(view)[1]!=GAME_VERSION:
+        raise RuntimeError('The offline game view is not Bloodborne 1.09.')
+    return root
+
+
+def offline_game_environment(env,install,root):
+    """Isolate a normal offline run from the co-op link and its world scripts.
+
+    The character save folder is intentionally the SAME one as co-op, per the
+    owner's requirement: edits made offline remain in the character online.
+    This is a launch-time restriction, not dynamic cheat enforcement.
+    """
+    install,root=Path(install),Path(root)
+    env=dict(env)
+    for key in ('BB_ONLINE','SHADPS4_BLOODBORNE_SEAMLESS_COOP',
+                'BB_SHADNET_SERVER','BB_SHADNET_WEBAPI','BB_SHADNET_NPID',
+                'BB_SHADNET_PASSWORD','BB_SHADNET_SERVER_KEY',
+                'SHADPS4_BLOODBORNE_PARTY','SHADPS4_BLOODBORNE_PARTY_ROLE',
+                'SHADPS4_BLOODBORNE_HOST_RULES','SHADPS4_P2P_PORT',
+                'SHADPS4_BLOODBORNE_HARDER_ENEMIES',
+                'SHADPS4_BLOODBORNE_NO_PHANTOM_GLOW',
+                'SHADPS4_BLOODBORNE_RE_TRACE','BB_COMMUNITY_SERVER',
+                'BB_ONLINE_UNLOCKED_FPS','BB_ONLINE_FPS_CAP',
+                'SHADPS4_BLOODBORNE_SEND_PACE'):
+        env.pop(key,None)
+    env.update({'BB_DATA_DIR':str(install),
+                'BB_CONFIG':str(install/'bbport.ini'),
+                'BB_USER_DIR':str(install/'user'),
+                'BB_GAME_DIR':str(root/'CUSA03173'),
+                'BB_IGNORE_LEGACY_GAME_MODS':'1'})
+    return env
+
+
 def copy_events(install, root):
     """The co-op event files into the mods folder the port reads beside the game (every start, as
     2 - PLAY did: a newer release brings newer ones)."""
