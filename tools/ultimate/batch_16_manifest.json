@@ -14,6 +14,7 @@
     "docs/ULTIMATE_BATCH_16.md",
     "tools/ultimate/batch_16_manifest.json",
     "tools/ultimate/test_batch_14_windows_native_resources.py",
+    "tools/ultimate/test_batch_14_windows_native_resources.py",
     "tools/ultimate/test_batch_16_windows_finalization.py"
   ],
   "pinned_blobs": [
@@ -59,5 +60,6 @@
     "B15 12 server suites and five synthetic hunter rig",
     "True independent native Win64 game without running PS4 ELF"
   ],
-  "extra_ci_repair": "B14 three-stage test previously anchored the old direct cp line; B16 moves copy to guarded finalization and test now anchors the unique new finalization start instead."
+  "extra_ci_repair": "B14 three-stage test previously anchored the old direct cp line; B16 moves copy to guarded finalization and test now anchors the unique new finalization start instead.",
+  "source_scope_note": "Includes a necessary update to inherited B14 source assertions so new B16 output-finalization diagnostics are tested rather than falsely failing on an old command spelling. Exact six-file B15-to-B16 scope."
 }
