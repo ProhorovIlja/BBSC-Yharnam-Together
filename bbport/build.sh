@@ -74,9 +74,34 @@ MINGW*|MSYS*)
         -DBB_LTO="${BB_LTO:-OFF}" -DBB_PRODUCTION="$production" -DCMAKE_C_COMPILER=clang \
         -DCMAKE_CXX_COMPILER=clang++ "${windows_cmake_flags[@]}" >/dev/null
     echo "GPU library and loader: LTO ${BB_LTO:-OFF}"
-    if ! ninja "${windows_ninja_args[@]}" -C out/gpu bb-probe bb-gpu-capabilities bb-play > out/gpu-build.log 2>&1; then
-        report_bbport_build_failure 'Windows client/GPU/play targets' out/gpu-build.log
-        exit 1
+    # CLANG64 CI has repeatedly stopped silently near the last bbnet/archive/link
+    # work of a 433-task mixed build, while the remaining five jobs linked on a
+    # second Ninja invocation. Separating net, GPU and EXE stages prevents both
+    # heavyweight library build and final links from competing for runner memory.
+    # Opt-in: normal developer builds retain their original single Ninja call.
+    if [[ ${BB_WINDOWS_STAGED_LINK:-0} == 1 ]]; then
+        : > out/gpu-build.log
+        for stage in net gpu final; do
+            case "$stage" in
+                net)   windows_targets=(bbnet) ;;
+                gpu)   windows_targets=(bbgpu) ;;
+                final) windows_targets=(bb-probe bb-gpu-capabilities bb-play) ;;
+            esac
+            echo "WINDOWS_NINJA_STAGE_BEGIN: $stage"
+            if ninja "${windows_ninja_args[@]}" -C out/gpu "${windows_targets[@]}" >> out/gpu-build.log 2>&1; then
+                echo "WINDOWS_NINJA_STAGE_PASS: $stage"
+            else
+                windows_ninja_rc=$?
+                echo "WINDOWS_NINJA_STAGE_FAILED: $stage rc=$windows_ninja_rc" >&2
+                report_bbport_build_failure "Windows $stage stage" out/gpu-build.log
+                exit "$windows_ninja_rc"
+            fi
+        done
+    else
+        if ! ninja "${windows_ninja_args[@]}" -C out/gpu bb-probe bb-gpu-capabilities bb-play > out/gpu-build.log 2>&1; then
+            report_bbport_build_failure 'Windows client/GPU/play targets' out/gpu-build.log
+            exit 1
+        fi
     fi
     cp out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe out/gpu/bb-play.exe out/
     echo "$build_mode" > out/build-mode.txt
