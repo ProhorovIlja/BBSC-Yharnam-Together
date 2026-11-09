@@ -60,8 +60,6 @@ class HostTimeOfDayCoverage(unittest.TestCase):
         self.assertIn("for (const s32 flag : TimeOfDayFlags)", load_alg)
         self.assertIn("static_cast<u32>(flag) / flags_per_block", load_alg)
         test = GTEST.read_text(encoding="utf-8")
-        self.assertIn("A Guest's", test) if False else None
-        self.assertIn("A Guest", test) if False else None
         self.assertIn("team.blocks = {4900};", test)
         self.assertIn("TimeOfDayToFollow(team, 0", test)
 
