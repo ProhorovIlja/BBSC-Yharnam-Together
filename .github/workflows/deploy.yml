@@ -1,7 +1,8 @@
 # The hosted server's images and deployment files (docs/DEPLOY.md). Optional: nothing deploys
-# from here. On a push it builds server/hosting/Dockerfile (shadNet) and Dockerfile.backup and
-# pushes them to GHCR as sha-<commit> and the branch's name; on a pull request it only builds.
-# Every run lints the Helm chart (each region's values) and checks the Terraform.
+# from here. Only main/hosted-server pushes may publish GHCR images.
+# PRs targeting main/hosted-server or manual dispatch build locally (no push).
+# Stacked experimental PRs skip this heavyweight pipeline and keep narrow CI.
+# Release validation still includes Helm and Terraform.
 name: Deploy files
 
 on:
@@ -29,6 +30,9 @@ concurrency:
 
 jobs:
   chart:
+    # Stacked Ultimate Draft PRs run focused CI; this expensive hosted-server
+    # pipeline belongs to release-target PRs, release pushes and manual checks.
+    if: github.event_name != 'pull_request' || github.base_ref == 'main' || github.base_ref == 'hosted-server'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +54,9 @@ jobs:
             --set directory.enabled=true --set shards.linkKey.existingSecret=keys > /dev/null
 
   terraform:
+    # Stacked Ultimate Draft PRs run focused CI; this expensive hosted-server
+    # pipeline belongs to release-target PRs, release pushes and manual checks.
+    if: github.event_name != 'pull_request' || github.base_ref == 'main' || github.base_ref == 'hosted-server'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,6 +72,9 @@ jobs:
           terraform -chdir=root validate
 
   image:
+    # Stacked Ultimate Draft PRs run focused CI; this expensive hosted-server
+    # pipeline belongs to release-target PRs, release pushes and manual checks.
+    if: github.event_name != 'pull_request' || github.base_ref == 'main' || github.base_ref == 'hosted-server'
     runs-on: ubuntu-latest
     needs: [chart, terraform]
     permissions:
@@ -76,7 +86,7 @@ jobs:
         run: git submodule update --init --depth 1 server/externals/protobuf
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/hosted-server') }}
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -93,8 +103,8 @@ jobs:
         with:
           context: .
           file: server/hosting/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/hosted-server') }}
+          load: ${{ github.event_name != 'push' }}
           tags: |
             ${{ steps.names.outputs.shadnet }}:${{ steps.names.outputs.sha }}
             ${{ steps.names.outputs.shadnet }}:${{ steps.names.outputs.branch }}
@@ -108,7 +118,7 @@ jobs:
         with:
           context: server/hosting
           file: server/hosting/Dockerfile.backup
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/hosted-server') }}
           tags: |
             ${{ steps.names.outputs.backup }}:${{ steps.names.outputs.sha }}
             ${{ steps.names.outputs.backup }}:${{ steps.names.outputs.branch }}
