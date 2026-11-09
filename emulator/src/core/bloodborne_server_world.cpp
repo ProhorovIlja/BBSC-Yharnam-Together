@@ -37,6 +37,7 @@
 #include "core/bloodborne_invasion.h"
 #include "core/bloodborne_lamp_points.h"
 #include "core/bloodborne_team.h"
+#include "core/team_world_file.h"
 #include "core/libraries/network/server_link.h"
 #include "core/libraries/np/np_matching2/np_matching2.h"
 
@@ -2597,20 +2598,17 @@ std::string ReadWholeFile(const std::filesystem::path& path) {
     return std::string{std::istreambuf_iterator<char>{file}, {}};
 }
 
-// Written whole beside it, then moved over it: a crash leaves the old file or the new one.
-void WriteWholeFile(const std::filesystem::path& path, const std::string& text) {
-    std::filesystem::path partial = path;
-    partial += ".part";
-    {
-        std::ofstream file{partial, std::ios::binary | std::ios::trunc};
-        file << text;
+// The caller must check whether the personal-world snapshot reached disk.
+// A failed write MUST NOT permit host/team flags to overwrite the guest's own
+// story. The actual file replacement operation is regression-tested on both
+// Windows and Linux, independently of the emulated game.
+bool WriteWholeFile(const std::filesystem::path& path, const std::string& text) {
+    if (TeamWorldFile::WriteWholeFileChecked(path, text)) {
+        return true;
     }
-    std::error_code error;
-    std::filesystem::rename(partial, path, error);
-    if (error) {
-        LOG_ERROR(Debug, "Co-op team world: could not write {}: {}", path.string(),
-                  error.message());
-    }
+    LOG_ERROR(Debug, "Co-op team world: could not safely write personal world file {}",
+              path.string());
+    return false;
 }
 
 struct WorldStore {
@@ -2769,8 +2767,10 @@ void ApplyTeamWorldOnLoad(bool trip) {
             std::error_code error;
             std::filesystem::remove(PersonalWorldFile(slot), error);
             personal_world_due = false;
-        } else {
-            WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(*own));
+        } else if (!WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(*own))) {
+            // Retain the not-yet-restored blocks for another load. This run's
+            // live flags may already be set, but the original snapshot stays.
+            return;
         }
         LOG_INFO(Debug,
                  "Co-op team world: slot {} plays alone: its own world is back in {} "
@@ -2847,7 +2847,12 @@ void ApplyTeamWorldOnLoad(bool trip) {
             own.on.insert(own.on.end(), added.on.begin(), added.on.end());
             std::sort(own.blocks.begin(), own.blocks.end());
             std::sort(own.on.begin(), own.on.end());
-            WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(own));
+            if (!WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(own))) {
+                // Critical: the guest's original flags have NOT been saved.
+                // Never apply the borrowed team world and silently destroy
+                // the only surviving copy of the guest's own progression.
+                return;
+            }
             LOG_INFO(Debug,
                      "Co-op team world: slot {}'s own world kept aside ({} more blocks, {} "
                      "flags on in all)",
