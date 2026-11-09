@@ -1,0 +1,64 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B22-2026-11-09",
+  "parent_pr": 53,
+  "parent_branch": "experiment/ultimate-batch-21-runtime-dll-closure-20261109",
+  "status": "ACTUAL_WINDOWS_TK_AFTER_LIFETIME_FIX_NO_ENGINE_REBUILD",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-22-launcher-lifecycle.yml",
+    "bbport/launcher/bbport_launcher_win.py",
+    "bbport/tests/test_launcher_close.py",
+    "bbport/tests/test_launcher_timer_lifetime.py",
+    "docs/ULTIMATE_BATCH_22.md",
+    "tools/ultimate/batch_22_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/launcher/bbport_launcher_win.py",
+      "git_blob_sha1": "32523c0f7fb5b034a27916711a73baa7e353d1fd"
+    },
+    {
+      "path": "bbport/tests/test_launcher_close.py",
+      "git_blob_sha1": "7a9227c675b2f1ea1751f0c0f8a4ad757e6bf449"
+    },
+    {
+      "path": "bbport/tests/test_launcher_timer_lifetime.py",
+      "git_blob_sha1": "cad06898be0c97ab25ad464d11c6caff51e47022"
+    }
+  ],
+  "source_evidence": {
+    "legacy_windows_smoke": "https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42499250350",
+    "symptom": "Tcl invalid command name ...drain_output or ...back after window teardown",
+    "previous_bug": "Launcher bare after() callbacks not owned or canceled; Motion.close() did not cancel tick",
+    "prior_windows_compiler_success": "https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42602734451"
+  },
+  "behavior": [
+    "all launcher root.after and root.after_idle scheduled through owned IDs",
+    "owner root destroy and explicit close cancel pending Tcl commands",
+    "child-widget Destroy does not tear down parent",
+    "Motion cancels ticker and clears widget closures",
+    "new callbacks fail closed when shutting down",
+    "old game-ready close semantics retained"
+  ],
+  "test_cases": [
+    "real Win2022 Tk: delayed/idle cancellation on direct root destroy",
+    "real Win2022 Tk: child destroy vs whole-root destroy",
+    "real Win2022 Tk: close idempotence and no new timers",
+    "real Win2022 Tk: completed timer registration removed",
+    "real Win2022 Tk: Motion canceled tick",
+    "inherited actual game log close-on-ready and controller/Co-op UI lag tests"
+  ],
+  "safety": {
+    "no_game_assets": true,
+    "no_fornex_writes": true,
+    "no_player_saves": true,
+    "no_public_release": true,
+    "no_native_engine_rebuild": true
+  },
+  "limitations": [
+    "Test of timers and Tcl lifecycle, not a GPU/frametime benchmark",
+    "No full PyInstaller launcher install or real Bloodborne gameplay",
+    "No private Discord screenshots shared",
+    "Independent true no-PS4-ELF PC native port remains separate"
+  ]
+}
