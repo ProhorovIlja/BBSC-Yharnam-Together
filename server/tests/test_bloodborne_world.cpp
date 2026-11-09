@@ -1386,6 +1386,90 @@ int EachMembersLoadReachesTheOthers() {
   return 0;
 }
 
+// B27: loading progress belongs to a *live run*, not to its persisted world.
+// The host's save/world progress and the returning guest's place are separate.
+int ADisconnectedHunterDoesNotLeaveAStaleLoadForLateJoin() {
+  Service service{{}};
+  Game host{1000, "host", 11};
+  Game guest{1001, "guest", 12};
+  qint64 now = 1'000'000;
+  host.Hello(now);
+  guest.Hello(now);
+  Pump(service, {&host, &guest}, now);
+
+  bbcoop::Envelope load;
+  load.mutable_load_progress()->set_stage(bbcoop::LoadProgress::JOINING);
+  load.mutable_load_progress()->set_percent(70);
+  guest.Send(load, now + 10);
+  Pump(service, {&host, &guest}, now + 10);
+  CHECK(host.loads.contains("guest") && host.loads.at("guest").percent() == 70);
+
+  // A transient quiet/lost link is NOT a disconnect: preserve its progress.
+  service.Quiet(guest.endpoint, true, now + 20);
+  Game during_blip{1002, "during", 13};
+  during_blip.Hello(now + 30);
+  Pump(service, {&host, &during_blip}, now + 30);
+  CHECK(during_blip.loads.contains("guest") &&
+        during_blip.loads.at("guest").percent() == 70);
+
+  // A final real link Gone (after the hub's grace) does retire old load.
+  guest.online = false;
+  service.Forget(guest.endpoint);
+  Game late{1003, "late", 14};
+  late.Hello(now + 100);
+  Pump(service, {&host, &during_blip, &late}, now + 100);
+  CHECK(!late.loads.contains("guest"));
+  // A new link and a new run may publish its own (fresh) progress.
+  Game guest_returned{1004, "guest", 22};
+  guest_returned.run = 0x2002;
+  guest_returned.Hello(now + 120);
+  load.mutable_load_progress()->set_stage(bbcoop::LoadProgress::LOADING);
+  load.mutable_load_progress()->set_percent(15);
+  guest_returned.Send(load, now + 120);
+  Pump(service, {&host, &during_blip, &late, &guest_returned}, now + 120);
+  CHECK(late.loads.contains("guest") && late.loads.at("guest").percent() == 15);
+  Game later{1005, "later", 15};
+  later.Hello(now + 140);
+  Pump(service, {&host, &during_blip, &late, &guest_returned, &later}, now + 140);
+  CHECK(later.loads.contains("guest") && later.loads.at("guest").percent() == 15);
+  return 0;
+}
+
+// B27: the Coop stream can restart on the *same* physical endpoint, without
+// a Hub Gone event. Old run's loading status must not be handed to late join.
+int ARestartedCoopStreamCannotReusePreviousRunsLoad() {
+  Service service{{}};
+  Game host{1000, "host", 11};
+  Game guest{1001, "guest", 12};
+  qint64 now = 1'000'000;
+  host.Hello(now);
+  guest.Hello(now);
+  Pump(service, {&host, &guest}, now);
+  bbcoop::Envelope load;
+  load.mutable_load_progress()->set_stage(bbcoop::LoadProgress::JOINING);
+  load.mutable_load_progress()->set_percent(80);
+  guest.Send(load, now + 10);
+  Pump(service, {&host, &guest}, now + 10);
+  CHECK(host.loads.contains("guest") && host.loads.at("guest").percent() == 80);
+
+  // Reused IP:port; a different CoopStream instance, new run and its Hello.
+  Game same_port_new_run{1001, "guest", 23};
+  same_port_new_run.run = 0x3003;
+  same_port_new_run.Hello(now + 20);
+  Pump(service, {&host, &same_port_new_run}, now + 20);
+  Game late{1002, "late", 14};
+  late.Hello(now + 30);
+  Pump(service, {&host, &same_port_new_run, &late}, now + 30);
+  CHECK(!late.loads.contains("guest"));
+
+  // A fresh load report is received and can be shared normally.
+  load.mutable_load_progress()->set_percent(25);
+  same_port_new_run.Send(load, now + 40);
+  Pump(service, {&host, &same_port_new_run, &late}, now + 40);
+  CHECK(late.loads.contains("guest") && late.loads.at("guest").percent() == 25);
+  return 0;
+}
+
 // Phase 8 (one HP path): a game's own hit goes to every other member at once,
 // under its name, and never into the log.
 int AHitReachesTheOthersAtOnce() {
@@ -4664,6 +4748,10 @@ int main() {
        TheHostsSessionReachesItsGuestsToJoin},
       {"AHostsSessionGoesWithItsGame", AHostsSessionGoesWithItsGame},
       {"EachMembersLoadReachesTheOthers", EachMembersLoadReachesTheOthers},
+      {"ADisconnectedHunterDoesNotLeaveAStaleLoadForLateJoin",
+       ADisconnectedHunterDoesNotLeaveAStaleLoadForLateJoin},
+      {"ARestartedCoopStreamCannotReusePreviousRunsLoad",
+       ARestartedCoopStreamCannotReusePreviousRunsLoad},
       {"AFollowersHpIsNeverTheLogs", AFollowersHpIsNeverTheLogs},
       {"AHitReachesTheOthersAtOnce", AHitReachesTheOthersAtOnce},
       {"AnOwnersEnemyPlacesReachTheOthers", AnOwnersEnemyPlacesReachTheOthers},

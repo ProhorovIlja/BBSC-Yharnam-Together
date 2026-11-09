@@ -1837,6 +1837,9 @@ Service::Result Service::Receive(const ServerLink::Endpoint& from, const QByteAr
         result.log.append(QStringLiteral("party world: %1's game started over: waiting for its "
                                          "hello")
                               .arg(QString::fromStdString(Who(member))));
+        // The old load bar belonged to the *previous* game run. Leave the
+        // persisted world, character place, team and encounter state intact.
+        ForgetTransientLoad(member);
         member.party.clear();
         // An invader's game that started over is home: its invasion is over.
         searches.erase(member.key);
@@ -2140,6 +2143,26 @@ void Service::CloseSession(PartyWorld& world, qint64 now_ms, Result& result) {
     EndInvasion(world.name, bbcoop::InvasionEnd::HOST_LEFT, now_ms, result);
 }
 
+void Service::ForgetTransientLoad(const Member& departing) {
+    if (departing.party.isEmpty() || departing.name.empty()) {
+        return;
+    }
+    // A member may already have a second link during port migration. Never
+    // invalidate its current load report when an old endpoint is retired.
+    const bool stillLinked = std::any_of(members.begin(), members.end(), [&](const auto& entry) {
+        const Member& other = entry.second;
+        return &other != &departing && other.party == departing.party &&
+               other.name == departing.name;
+    });
+    if (stillLinked) {
+        return;
+    }
+    const auto world = worlds.find(departing.party);
+    if (world != worlds.end()) {
+        world->second.loads.erase(departing.name);
+    }
+}
+
 Service::Result Service::Forget(const ServerLink::Endpoint& link) {
     Result result;
     searches.erase(link.Key());
@@ -2159,6 +2182,7 @@ Service::Result Service::Forget(const ServerLink::Endpoint& link) {
         }
     }
     if (found != members.end()) {
+        ForgetTransientLoad(found->second);
         std::erase(flush_now, &found->second);
     }
     members.erase(link.Key());

@@ -570,6 +570,10 @@ private:
     // and session go, as when its game leaves) and cut off from the team's games.
     void TakeOutOfTeam(const BloodborneCoop::TeamLobby::Departure& out, qint64 now_ms,
                        Result& result);
+    // A loading bar describes one live game run, not persisted world or team state.
+    // When its Coop stream restarts or its last real link disappears, don't replay
+    // that run's loading progress to a player joining later. Keep world/places.
+    void ForgetTransientLoad(const Member& departing);
     // What goes when a guest leaves its party's world (its game said so, or its team let it go).
     void ForgetMember(PartyWorld& world, const std::string& name, qint64 now_ms, Result& result);
     // Every member an outcome took out of its team (TakeOutOfTeam).

@@ -1,0 +1,97 @@
+name: "Ultimate B27 game reconnect preserves world and retires stale load"
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-27-world-load-reconnect.yml'
+      - 'server/src/bloodborne_world.cpp'
+      - 'server/src/bloodborne_world.h'
+      - 'server/tests/test_bloodborne_world.cpp'
+      - 'docs/ULTIMATE_BATCH_27.md'
+      - 'tools/ultimate/batch_27_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b27-world-load-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-and-world-lifecycle-contract:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-26-link-identity-takeover-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact B26→B27 six-file diff and production/test Git blob SHA pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-26-link-identity-takeover-20261109:refs/remotes/origin/b26
+          git diff --name-only origin/b26 HEAD >/tmp/b27-changed.txt
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_27_manifest.json').read_text())
+          actual=set(Path('/tmp/b27-changed.txt').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==6 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B27-2026-11-09' and m['parent_pr']==58
+          assert all(m['safety'].values())
+          for item in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',item['path']],text=True).strip()
+              assert sha==item['git_blob_sha1'],(item['path'],sha)
+          print('B27_EXACT_SIX_FILE_DELTA_AND_GIT_BLOB_PINS_PASS')
+          PY
+      - name: Check production disconnect, restart and temporary-quiet lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('server/src/bloodborne_world.cpp').read_text()
+          h=Path('server/src/bloodborne_world.h').read_text()
+          t=Path('server/tests/test_bloodborne_world.cpp').read_text()
+          assert 'void ForgetTransientLoad(const Member& departing);' in h
+          helper=s.split('void Service::ForgetTransientLoad(',1)[1].split('Service::Result Service::Forget(',1)[0]
+          assert 'other.party == departing.party' in helper and 'other.name == departing.name' in helper
+          assert helper.index('if (stillLinked)') < helper.index('world->second.loads.erase(departing.name)')
+          restart=s.split('if (member.stream.TakeRestarted()) {',1)[1].split('member.party.clear();',1)[0]
+          assert 'ForgetTransientLoad(member);' in restart
+          forget=s.split('Service::Result Service::Forget(',1)[1].split('Service::Result Service::LinkLost(',1)[0]
+          assert forget.index('ForgetTransientLoad(found->second);') < forget.index('members.erase(link.Key());')
+          quiet=s.split('void Service::Quiet(',1)[1].split('QString Service::PartyOf(',1)[0]
+          assert 'ForgetTransientLoad' not in quiet
+          assert 'ARestartedCoopStreamCannotReusePreviousRunsLoad' in t
+          assert 'ADisconnectedHunterDoesNotLeaveAStaleLoadForLateJoin' in t
+          print('B27_REAL_SERVICE_WORLD_LOAD_CLEAR_ONLY_ON_FINAL_GONE_OR_STREAM_RESTART_PASS')
+          PY
+
+  full-server-world-and-reconnect-regressions:
+    needs: exact-source-and-world-lifecycle-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+      - name: Fetch only the required protobuf submodule
+        run: git submodule update --init --depth=1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Build server once in isolated Docker CI and execute all twelve tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build --build-arg BUILD_JOBS=2 \
+            -f server/hosting/Dockerfile \
+            --target verification-tests \
+            -t bbsc-ultimate-b27-disposable-tests .
+          echo B27_FULL_REAL_WORLD_SERVICE_STREAM_RESTART_AND_TWELVE_SERVER_SUITES_PASS
+      - name: Never contact live Fornex or publish an installer
+        run: echo B27_ISOLATED_DOCKER_TESTS_NO_FORNEX_NO_USER_SAVE_NO_GAME_ASSETS_NO_WINDOWS_CLIENT_NO_RELEASE
