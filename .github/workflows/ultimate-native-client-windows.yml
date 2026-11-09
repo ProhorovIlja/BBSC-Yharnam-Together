@@ -109,13 +109,12 @@ jobs:
           set -euo pipefail
           export BB_PRODUCTION=1
           export BB_LTO=OFF
+          export BB_BUILD_JOBS=2
+          export BB_WINDOWS_NO_DEBUG_SYMBOLS=1
           export CMAKE_BUILD_PARALLEL_LEVEL=2
-          # build.sh invokes Ninja directly; CMAKE_BUILD_PARALLEL_LEVEL does
-          # not constrain that call. Limit its actual parallel C/C++ links
-          # without modifying any production sources or game data.
-          ninja() { command ninja -j 2 "$@"; }
-          export -f ninja
-          bash -c 'type ninja' | grep -q 'function'
+          # The *production* build.sh now passes BB_BUILD_JOBS to the real
+          # Ninja invocation and keeps RelWithDebInfo -O2, omitting -g only
+          # in opt-in CI. This avoids the old exported Bash function shim.
           cd bbport
           mkdir -p out
           # Full CMake + clang build is deliberately bounded to diagnostics only:
@@ -158,7 +157,7 @@ jobs:
               # can distinguish missing final targets from lost error output.
               # Never treat a failed first build as a passing release.
               echo 'GPU_BOUNDED_INCREMENTAL_DIAGNOSTIC_RETRY_JOBS_2'
-              if timeout 180s ninja -C out/gpu -v bb-probe bb-gpu-capabilities bb-play >out/gpu-retry.log 2>&1; then
+              if timeout 180s ninja -j 2 -C out/gpu -v bb-probe bb-gpu-capabilities bb-play >out/gpu-retry.log 2>&1; then
                 echo 'GPU_INCREMENTAL_RETRY_PASSED_BUT_INITIAL_BUILD_FAILED'
               else
                 echo 'GPU_INCREMENTAL_RETRY_NONZERO'
