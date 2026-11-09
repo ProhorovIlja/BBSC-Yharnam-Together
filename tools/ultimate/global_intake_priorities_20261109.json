@@ -49,9 +49,9 @@
       "pr_number": 48,
       "source_url": "https://github.com/CLSAMG22/BBSC/pull/48",
       "mission": "playable",
-      "status": "candidate_diff_review",
-      "evidence": "wait for BBPort loader to stabilize before patching; test described on 1.9.7",
-      "gate": "version-gated loader handshake and patch ordering, no arbitrary sleeps"
+      "status": "candidate_design_review",
+      "evidence": "wait for BBPort loader to stabilize before patching; test described on 1.9.7; source module emulator/mod/bbsc_mod.cpp is absent from the YT 1.4.0 candidate branch; no literal cherry-pick possible",
+      "gate": "version-gated loader handshake and patch ordering, no arbitrary sleeps; first locate corresponding YT loader and prove relevant host runtime initialization overlap"
     },
     {
       "title": "CLS dead guest leave #47",
@@ -59,9 +59,9 @@
       "pr_number": 47,
       "source_url": "https://github.com/CLSAMG22/BBSC/pull/47",
       "mission": "playable",
-      "status": "candidate_diff_review",
-      "evidence": "grey screen for dead guest stranded when session ends",
-      "gate": "dead guest state exit, DBNO, party wipe, reconnect and save integrity"
+      "status": "candidate_design_review",
+      "evidence": "grey screen for dead guest stranded when session ends; CLS TickBbscStrandedGuest and ReleaseBbscLeaveLocks are not present in the YT candidate bloodborne_re.cpp",
+      "gate": "dead guest state exit, DBNO, party wipe, reconnect and save integrity; trace YT session-end and DBNO state machine instead of copying absent CLS functions"
     },
     {
       "title": "CLS boss follow-up reward #46",
@@ -79,9 +79,9 @@
       "pr_number": 13,
       "source_url": "https://github.com/visy/bloodborne_pc_windows_port/pull/13",
       "mission": "playable",
-      "status": "candidate_diff_review",
-      "evidence": "hostile NPC team 27->23 for guests across additional EMEVD events",
-      "gate": "NPC attackable by guest, no host-world event leakage, full game and DLC cases"
+      "status": "candidate_design_review",
+      "evidence": "hostile NPC team 27->23 for guests across additional EMEVD events; visy gpu/shim/party/party_npcfight_rules.h is not present in the YT 1.4.0 tree",
+      "gate": "NPC attackable by guest, no host-world event leakage, full game and DLC cases; map 1.09 EMEVD NPC team corrections onto YT event hook and prove no duplicate override"
     },
     {
       "title": "visy CGNAT #16",
