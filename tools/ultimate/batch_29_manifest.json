@@ -1,0 +1,55 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B29-2026-11-09",
+  "parent_pr": 60,
+  "parent_branch": "experiment/ultimate-batch-28-guest-personal-world-write-gate-20261109",
+  "status": "FAIL_CLOSED_PERSONAL_WORLD_AND_INVADER_HOME_BACKUP_RECOVERY",
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-29-personal-invasion-recovery.yml",
+    "emulator/src/core/bloodborne_server_world.cpp",
+    "emulator/src/core/team_world_file.h",
+    "emulator/tests/bloodborne/test_team_world_file.cpp",
+    "docs/ULTIMATE_BATCH_29.md",
+    "tools/ultimate/batch_29_manifest.json"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "emulator/src/core/bloodborne_server_world.cpp",
+      "git_blob_sha1": "aeba6c8c206b1e6675a777184c436458b7230741"
+    },
+    {
+      "path": "emulator/src/core/team_world_file.h",
+      "git_blob_sha1": "dbc661547808389c7556abd32eef6bb2e313689c"
+    },
+    {
+      "path": "emulator/tests/bloodborne/test_team_world_file.cpp",
+      "git_blob_sha1": "ca26ff422292f64561b2d9851987ed3bbee2deb6"
+    }
+  ],
+  "native_tests": [
+    "real production file helpers compiled+executed on Windows MSVC and Linux GCC",
+    "verified existing and missing backup are different states",
+    "empty but existing snapshot must not be treated as no saved data",
+    "failed delete of nonempty directory must return false and preserve original bytes",
+    "successful removal and repeat removal idempotent",
+    "production SaveInvasionHome return false on unchecked/failed write",
+    "production RestoreInvasionHome refuses unreadable/invalid saved file and never deletes it",
+    "return to solo requires confirmed removal of personal snapshot to clear pending",
+    "new NG+ load refuses to forget failed old personal snapshot removal",
+    "source gate for no borrowed team flags if existing original snapshot unreadable",
+    "inherited B27 Docker 12-suite and B28 Windows/Linux gates (separate completed CI)"
+  ],
+  "safety": {
+    "no_fornex_writes": true,
+    "no_private_assets": true,
+    "no_player_save_access": true,
+    "no_public_release": true,
+    "no_engine_or_server_full_rebuild": true
+  },
+  "limits": [
+    "portable file-operation unit tests and production source guards; no real Bloodborne live save test",
+    "file rename has no power-loss durability guarantee without fsync",
+    "a corrupted personal backup is retained for recovery and may require offline manual restoration",
+    "not validated five-player multiplayer, NAT, GPU or full Windows client linkage"
+  ]
+}

@@ -2693,8 +2693,12 @@ void ApplyTeamWorldOnLoad(bool trip) {
         if (!store || slot < 0) {
             return; // the next call (the flags readable, the slot known)
         }
-        std::error_code error;
-        std::filesystem::remove(PersonalWorldFile(slot), error);
+        // On NG+ an old backup must not be restored over this new playthrough.
+        // A failed delete keeps the pending reset for the next safe load.
+        if (!TeamWorldFile::RemoveWorldFileChecked(PersonalWorldFile(slot))) {
+            LOG_WARNING(Debug, "Co-op team world: slot {} NG+ waits: could not retire old personal snapshot", slot);
+            return;
+        }
         std::scoped_lock lock{team_mutex};
         next_playthrough_due = false;
         personal_world_due = false;
@@ -2737,18 +2741,35 @@ void ApplyTeamWorldOnLoad(bool trip) {
     if (personal && slot >= 0) {
         // Alone again: this save's own world back where a team's was in it, block by block as
         // the loads bring them; the file keeps the blocks still to come.
-        const std::string text = ReadWholeFile(PersonalWorldFile(slot));
+        const auto path = PersonalWorldFile(slot);
+        std::error_code status_error;
+        const bool backup_exists = std::filesystem::exists(path, status_error);
+        if (status_error) {
+            LOG_WARNING(Debug, "Co-op team world: slot {} restore waits: cannot inspect personal snapshot", slot);
+            return;
+        }
+        const auto text = backup_exists ? TeamWorldFile::ReadExistingFileChecked(path)
+                                        : std::optional<std::string>{};
         std::scoped_lock lock{team_mutex};
-        if (text.empty()) {
+        if (!backup_exists) {
+            // Only a verified missing file means there is no earlier team
+            // world to undo. An unreadable or corrupt file is NOT absent.
             personal_world_due = false;
             return;
         }
-        auto own = ParseWorldFlags(text);
+        if (!text || text->empty()) {
+            LOG_WARNING(Debug, "Co-op team world: slot {} restore waits: personal snapshot is unreadable or empty", slot);
+            return;
+        }
+        auto own = ParseWorldFlags(*text);
         std::optional<WorldStore> store = ReadWorldStore();
         if (!own || !store) {
             LOG_WARNING(Debug, "Co-op team world: slot {}'s own world {}", slot,
                         own ? "waits (the flags are not readable now)" : "does not read: left");
-            personal_world_due = own.has_value();
+            // A malformed but still-present snapshot is not "nothing to
+            // restore". Keep retrying and preserve the original file for
+            // recovery instead of silently accepting borrowed host flags.
+            personal_world_due = true;
             return;
         }
         std::erase_if(store->blocks, [&](const FlagBlockBits& block) {
@@ -2764,10 +2785,14 @@ void ApplyTeamWorldOnLoad(bool trip) {
             std::erase_if(own->on, [&](s32 flag) { return u32(flag) / per_block == block.id; });
         }
         if (own->blocks.empty()) {
-            std::error_code error;
-            std::filesystem::remove(PersonalWorldFile(slot), error);
+            if (!TeamWorldFile::RemoveWorldFileChecked(path)) {
+                // The game's flags were restored, but a stale backup could
+                // overwrite a later run. Keep the restore pending and retry.
+                LOG_WARNING(Debug, "Co-op team world: slot {} restore waits: could not retire personal snapshot", slot);
+                return;
+            }
             personal_world_due = false;
-        } else if (!WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(*own))) {
+        } else if (!WriteWholeFile(path, FormatWorldFlags(*own))) {
             // Retain the not-yet-restored blocks for another load. This run's
             // live flags may already be set, but the original snapshot stays.
             return;
@@ -2833,8 +2858,25 @@ void ApplyTeamWorldOnLoad(bool trip) {
     // This save's own world aside first, block by block as the loads bring them: a block the file
     // has already (a save that held a team's before) keeps what the file says.
     {
-        WorldFlags own =
-            ParseWorldFlags(ReadWholeFile(PersonalWorldFile(slot))).value_or(WorldFlags{});
+        // Do not overwrite an unreadable/corrupt existing original-world
+        // backup with flags already borrowed from the host. Fail closed.
+        const auto personal_path = PersonalWorldFile(slot);
+        std::error_code status_error;
+        const bool backup_exists = std::filesystem::exists(personal_path, status_error);
+        if (status_error) {
+            LOG_WARNING(Debug, "Co-op team world: slot {} cannot inspect personal backup", slot);
+            return;
+        }
+        const auto old_text = backup_exists
+                                  ? TeamWorldFile::ReadExistingFileChecked(personal_path)
+                                  : std::optional<std::string>{};
+        const auto old_world = old_text ? ParseWorldFlags(*old_text)
+                                        : std::optional<WorldFlags>{};
+        if (backup_exists && !old_world) {
+            LOG_WARNING(Debug, "Co-op team world: slot {} blocks host world: personal backup cannot be read or parsed", slot);
+            return;
+        }
+        WorldFlags own = old_world.value_or(WorldFlags{});
         std::vector<FlagBlockBits> new_blocks;
         for (const FlagBlockBits& block : store->blocks) {
             if (!std::binary_search(own.blocks.begin(), own.blocks.end(), block.id)) {
@@ -2847,7 +2889,7 @@ void ApplyTeamWorldOnLoad(bool trip) {
             own.on.insert(own.on.end(), added.on.begin(), added.on.end());
             std::sort(own.blocks.begin(), own.blocks.end());
             std::sort(own.on.begin(), own.on.end());
-            if (!WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(own))) {
+            if (!WriteWholeFile(personal_path, FormatWorldFlags(own))) {
                 // Critical: the guest's original flags have NOT been saved.
                 // Never apply the borrowed team world and silently destroy
                 // the only surviving copy of the guest's own progression.
@@ -3336,7 +3378,19 @@ bool SaveInvasionHome() {
     }
     const std::filesystem::path path = InvasionHomeFile(slot);
     std::error_code error;
-    if (std::filesystem::exists(path, error)) {
+    const bool already_saved = std::filesystem::exists(path, error);
+    if (error) {
+        LOG_WARNING(Debug, "Co-op invasion: slot {} cannot inspect original-world backup", slot);
+        return false;
+    }
+    if (already_saved) {
+        // A leftover, corrupted or unreadable file is not proof that this
+        // character can safely visit another hunter's world.
+        const auto text = TeamWorldFile::ReadExistingFileChecked(path);
+        if (!text || !ParseInvasionHome(*text)) {
+            LOG_WARNING(Debug, "Co-op invasion: slot {} cannot verify original-world backup: trip refused", slot);
+            return false;
+        }
         LOG_INFO(Debug, "Co-op invasion: slot {}'s own world is kept aside already", slot);
         return true;
     }
@@ -3346,7 +3400,11 @@ bool SaveInvasionHome() {
     }
     const InvasionHome home{ReadValue<s32>(global, 0x1528),
                             CaptureWorldFlags(store->store.flags_per_block, store->blocks, true)};
-    WriteWholeFile(path, FormatInvasionHome(home));
+    if (!WriteWholeFile(path, FormatInvasionHome(home))) {
+        // Never travel if the original world and respawn location did not
+        // reach the per-character file. TickInvasion retries after recovery.
+        return false;
+    }
     LOG_INFO(Debug,
              "Co-op invasion: slot {}'s own world kept aside for the visit (respawn {}, {} "
              "flags on in {} blocks)",
@@ -3362,16 +3420,22 @@ bool RestoreInvasionHome(bool respawn) {
         return false;
     }
     const std::filesystem::path path = InvasionHomeFile(slot);
-    const std::string text = ReadWholeFile(path);
-    if (text.empty()) {
+    std::error_code status_error;
+    const bool backup_exists = std::filesystem::exists(path, status_error);
+    if (status_error) {
+        LOG_WARNING(Debug, "Co-op invasion: slot {} cannot inspect the original-world file", slot);
+        return false;
+    }
+    if (!backup_exists) {
         return true;
     }
-    std::error_code error;
-    const std::optional<InvasionHome> home = ParseInvasionHome(text);
+    const auto text = TeamWorldFile::ReadExistingFileChecked(path);
+    const auto home = text ? ParseInvasionHome(*text) : std::optional<InvasionHome>{};
     if (!home) {
-        LOG_WARNING(Debug, "Co-op invasion: slot {}'s kept world does not read: left", slot);
-        std::filesystem::remove(path, error);
-        return true;
+        // A malformed/unreadable backup may be the ONLY remaining copy of
+        // this hunter's original world. Do not delete it or claim restoration.
+        LOG_WARNING(Debug, "Co-op invasion: slot {}'s original-world backup is unreadable: kept for recovery", slot);
+        return false;
     }
     const std::optional<WorldStore> store = ReadWorldStore();
     const u64 global = GetGlobalState();
@@ -3387,7 +3451,12 @@ bool RestoreInvasionHome(bool respawn) {
     if (respawn) {
         WriteValue(global, 0x1528, home->respawn);
     }
-    std::filesystem::remove(path, error);
+    if (!TeamWorldFile::RemoveWorldFileChecked(path)) {
+        // Flags were applied, but this file must not be replayed after a
+        // future invasion or NG+. Retain it and retry retiring it safely.
+        LOG_WARNING(Debug, "Co-op invasion: slot {} restored flags but cannot retire old backup", slot);
+        return false;
+    }
     LOG_INFO(Debug, "Co-op invasion: slot {}'s own world is back ({} flags changed, respawn {})",
              slot, changes.size(), home->respawn);
     return true;
@@ -3598,8 +3667,10 @@ void TickInvasion() {
     if (phase == InvaderTrip::Phase::None) {
         // Over before it left home (a refusal, nothing found, an end during the notice or its
         // trip there, its death on the way): its own world was not touched but by the lamp trip.
-        if (home_kept) {
-            RestoreInvasionHome(true);
+        if (home_kept && !RestoreInvasionHome(true)) {
+            // Before the visit ended, an unreadable/undeletable backup must
+            // stay eligible for retry instead of losing the only home copy.
+            return;
         }
         if (tell) {
             SendInvadeRequest(true);

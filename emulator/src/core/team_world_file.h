@@ -9,7 +9,10 @@
 // claim an OS crash-durability guarantee without a directory fsync.
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <system_error>
 
@@ -44,6 +47,37 @@ inline bool WriteWholeFileChecked(const std::filesystem::path& dest, std::string
         return false;
     }
     return true;
+}
+
+// Missing/unreadable originals cannot be treated as an empty, valid snapshot.
+// Callers distinguish *verified absent* with filesystem::exists(path, error)
+// before calling this function. A present but broken backup is not expendable.
+inline std::optional<std::string> ReadExistingFileChecked(const std::filesystem::path& path) {
+    std::ifstream file{path, std::ios::binary};
+    if (!file.is_open()) {
+        return std::nullopt;
+    }
+    std::string bytes{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
+    if (file.bad()) {
+        return std::nullopt;
+    }
+    return bytes;
+}
+
+// A restore is only complete when its temporary private-world file has
+// actually been retired. A failed delete must leave it available to retry.
+// Already-absent files are an idempotent success.
+inline bool RemoveWorldFileChecked(const std::filesystem::path& path) {
+    std::error_code error;
+    const bool removed = std::filesystem::remove(path, error);
+    if (error) {
+        return false;
+    }
+    if (removed) {
+        return true;
+    }
+    const bool still_exists = std::filesystem::exists(path, error);
+    return !error && !still_exists;
 }
 
 } // namespace BloodborneCoop::TeamWorldFile

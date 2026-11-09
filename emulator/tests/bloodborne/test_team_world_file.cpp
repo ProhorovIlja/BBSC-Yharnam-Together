@@ -12,6 +12,8 @@
 
 namespace fs = std::filesystem;
 using BloodborneCoop::TeamWorldFile::WriteWholeFileChecked;
+using BloodborneCoop::TeamWorldFile::ReadExistingFileChecked;
+using BloodborneCoop::TeamWorldFile::RemoveWorldFileChecked;
 
 #define CHECK(condition) do { if (!(condition)) { \
     std::cerr << "B28_CHECK_FAILED line " << __LINE__ << ": " #condition << '\n'; \
@@ -32,6 +34,8 @@ int main() {
     const std::string first("guest-world\0own-flags", 21);
     CHECK(WriteWholeFileChecked(personal, first));
     CHECK(Read(personal) == first);
+    CHECK(ReadExistingFileChecked(personal).has_value() &&
+          *ReadExistingFileChecked(personal) == first);
     CHECK(!fs::exists(fs::path(personal.string() + ".part")));
 
     // Updating a real existing slot must replace it without a torn file,
@@ -45,6 +49,8 @@ int main() {
     const fs::path missing = root / "does-not-exist" / "world";
     CHECK(!WriteWholeFileChecked(missing, "unsafe"));
     CHECK(!fs::exists(missing));
+    CHECK(!ReadExistingFileChecked(missing).has_value());
+    CHECK(RemoveWorldFileChecked(missing)); // missing is idempotent
 
     // An unwriteable/invalid staging path must NOT destroy the current
     // snapshot or allow the caller to switch to the borrowed team's state.
@@ -56,11 +62,38 @@ int main() {
     }
     CHECK(!applied_team_flags);
     CHECK(Read(personal) == next);
+    CHECK(*ReadExistingFileChecked(personal) == next);
     fs::remove(partial);
 
     // A retry after the obstruction goes away must work for the same slot.
     CHECK(WriteWholeFileChecked(personal, "safe-on-retry"));
     CHECK(Read(personal) == "safe-on-retry");
+    CHECK(*ReadExistingFileChecked(personal) == "safe-on-retry");
+
+    // A present but empty/corrupt backup is NOT a missing file. Production
+    // has to parse it before allowing another guest/invader world switch.
+    const fs::path empty = root / "invasion_home_empty";
+    CHECK(WriteWholeFileChecked(empty, ""));
+    const auto empty_content = ReadExistingFileChecked(empty);
+    CHECK(empty_content && empty_content->empty());
+    CHECK(fs::exists(empty));
+
+    // Refuse to claim restoration is complete if an existing path cannot be
+    // retired (e.g. nonempty directory from damaged user state).
+    const fs::path blocked_delete = root / "invasion_home_blocked";
+    fs::create_directory(blocked_delete);
+    { std::ofstream marker{blocked_delete / "original-flags"}; marker << "preserve"; }
+    CHECK(!RemoveWorldFileChecked(blocked_delete));
+    CHECK(fs::exists(blocked_delete / "original-flags"));
+    CHECK(Read(blocked_delete / "original-flags") == "preserve");
+    fs::remove_all(blocked_delete);
+
+    // A completed restore must really remove its backup, and can safely be
+    // retried after the file already disappeared.
+    CHECK(RemoveWorldFileChecked(personal));
+    CHECK(!fs::exists(personal));
+    CHECK(RemoveWorldFileChecked(personal));
+    CHECK(RemoveWorldFileChecked(empty));
 
     fs::remove_all(root);
     std::cout << "B28_REAL_PRODUCTION_PERSONAL_WORLD_FILE_WRITE_GATE_PASS\n";
