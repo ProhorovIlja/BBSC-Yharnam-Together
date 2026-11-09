@@ -1,0 +1,115 @@
+name: Ultimate B12 member-specific hot-join slot guard (source fixtures only)
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_party.cpp'
+      - 'emulator/src/core/bloodborne_boards.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_member_data.cpp'
+      - 'tools/re/tests/test_member_data_slot_guard.py'
+      - 'tools/ultimate/batch_12_manifest.json'
+      - 'docs/ULTIMATE_BATCH_12.md'
+      - '.github/workflows/ultimate-batch-12-member-data-slot-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b12-join-slots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-boundary-and-pins:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Check exact B11-to-B12 eight-file source/test-only delta
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-11-global-source-intake-20261109:refs/remotes/origin/b11
+          git diff --name-only origin/b11 HEAD > /tmp/b12-paths.txt
+          cat /tmp/b12-paths.txt
+          if grep -vE '^(emulator/src/core/bloodborne_party\.h|emulator/src/core/bloodborne_party\.cpp|emulator/src/core/bloodborne_boards\.cpp|emulator/tests/bloodborne/test_bloodborne_member_data\.cpp|tools/re/tests/test_member_data_slot_guard\.py|tools/ultimate/batch_12_manifest\.json|docs/ULTIMATE_BATCH_12\.md|\.github/workflows/ultimate-batch-12-member-data-slot-guard\.yml)$' /tmp/b12-paths.txt; then
+            echo 'Unexpected server, private save, game assets, launcher or deployment change' >&2
+            exit 1
+          fi
+          test "$(wc -l < /tmp/b12-paths.txt)" -eq 8
+      - name: Validate compiled source identities and no deployment policy
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          m=json.loads(Path('tools/ultimate/batch_12_manifest.json').read_text())
+          assert m['batch_id']=='B12-2026-11-09' and m['parent_pr']==43
+          assert all(m[k] for k in ('no_deploy','no_game_assets','no_live_saves','no_full_build'))
+          assert len(m['changed_paths'])==8
+          for row in m['sources']+m['tests']:
+              data=Path(row['path']).read_bytes()
+              sha=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              assert sha==row['blob_sha1'], f'{row["path"]}: {sha} != {row["blob_sha1"]}'
+          print('B12_ACTUAL_PRODUCTION_CPP_GIT_BLOBS_VERIFIED')
+          PY
+
+  native-linux-member-recovery:
+    needs: source-boundary-and-pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile actual C++ hot join guard and state machine from production source
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_member_data_slot_guard.py' -v
+          echo 'B12_LINUX_PRODUCTION_MEMBER_SLOT_GUARD_PASS'
+      - name: Re-run inherited state, world and build source regressions
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_metadata_atomic_replace.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_order.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_retry.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_progress_slot_baselines.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_team_world_lamps_regression.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_01.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_02.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_10_build_failure.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_global_intake_20261109.py' -v
+          echo 'B01_TO_B11_INHERITED_REGRESSIONS_PASS'
+
+  native-windows-member-recovery:
+    needs: source-boundary-and-pins
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Prevent checkout line ending rewrites
+        shell: pwsh
+        run: git config --global core.autocrlf input
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          cache: true
+          install: >-
+            mingw-w64-clang-x86_64-toolchain
+            mingw-w64-clang-x86_64-python
+      - name: Compile exact production C++ guest slot guard under native Windows ABI
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tools/re/tests -p 'test_member_data_slot_guard.py' -v
+          echo 'B12_WINDOWS_PRODUCTION_MEMBER_SLOT_GUARD_PASS_NO_GAME'
