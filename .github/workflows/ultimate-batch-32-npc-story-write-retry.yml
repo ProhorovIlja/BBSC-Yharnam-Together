@@ -10,6 +10,7 @@ on:
       - 'emulator/src/core/bloodborne_team.h'
       - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
       - 'tools/re/tests/test_npc_story_write_retry.py'
+      - 'tools/re/tests/test_npc_story_block_coverage.py'
       - 'tools/ultimate/batch_32_manifest.json'
   workflow_dispatch:
 
@@ -42,13 +43,13 @@ jobs:
           m=json.loads(Path('tools/ultimate/batch_32_manifest.json').read_text())
           expected=set(m['changed_paths'])
           actual=set(Path('/tmp/b32-changed.txt').read_text().splitlines())
-          assert len(expected)==8 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
+          assert len(expected)==9 and expected==actual,(sorted(actual-expected),sorted(expected-actual))
           assert m['batch_id']=='B32-2026-11-09' and m['parent_pr']==65
           assert all(m['safety'].values())
           for pin in m['pinned_blobs']:
               sha=subprocess.check_output(['git','hash-object',pin['path']],text=True).strip()
               assert sha==pin['git_blob_sha1'],(pin['path'],sha)
-          print('B32_EXACT_EIGHT_FILES_REAL_PRODUCTION_SHA_PASS')
+          print('B32_EXACT_NINE_FILES_REAL_PRODUCTION_SHA_PASS')
           PY
       - name: Confirm native-game write is read back and failed NPC flag is retried
         shell: bash
