@@ -1,0 +1,80 @@
+name: "Ultimate B18 bounded signup quota history (real Qt6 C++ source)"
+
+on:
+  pull_request:
+    paths:
+      - 'server/src/admission.cpp'
+      - 'server/src/admission.h'
+      - 'server/tests/test_admission.cpp'
+      - 'docs/ULTIMATE_BATCH_18.md'
+      - 'tools/ultimate/batch_18_manifest.json'
+      - '.github/workflows/ultimate-batch-18-account-memory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: b18-account-memory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-server-admission:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-17-admission-hello-budget-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Pin exact B17-to-B18 six-file boundary and source identities
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-17-admission-hello-budget-20261109:refs/remotes/origin/b17
+          git diff --name-only origin/b17 HEAD > /tmp/b18-paths.txt
+          cat /tmp/b18-paths.txt
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          m=json.loads(Path("tools/ultimate/batch_18_manifest.json").read_text())
+          actual=set(Path("/tmp/b18-paths.txt").read_text().splitlines())
+          expected=set(m["changed_paths"])
+          assert m["batch_id"]=="B18-2026-11-09" and m["parent_pr"]==49
+          assert len(expected)==6 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert all(m["safety"].values())
+          for item in m["pinned_blobs"]:
+              data=Path(item["path"]).read_bytes()
+              sha=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
+              assert sha==item["git_blob_sha1"],(item["path"],sha,item["git_blob_sha1"])
+          print("B18_EXACT_SIX_FILE_REAL_SERVER_CPP_PIN_PASS")
+          PY
+      - name: Install Qt6 development packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ pkg-config qt6-base-dev
+      - name: Compile production quota/hello code and run >100000 IP scenarios
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -fPIC -pthread -Iserver/src \
+            server/tests/test_admission.cpp server/src/admission.cpp \
+            $(pkg-config --cflags --libs Qt6Core Qt6Network) -o /tmp/b18_test_admission
+          timeout 60s /tmp/b18_test_admission
+          echo 'B18_REAL_QT6_100K_ACCOUNT_QUOTA_PASS'
+      - name: Compile and run original encrypted link and watchdog fixtures
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src -Iserver \
+            -DBLOODBORNE_SERVER_LINK_CONTRACTS="\"$PWD/server/tests/contracts/server_link_frames.txt\"" \
+            server/tests/test_server_link.cpp server/src/server_link.cpp \
+            server/coop/link_crypto.cpp \
+            $(pkg-config --cflags --libs Qt6Core Qt6Network) -o /tmp/b18_link
+          timeout 30s /tmp/b18_link
+          g++ -std=c++20 -O2 -fPIC -pthread -Iserver/src \
+            server/tests/test_watchdog.cpp server/src/watchdog.cpp \
+            $(pkg-config --cflags --libs Qt6Core) -o /tmp/b18_watchdog
+          timeout 30s /tmp/b18_watchdog
+          echo 'B18_INHERITED_LINK_AND_WATCHDOG_PASS'
+      - name: No Fornex writes, secrets, game data, publishing or uploads
+        run: echo 'B18_NO_DEPLOYMENT_NO_PRIVATE_SAVES_NO_PUBLIC_CLIENT_NO_ENGINE_REBUILD'
