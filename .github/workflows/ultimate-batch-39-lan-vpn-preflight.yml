@@ -1,0 +1,101 @@
+name: "Ultimate B39 scoped LAN VPN Party adapter preflight source and tests"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-39-lan-vpn-preflight.yml'
+      - 'bbport/launcher/bbport_party_network.py'
+      - 'bbport/tests/test_party_network_preflight.py'
+      - 'docs/ULTIMATE_BATCH_39.md'
+      - 'tools/ultimate/batch_39_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b39-lan-party-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-and-safety:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-38-multi-global-server-profiles-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify pinned B38-to-B39 five-file diff and two immutable source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-38-multi-global-server-profiles-20261109:refs/remotes/origin/b38
+          git diff --name-only origin/b38 HEAD >/tmp/b39-diff
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_39_manifest.json').read_text())
+          actual=set(Path('/tmp/b39-diff').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==5 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['parent_pr']==90 and m['batch_id']=='B39-2026-11-09'
+          assert all(m['safety'].values())
+          for item in m['pinned_blobs']:
+              actual_sha=subprocess.check_output(['git','hash-object',item['path']],text=True).strip()
+              assert actual_sha==item['git_blob_sha1'],(item['path'],actual_sha)
+          print('B39_FIVE_FILE_DELTA_AND_TWO_SHA_PINS_PASS')
+          PY
+      - name: Guard no fabricated session or broad LAN scan from the preflight module
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('bbport/launcher/bbport_party_network.py').read_text()
+          assert 'Get-NetAdapter' in src and 'Get-NetIPAddress' in src
+          assert 'TAILNET' in src and 'HOME_LAN' in src
+          assert 'net.subnet_of(home)' in src
+          assert 'Select exactly one connected LAN/VPN adapter.' in src
+          assert 'socket.socket(' not in src and 'socketserver' not in src
+          assert 'shell=True' not in src
+          assert 'BB_SHADNET_SERVER' not in src
+          print('B39_PRE_FLIGHT_ONLY_SCOPED_NIC_NO_LISTENER_OR_LOGIN_PASS')
+          PY
+
+  production-party-nic-tests-linux:
+    needs: exact-source-and-safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run real standalone LAN/VPN source tests and B38 profile regression
+        shell: bash
+        run: |
+          python -m unittest discover -s bbport/tests -p 'test_party_network_preflight.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_global_server_profiles.py' -v
+
+  production-party-nic-tests-windows:
+    needs: exact-source-and-safety
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run real standalone LAN/VPN source tests and B38 profile regression
+        shell: bash
+        run: |
+          python -m unittest discover -s bbport/tests -p 'test_party_network_preflight.py' -v
+          python -m unittest discover -s bbport/tests -p 'test_global_server_profiles.py' -v
+      - name: Source-only preflight; no native game or server run
+        shell: bash
+        run: echo B39_SOURCE_ONLY_NOT_LIVE_PARTY_NO_GAME_BINARY_NO_FORNEX
