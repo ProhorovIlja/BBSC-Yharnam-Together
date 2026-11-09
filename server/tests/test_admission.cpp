@@ -97,6 +97,62 @@ int LinksAndAccountsAnAddress() {
   return 0;
 }
 
+// A quota inquiry for a nonexistent account must not allocate a permanent
+// per-IP entry. When genuinely created accounts occupy all bounded slots,
+// preserve the existing per-IP quota and reclaim only expired one-hour histories.
+int AccountProbeFloodCannotGrowSignupTableOrResetQuota() {
+  Limits limits;
+  limits.new_accounts_per_hour = 1;
+  Guard guard{limits};
+  constexpr qint64 Now = 10'000;
+  constexpr quint32 First = 0x60000000u;
+  // Fake/abandoned sign-ins have made no accounts and must reserve no slots.
+  for (quint32 n = 0; n < 100'250; ++n) {
+    CHECK(guard.MayMakeAccount(First + n, Now));
+  }
+  // Real accounts now fill exactly 100,000 tracked source addresses.
+  for (quint32 n = 0; n < 100'000; ++n) {
+    CHECK(guard.MayMakeAccount(First + n, Now));
+    guard.Made(First + n, Now);
+  }
+  CHECK(!guard.MayMakeAccount(0x70000000u, Now));
+  CHECK(!guard.MayMakeAccount(First, Now));
+  CHECK(guard.Count().accounts_refused == 2);
+  // The same IP's recent account may never be reset by a new-IP flood.
+  CHECK(!guard.MayMakeAccount(First + 999, Now + 10'000));
+  // On expiry all 100,000 genuinely old account records are evictable.
+  const qint64 Later = Now + 3'600'001;
+  CHECK(guard.MayMakeAccount(0x70000000u, Later));
+  guard.Made(0x70000000u, Later);
+  CHECK(!guard.MayMakeAccount(0x70000000u, Later));
+  CHECK(guard.MayMakeAccount(First, Later));
+  return 0;
+}
+
+// Unsuccessful account creation (e.g. wrong credentials or a failed shard
+// claim) gives its reserved quota back and should not hold an empty IP slot.
+int UnmadeSignupReservationDoesNotLeakAnAddress() {
+  Limits limits;
+  limits.new_accounts_per_hour = 1;
+  Guard guard{limits};
+  constexpr qint64 Now = 500;
+  constexpr quint32 First = 0x71000000u;
+  for (quint32 n = 0; n < 99'999; ++n) {
+    CHECK(guard.MayMakeAccount(First + n, Now));
+    guard.Made(First + n, Now);
+  }
+  constexpr quint32 Pending = 0x72000000u;
+  CHECK(guard.MayMakeAccount(Pending, Now));
+  guard.Made(Pending, Now);
+  CHECK(!guard.MayMakeAccount(0x73000000u, Now));
+  guard.Unmade(Pending);
+  CHECK(guard.MayMakeAccount(0x73000000u, Now));
+  guard.Made(0x73000000u, Now);
+  CHECK(!guard.MayMakeAccount(0x73000000u, Now));
+  CHECK(!guard.MayMakeAccount(First, Now));
+  return 0;
+}
+
 int AFloodingLinkIsDroppedAndReportedNeverBanned() {
   Limits limits;
   limits.datagrams_per_second = 100;
@@ -256,6 +312,8 @@ int main() {
   failed |= HellosFromOneAddressAreLimited();
   failed |= HelloFloodNeverResetsActiveBucketsOrGrowsUnbounded();
   failed |= LinksAndAccountsAnAddress();
+  failed |= AccountProbeFloodCannotGrowSignupTableOrResetQuota();
+  failed |= UnmadeSignupReservationDoesNotLeakAnAddress();
   failed |= AFloodingLinkIsDroppedAndReportedNeverBanned();
   failed |= ANoisyPeerDoesNotBanItsNatNeighbour();
   failed |= ABigLinkWithinItsRateIsFine();
