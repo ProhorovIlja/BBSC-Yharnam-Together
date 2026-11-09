@@ -19,7 +19,7 @@
     },
     {
       "path": "bbport/tests/test_launcher_close.py",
-      "git_blob_sha1": "7a9227c675b2f1ea1751f0c0f8a4ad757e6bf449"
+      "git_blob_sha1": "421ffad067be433de637fc2b1671757bab3ce88a"
     },
     {
       "path": "bbport/tests/test_launcher_timer_lifetime.py",
@@ -46,7 +46,8 @@
     "real Win2022 Tk: close idempotence and no new timers",
     "real Win2022 Tk: completed timer registration removed",
     "real Win2022 Tk: Motion canceled tick",
-    "inherited actual game log close-on-ready and controller/Co-op UI lag tests"
+    "inherited actual game log close-on-ready and controller/Co-op UI lag tests",
+    "inherited game stdout fixtures explicitly mock only the unrelated Vulkan overlay diagnostic prefix"
   ],
   "safety": {
     "no_game_assets": true,
