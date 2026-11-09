@@ -18,7 +18,7 @@ The existing B04/B05 deferred **items** already use a character slot and replace
 
 ## Tests
 
-Five new engine GTest cases in `test_bloodborne_party.cpp`: switching two players, replacing a character in the same slot, invalid owner/no amount, 300-ms pacing, and repeated-event capacity bound. The dedicated `tools/re/tests/test_encounter_insight_owner.py` extracts the exact `EncounterInsightPayout` C++ class directly from the real header, compiles and runs it with C++20 **on Linux and native Windows CLANG64**, and ensures the real travel call site uses the owner guard rather than the old `static points_due`. It also checks that the new real-engine GTest cases exist. A B13-only CI workflow pins actual production Git blobs, verifies the **eight-file** B12-to-B13 diff and runs inherited B01–B12 source regressions, not a redundant full game build.
+Five new engine GTest cases in `test_bloodborne_party.cpp`: switching two players, replacing a character in the same slot, invalid owner/no amount, 300-ms pacing, and repeated-event capacity bound. The dedicated `tools/re/tests/test_encounter_insight_owner.py` extracts the exact `EncounterInsightPayout` C++ class directly from the real header, compiles and runs it with C++20 **on Linux and native Windows CLANG64**, and ensures the real travel call site uses the owner guard rather than the old `static points_due`. It also checks that the new real-engine GTest cases exist. A B13-only CI workflow pins actual production Git blobs, verifies the **nine-file** B12-to-B13 diff and runs inherited B01–B12 source regressions, not a redundant full game build.
 
 ## Important limitations / open questions
 
@@ -27,3 +27,7 @@ Five new engine GTest cases in `test_bloodborne_party.cpp`: switching two player
 - Real gameplay must include multiple boss discoveries with 1–5 Insight points, rapid switch, quit/relaunch, guest death/wipe, changing bosses, map travel and full save backup comparison. Validate only on private copied saves.
 - The B12 Windows/Linux C++ helper tests passed, but **a complete integrated 1.4.0 Windows client/launcher/server game build remains open**, including #31 compiler diagnostics, CPU/GPU performance and 5-player Link4. Native AOT Windows port is a separate equal mission.
 - No private game/DS3 files, live Fornex, user saves, credentials or installable release touched.
+
+## Inherited CI guard correction
+
+The B12 exact B11-to-B12 diff workflow was originally triggered by every descendant change to `bloodborne_party.h`. On this B13 source change its B12-specific allowlist consequently failed even though B13's own source build and pinned diff passed. Its source-boundary job is now restricted to its **original PR #44 with B11 as base** (and manual dispatch). B13 has a new strict nine-file B12-to-B13 allowlist, native Windows/Linux compiler fixtures and inherited regressions, so no source check was removed from the cumulative release gate.
