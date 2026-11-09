@@ -1,0 +1,58 @@
+name: "Ultimate B23 final Windows DLL gate after optional runtime staging"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-23-final-runtime-gate.yml'
+      - 'bbport/packaging/windows/package.sh'
+      - 'tools/ultimate/test_batch_21_dll_closure.py'
+      - 'tools/ultimate/test_batch_23_final_runtime_gate.py'
+      - 'tools/ultimate/batch_23_manifest.json'
+      - 'docs/ULTIMATE_BATCH_23.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final-runtime-closure-source-and-tests:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-22-launcher-timers-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exact six-file B22-to-B23 diff and pinned source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-22-launcher-timers-20261109:refs/remotes/origin/b22
+          git diff --name-only origin/b22 HEAD > /tmp/ultimate-b23-changed
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import subprocess
+          manifest=json.loads(Path('tools/ultimate/batch_23_manifest.json').read_text())
+          changed=set(Path('/tmp/ultimate-b23-changed').read_text().splitlines())
+          expected=set(manifest['changed_paths'])
+          assert len(expected)==6 and changed==expected,(sorted(changed-expected),sorted(expected-changed))
+          assert manifest['batch_id']=='B23-2026-11-09' and manifest['parent_pr']==54
+          assert all(manifest['safety'].values())
+          for p in manifest['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',p['path']],text=True).strip()
+              assert sha==p['git_blob_sha1'],(p['path'],sha,p['git_blob_sha1'])
+          print('B23_EXACT_SOURCE_BLOBS_AND_DRAFT_SAFETY_PASS')
+          PY
+      - name: Execute actual package syntax and inherited DLL closure tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n bbport/packaging/windows/package.sh
+          python3 -m py_compile bbport/packaging/windows/verify_runtime_dlls.py tools/ultimate/test_batch_21_dll_closure.py tools/ultimate/test_batch_23_final_runtime_gate.py
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_21_dll_closure.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_23_final_runtime_gate.py' -v
+          echo B23_FINAL_STAGE_DLL_IMPORT_CLOSURE_PASS
+      - name: No game assets, full Windows engine rebuild, public ZIP, live Fornex or saves
+        run: echo B23_STATIC_PACKAGE_GATE_ONLY_NO_DEPLOY_NO_INSTALLER_NO_PRIVATE_GAME
