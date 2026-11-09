@@ -2904,6 +2904,9 @@ class Launcher:
         self.updating, self.update_release = False, None  # the co-op release's update (coop_check_update)
         self.close_scheduled = False  # "Close the launcher when the game starts" is armed once per run
         self.server_checking = self.server_starting = False  # the server line: a check, a Start server under way
+        self.hunters_checking = False
+        self.hunters_last_key = None
+        self.hunters_next_poll = 0.0  # slow, bounded directory HTTPS checks, never on the Tk thread
         self.installing, self.install_proc, self.install_cancel = False, None, threading.Event()
         self.install_card = self.install_hide = self.pkg_dialog = None
         self.output = queue.Queue()
@@ -3526,6 +3529,12 @@ class Launcher:
         self.busy_parent = line
         self.status = tk.Label(line, text='', bg=BG, fg=MUTED, font=self.fonts['small'], anchor='w', justify='left')
         self.status.pack(side='left')
+        self.hunters_status = None
+        if COOP_INSTALL:
+            # A compact plain-text label, not a busy per-frame counter.
+            self.hunters_status = tk.Label(line, text=_('Hunters Online: —', 'Охотников онлайн: —'),
+                                           bg=BG, fg=MUTED, font=self.fonts['small'], anchor='w')
+            self.hunters_status.pack(side='left', padx=(px(18), 0))
         self.footer = footer
         grip = tk.Canvas(footer, width=px(14), height=px(14), bg=BG, highlightthickness=0, bd=0, cursor='size_nw_se')
         for i in range(3):
@@ -5299,12 +5308,42 @@ class Launcher:
         threading.Thread(target=work, daemon=True).start()
 
     def coop_watch_server(self):
-        """Every few seconds the server line says whether this PC's co-op server runs (Reddit 2026-10-21: it
-        stayed empty while the server ran)."""
+        """Periodic local server health plus slower HTTPS global directory occupancy."""
         if not self.server_checking and not self.server_starting:
             self.server_checking = True
             threading.Thread(target=self.coop_check_server, daemon=True).start()
+        # Count is only known for a configured global directory. Local-only
+        # servers and unresponsive regions show — rather than a fabricated 0.
+        settings = dict(self.coop)
+        key = (settings.get('server_type'), bbport_coop.global_url(settings))
+        if key != self.hunters_last_key:
+            self.hunters_last_key = key
+            self.hunters_next_poll = 0.0
+            if self.hunters_status is not None:
+                self.hunters_status.configure(text=_('Hunters Online: —', 'Охотников онлайн: —'), fg=MUTED)
+        now = time.monotonic()
+        if not self.hunters_checking and now >= self.hunters_next_poll:
+            self.hunters_checking = True
+            self.hunters_next_poll = now + 45.0
+            threading.Thread(target=self.coop_check_hunters,
+                             args=(settings, key), daemon=True).start()
         self.after_owned(SERVER_CHECK_MS, self.coop_watch_server)
+
+    def coop_check_hunters(self, settings, key):
+        """Never block Tk with DNS, HTTPS or a slow region directory."""
+        try:
+            found = bbport_coop.hunters_online(settings)
+        except Exception:
+            found = None
+        finally:
+            self.hunters_checking = False
+        def show():
+            if self._closing or key != self.hunters_last_key or self.hunters_status is None:
+                return
+            label = (_('Hunters Online: {}', 'Охотников онлайн: {}').format(found['hunters'])
+                     if found is not None else _('Hunters Online: —', 'Охотников онлайн: —'))
+            self.hunters_status.configure(text=label, fg=OK if found is not None else MUTED)
+        self.ui_calls.put(show)
 
     def coop_check_server(self):
         try:
