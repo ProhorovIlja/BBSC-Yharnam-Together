@@ -30,3 +30,19 @@ This Windows compilation combines *source* accumulated B01–B13 with latest #31
 ## B10 regression adaptation after changing the real Ninja invocation
 
 The first B14 source CI correctly validated the new resource options, then exposed a brittle B10 source test that located the Windows error handler by an exact text literal `ninja -C`. Since the **production** build now invokes `ninja -j 2 -C` via an optional argument array, this old string-match test raised `IndexError` even though the error reporter and all other selection tests still passed. B14 changes `tools/ultimate/test_batch_10_build_failure.py` to locate the Windows error branch by its real `bb-probe bb-gpu-capabilities bb-play` target list and check the still-preserved `report_bbport_build_failure` call and exit 1. The source boundary now enumerates **seven** exact B13→B14 paths including this adapter; the original B10 branch remains untouched.
+
+## Second Windows attempt: separate the expensive compilation phases (2026-11-09)
+
+[Actual Windows run 42581216035](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42581216035) completed with **source-fixtures SUCCESS / build-engine FAILURE**. On the full 433-task build, the first Ninja invocation returned a nonzero exit after progress `[432/433]` without a visible `FAILED:` or compiler error. The diagnostic-only incremental `ninja -j 2 -v` retry successfully completed the remaining five steps in roughly ten seconds, including rebuilding `libbbnet.a` and linking `bb-probe.exe`, and confirmed all three target EXE paths. **CI remained correctly red.** This persisted after actual `-j 2` and low-debug-info `-O2 -g0`, so memory pressure is only one hypothesis, not a confirmed cause.
+
+B14 now adds an **opt-in** `BB_WINDOWS_STAGED_LINK=1` to the actual `bbport/build.sh` Windows CLANG64 path. The Windows CI opts in, building exactly these ordered stages with two Ninja workers:
+
+1. `bbnet`: protobuf, emulator networking, real co-op C++, guest world and savedata integration, `libbbnet.a`
+2. `bbgpu`: graphics/Vulkan renderer and network dependency, without final executable links competing with large translation units
+3. `bb-probe bb-gpu-capabilities bb-play`: final PE32+ executable link targets
+
+Each step reports `WINDOWS_NINJA_STAGE_BEGIN` and `_PASS`, or `_FAILED: <stage> rc=<original code>` followed by the real B10 bounded failure reporter. A failing stage **preserves its exact raw Ninja shell code** and stops the build rather than masking failure with a later retry. The normal developer Windows path retains its original one-Ninja-command behavior when opt-in is absent.
+
+`tools/ultimate/test_batch_14_windows_native_resources.py` now runs **the actual production staged Bash control flow**, replacing only the external Ninja invocation with a fake that records targets. Its tests verify the exact stage ordering and simulate failure in network, graphics and final PE phases with three different exit codes. The code is thereby verified independently from the much longer real Windows compiler run.
+
+This makes the first-build failure **localizable** and prevents competing terminal links; it does not prove the root cause of prior silent Ninja exits. No standalone game package, real-game launch or 2/3/5-player network session may be claimed until their separate gates pass.
