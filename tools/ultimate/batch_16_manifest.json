@@ -1,0 +1,64 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B16-2026-11-09",
+  "parent_pr": 47,
+  "parent_branch": "experiment/ultimate-batch-15-server-client-history-merge-20261109",
+  "preserved_real_merge": "6bac40e706821461a95620b2760e93fa8b4b0cf9",
+  "no_deploy": true,
+  "no_game_assets": true,
+  "no_live_saves": true,
+  "no_public_release": true,
+  "changed_paths": [
+    ".github/workflows/ultimate-native-client-windows.yml",
+    "bbport/build.sh",
+    "docs/ULTIMATE_BATCH_16.md",
+    "tools/ultimate/batch_16_manifest.json",
+    "tools/ultimate/test_batch_14_windows_native_resources.py",
+    "tools/ultimate/test_batch_16_windows_finalization.py"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/build.sh",
+      "git_blob_sha1": "5d6ce5805d86bc0ade9588cb56f3e78145dc79c1"
+    },
+    {
+      "path": "tools/ultimate/test_batch_16_windows_finalization.py",
+      "git_blob_sha1": "8e8ddb9c85c3641110e712f03340ae39f10db376"
+    },
+    {
+      "path": "tools/ultimate/test_batch_14_windows_native_resources.py",
+      "git_blob_sha1": "e13e5c66092b895555a833ef91259d134a1deaa8"
+    }
+  ],
+  "real_windows_expected": [
+    "full Linux source and exact 5-path gate",
+    "real C++ Windows bbnet then bbgpu then 3 EXEs Ninja -j2",
+    "explicit finalization begin, source nonempty EXE presence",
+    "single cp attempt with exact rc and destination byte-identity check",
+    "production build-mode marker",
+    "actual low-debug CMAKE_C_FLAGS_RELWITHDEBINFO and CXX flags",
+    "MZ PE x86-64 PE32+ executable headers",
+    "no release file publication or game execution"
+  ],
+  "real_previous_run": {
+    "url": "https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42593995727",
+    "source_ci": "success",
+    "ninja_stages": [
+      "net PASS",
+      "gpu PASS",
+      "final PASS"
+    ],
+    "complete_script": "FAILED before output confirmation",
+    "diagnostic_incremental_retry": "PASS, three EXE paths existed after retry",
+    "cause": "not proven"
+  },
+  "test_claim": "Directly executes production shell source in temporary folders; fake test files are not playable EXEs",
+  "remaining": [
+    "Why the first real Windows shell build returns nonzero after Ninja stage PASS",
+    "Real 1.09 2/3/5 hunter gameplay, DBNO, saves and graphics tests",
+    "B15 12 server suites and five synthetic hunter rig",
+    "True independent native Win64 game without running PS4 ELF"
+  ],
+  "extra_ci_repair": "B14 three-stage test previously anchored the old direct cp line; B16 moves copy to guarded finalization and test now anchors the unique new finalization start instead.",
+  "source_scope_note": "Includes a necessary update to inherited B14 source assertions so new B16 output-finalization diagnostics are tested rather than falsely failing on an old command spelling. Exact six-file B15-to-B16 scope."
+}

@@ -35,6 +35,11 @@ if [[ ${BB_PRODUCTION:-0} == 1 ]]; then production=ON; build_mode=production; el
 # there and CMake links bb-probe.exe as well; no PGO (GCC-only flags), LTO off by default.
 case $(uname -s) in
 MINGW*|MSYS*)
+    # On Windows a linker may finish before the executable can be copied, or
+    # a later shell operation can fail under set -e without a useful message.
+    # Record the *actual* finalization phase on every nonzero shell exit.
+    bbsc_win_phase=environment
+    trap 'bbsc_win_rc=$?; if (( bbsc_win_rc != 0 )); then echo "WINDOWS_NATIVE_EXIT_PHASE: ${bbsc_win_phase} rc=${bbsc_win_rc}" >&2; fi' EXIT
     # shellcheck source=msys2-env.sh
     source ./msys2-env.sh
     for tool in clang cmake ninja pkg-config; do
@@ -87,6 +92,7 @@ MINGW*|MSYS*)
                 gpu)   windows_targets=(bbgpu) ;;
                 final) windows_targets=(bb-probe bb-gpu-capabilities bb-play) ;;
             esac
+            bbsc_win_phase="ninja-$stage"
             echo "WINDOWS_NINJA_STAGE_BEGIN: $stage"
             if ninja "${windows_ninja_args[@]}" -C out/gpu "${windows_targets[@]}" >> out/gpu-build.log 2>&1; then
                 echo "WINDOWS_NINJA_STAGE_PASS: $stage"
@@ -103,9 +109,37 @@ MINGW*|MSYS*)
             exit 1
         fi
     fi
-    cp out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe out/gpu/bb-play.exe out/
+    bbsc_win_phase=validate-native-outputs
+    echo 'WINDOWS_NATIVE_FINALIZATION_BEGIN'
+    for exe in bb-probe.exe bb-gpu-capabilities.exe bb-play.exe; do
+        if [[ ! -s "out/gpu/$exe" ]]; then
+            echo "WINDOWS_NATIVE_TARGET_MISSING_OR_EMPTY: $exe" >&2
+            exit 46
+        fi
+        printf 'WINDOWS_NATIVE_TARGET_READY: %s bytes=%s\n' "$exe" "$(wc -c < "out/gpu/$exe")"
+    done
+    bbsc_win_phase=copy-native-outputs
+    echo 'WINDOWS_NATIVE_COPY_BEGIN'
+    if cp -- out/gpu/bb-probe.exe out/gpu/bb-gpu-capabilities.exe out/gpu/bb-play.exe out/; then
+        echo 'WINDOWS_NATIVE_COPY_COMMAND_PASS'
+    else
+        windows_copy_rc=$?
+        echo "WINDOWS_NATIVE_COPY_FAILED: rc=$windows_copy_rc" >&2
+        exit "$windows_copy_rc"
+    fi
+    bbsc_win_phase=verify-copied-outputs
+    for exe in bb-probe.exe bb-gpu-capabilities.exe bb-play.exe; do
+        if ! cmp -s "out/gpu/$exe" "out/$exe"; then
+            echo "WINDOWS_NATIVE_COPIED_OUTPUT_MISMATCH: $exe" >&2
+            exit 47
+        fi
+    done
+    echo 'WINDOWS_NATIVE_COPY_IDENTITY_PASS'
+    bbsc_win_phase=write-build-mode
     echo "$build_mode" > out/build-mode.txt
+    echo "WINDOWS_NATIVE_BUILD_MODE: $build_mode"
     echo "Built $PWD/out/bb-probe.exe ($build_mode build)"
+    bbsc_win_phase=complete
     exit 0
     ;;
 esac

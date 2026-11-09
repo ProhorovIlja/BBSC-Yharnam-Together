@@ -1,15 +1,14 @@
-name: "Ultimate B14 cumulative Windows client: source, link and PE verification (no game)"
+name: "Ultimate B16 native Windows finalization and cumulative server source build"
 
 on:
   pull_request:
     paths:
       - '.github/workflows/ultimate-native-client-windows.yml'
-      - '.github/workflows/ultimate-batch-10-build-diagnostics.yml'
       - 'bbport/build.sh'
-      - 'docs/ULTIMATE_BATCH_14.md'
-      - 'tools/ultimate/batch_14_manifest.json'
+      - 'docs/ULTIMATE_BATCH_16.md'
+      - 'tools/ultimate/batch_16_manifest.json'
+      - 'tools/ultimate/test_batch_16_windows_finalization.py'
       - 'tools/ultimate/test_batch_14_windows_native_resources.py'
-      - 'tools/ultimate/test_batch_10_build_failure.py'
   workflow_dispatch:
 
 permissions:
@@ -21,7 +20,7 @@ concurrency:
 
 jobs:
   source-fixtures:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-13-insight-character-ownership-20261109')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-15-server-client-history-merge-20261109')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -29,33 +28,33 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Restrict to exact B13-to-B14 seven-path source change
+      - name: Restrict to exact B15-to-B16 six-path source/test finalization change
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin \
-            experiment/ultimate-batch-13-insight-character-ownership-20261109:refs/remotes/origin/b13
-          git diff --name-only origin/b13 HEAD >/tmp/b14-diff.txt
-          cat /tmp/b14-diff.txt
-          if grep -vE '^(bbport/build\.sh|\.github/workflows/ultimate-native-client-windows\.yml|\.github/workflows/ultimate-batch-10-build-diagnostics\.yml|docs/ULTIMATE_BATCH_14\.md|tools/ultimate/batch_14_manifest\.json|tools/ultimate/test_batch_14_windows_native_resources\.py|tools/ultimate/test_batch_10_build_failure\.py)$' /tmp/b14-diff.txt; then
+            experiment/ultimate-batch-15-server-client-history-merge-20261109:refs/remotes/origin/b15
+          git diff --name-only origin/b15 HEAD >/tmp/b16-diff.txt
+          cat /tmp/b16-diff.txt
+          if grep -vE '^(bbport/build\.sh|\.github/workflows/ultimate-native-client-windows\.yml|docs/ULTIMATE_BATCH_16\.md|tools/ultimate/batch_16_manifest\.json|tools/ultimate/test_batch_16_windows_finalization\.py|tools/ultimate/test_batch_14_windows_native_resources\.py)$' /tmp/b16-diff.txt; then
             echo 'Unexpected runtime, game assets or deployment change' >&2
             exit 1
           fi
-          test "$(wc -l </tmp/b14-diff.txt)" -eq 7
+          test "$(wc -l </tmp/b16-diff.txt)" -eq 6
       - name: Pin actual production Windows build shell and test identities
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           import hashlib,json
-          m=json.loads(Path("tools/ultimate/batch_14_manifest.json").read_text())
-          assert m["batch_id"]=="B14-2026-11-09" and m["parent_pr"]==45
-          assert len(m["changed_paths"])==7
+          m=json.loads(Path("tools/ultimate/batch_16_manifest.json").read_text())
+          assert m["batch_id"]=="B16-2026-11-09" and m["parent_pr"]==47
+          assert len(m["changed_paths"])==6
           assert all(m[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_public_release"))
           for item in m["pinned_blobs"]:
               b=Path(item["path"]).read_bytes()
               sha=hashlib.sha1(b"blob "+str(len(b)).encode()+b"\0"+b).hexdigest()
               assert sha==item["git_blob_sha1"],f'{item["path"]}: {sha} != {item["git_blob_sha1"]}'
-          print("B14_EXACT_PRODUCTION_SOURCE_PINS_PASS")
+          print("B16_EXACT_FINALIZATION_SOURCE_PINS_PASS")
           PY
       - name: Compile inherited reward/join code and execute exact build resource controls
         run: |
@@ -65,10 +64,11 @@ jobs:
           python3 -m unittest discover -s tools/ultimate -p 'test_batch_10_build_failure.py' -v
           python3 -m unittest discover -s tools/re/tests -p 'test_encounter_insight_owner.py' -v
           python3 -m unittest discover -s tools/re/tests -p 'test_member_data_slot_guard.py' -v
-          echo 'B14_INHERITED_REAL_SOURCE_FIXTURES_PASS'
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_16_windows_finalization.py' -v
+          echo 'B16_PRODUCTION_OUTPUT_FINALIZATION_FIXTURE_PASS'
 
   build-engine:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-13-insight-character-ownership-20261109')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-15-server-client-history-merge-20261109')
     needs: source-fixtures
     runs-on: windows-2022
     timeout-minutes: 55
@@ -83,28 +83,27 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - name: Verify exact B13-to-B14 integration source scope
+      - name: Verify exact B15-to-B16 finalization source scope
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          git fetch --no-tags --depth=1 origin 'experiment/ultimate-batch-13-insight-character-ownership-20261109:refs/remotes/origin/b13'
-          if ($LASTEXITCODE -ne 0) { throw 'B13 baseline unavailable' }
-          $paths = @(git diff --name-only refs/remotes/origin/b13 HEAD)
+          git fetch --no-tags --depth=1 origin 'experiment/ultimate-batch-15-server-client-history-merge-20261109:refs/remotes/origin/b15'
+          if ($LASTEXITCODE -ne 0) { throw 'B15 baseline unavailable' }
+          $paths = @(git diff --name-only refs/remotes/origin/b15 HEAD)
           if ($LASTEXITCODE -ne 0) { throw 'Could not compare cumulative source' }
           $allowed = @(
             '.github/workflows/ultimate-native-client-windows.yml',
-            '.github/workflows/ultimate-batch-10-build-diagnostics.yml',
             'bbport/build.sh',
-            'docs/ULTIMATE_BATCH_14.md',
-            'tools/ultimate/batch_14_manifest.json',
-            'tools/ultimate/test_batch_14_windows_native_resources.py',
-            'tools/ultimate/test_batch_10_build_failure.py'
+            'docs/ULTIMATE_BATCH_16.md',
+            'tools/ultimate/batch_16_manifest.json',
+            'tools/ultimate/test_batch_16_windows_finalization.py',
+            'tools/ultimate/test_batch_14_windows_native_resources.py'
           )
           foreach ($item in $paths) {
-            Write-Host "B14_SOURCE_PATH $item"
+            Write-Host "B16_SOURCE_PATH $item"
             if ($item -notin $allowed) { throw "Unexpected file in cumulative Windows integration: $item" }
           }
-          if ($paths.Count -ne $allowed.Count) { throw "Expected 7 exact B14 paths, got $($paths.Count)" }
+          if ($paths.Count -ne $allowed.Count) { throw "Expected 6 exact B16 paths, got $($paths.Count)" }
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -179,6 +178,19 @@ jobs:
           # Full CMake + clang build is deliberately bounded to diagnostics only:
           # never print/download game files, private logs, credentials or large CI output.
           if ! bash build.sh >out/ultimate-native-build.log 2>&1; then
+            echo 'WINDOWS_NATIVE_PRE_RETRY_OUTPUT_STATE'
+            for exe in bb-probe.exe bb-gpu-capabilities.exe bb-play.exe; do
+              if test -s "out/gpu/$exe"; then
+                echo "WINDOWS_NATIVE_PRE_RETRY_OUTPUT: $exe present"
+              else
+                echo "WINDOWS_NATIVE_PRE_RETRY_OUTPUT: $exe MISSING_OR_EMPTY"
+              fi
+            done
+            if test -f out/build-mode.txt; then
+              echo 'WINDOWS_NATIVE_PRE_RETRY_BUILD_MODE_PRESENT'
+            else
+              echo 'WINDOWS_NATIVE_PRE_RETRY_BUILD_MODE_MISSING'
+            fi
             echo 'WINDOWS_NATIVE_CLIENT_BUILD_FAILED (bounded last 65 lines):'
             tail -n 65 out/ultimate-native-build.log || true
             if test -f out/gpu-build.log; then
