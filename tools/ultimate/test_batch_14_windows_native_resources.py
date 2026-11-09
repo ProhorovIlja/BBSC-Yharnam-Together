@@ -99,10 +99,7 @@ class WinResourceSelection(unittest.TestCase):
         first = self.source.index("    if [[ ${BB_WINDOWS_STAGED_LINK:-0} == 1 ]]; then")
         # B16 checks EXE presence *after* staged Ninja; extract only the
         # real three-stage loop, not the replaced final copy command.
-        last = self.source.index("
-    fi
-    bbsc_win_phase=validate-native-outputs", first) + len("
-    fi")
+        last = self.source.index("\n    fi\n    bbsc_win_phase=validate-native-outputs", first) + len("\n    fi")
         production_loop = self.source[first:last]
         shell = (
             "set -euo pipefail\n"
