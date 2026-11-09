@@ -1,0 +1,791 @@
+{
+  "schema": "bbsc-source-discovery-snapshot-v1",
+  "date_utc": "2026-11-09",
+  "source": "GitHub public repository metadata (first 35 hits each; unpaginated)",
+  "scope": "Adjacent game runtime, PS4 graphics, Souls-family reverse engineering, modding, network, telemetry and editor tools; candidates not automatically relevant or usable",
+  "limitations": [
+    "first page only, not exhaustive",
+    "some related-topic results may not be compatible with Bloodborne",
+    "no license/provenance review at discovery stage",
+    "no code from private game files captured"
+  ],
+  "queries": [
+    {
+      "query": "shadnet bloodborne",
+      "first_page_count": 14,
+      "error": null
+    },
+    {
+      "query": "bloodborne server",
+      "first_page_count": 31,
+      "error": null
+    },
+    {
+      "query": "bloodborne modding tools",
+      "first_page_count": 35,
+      "error": null
+    },
+    {
+      "query": "bloodborne graphics shader",
+      "first_page_count": 0,
+      "error": null
+    },
+    {
+      "query": "dark souls 3 engine modding",
+      "first_page_count": 1,
+      "error": null
+    },
+    {
+      "query": "elden ring seamless coop networking",
+      "first_page_count": 0,
+      "error": null
+    },
+    {
+      "query": "fromsoftware event editor",
+      "first_page_count": 0,
+      "error": null
+    },
+    {
+      "query": "fromsoftware param editor",
+      "first_page_count": 3,
+      "error": null
+    },
+    {
+      "query": "bloodborne save editor",
+      "first_page_count": 18,
+      "error": null
+    },
+    {
+      "query": "bloodborne emulator shadps4 performance",
+      "first_page_count": 0,
+      "error": null
+    }
+  ],
+  "discovered_repositories": [
+    {
+      "name": "1recyclebin1/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "77wisher77/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "abarthen/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "aggregate1166877/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "ajaissle/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "AjudanteMaciel/bloodborne-private-server",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "AlexanderDzhoganov/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "AmamiyaHotaru/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "AntoF98/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "asasasasasbc/bbtpf-tools",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "Atvaark/BinderTool",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "axd1x8a/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "azdyrski/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "camilobaron007-ctrl/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "ccccxp/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "CesarValenzuela157/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "ClainBill/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "clanker-boi/bloodborne-server",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "code-by-levi/BloodBorneMelkart",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "colaaaaaa123/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "Cookie-Master5423/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "Csanindzsa/bloodborne-server",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "DarkIzuku/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "DevoWarr/DSDChallengeRunning",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "diogobritodesign/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "evill33t/bloodborne-server",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "fhody125-web/NoDreamForTheHunterBB",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "Finfingway/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "FlanceVoV/bloodborne_pc_server",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "goblock2021/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "googleben/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "guilty-p01nt3r/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "hazeyxd23/bloodborne_pc_windows_port",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "hihihi3334/AcParamEditor",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "fromsoftware param editor"
+      ]
+    },
+    {
+      "name": "JKAnderson/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "joaoedualves/RadminBell",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "joaoedualves/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "Joshy3282/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "juicermv/le-mod-manager",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "dark souls 3 engine modding"
+      ]
+    },
+    {
+      "name": "Kalmarv/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "karlbackan/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "katalash/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "kuyuo/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "lemnrt/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "liilaG/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "LL4nc33/BB.Chalices.Reborn",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "LordExelot/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "lordsilver/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "lpqx/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "ltcszk/ACParamEditor",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "fromsoftware param editor"
+      ]
+    },
+    {
+      "name": "LynnKiva/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "majestic-world/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "MassKlaus/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "matteo-gz/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "Minimage/BBSaveEditor",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "Mob100percent/NoDreamForTheHunterBB",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "mrhasannn/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "NeverwinterMoon/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "nex3/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "notgitgit/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "Noxde/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "okaylegion/Vmware",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "Openborne/bloodnet",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "PrestonGardner5081/bloodborne-server",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "ProhorovIlja/bloodborne_pc_windows_port",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "rakesh37187/BBSaveEditor",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "Rival99900/Bloodborne-save-editor-enhanced",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "Sanadsk/BBAnimConverter",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "scheninsp/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "StarAppeal/linux-bloodborne-server",
+      "default_branch": "linux-port",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "Strackeror/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "Trit0N10/bloodborne-save-editor-gems",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "TruE-DarKMatteR/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "uttarayan21/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "vawser/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "vikinghug/bloodborne-server",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "visy/bloodborne_pc_windows_port",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "vladtepes22/bloodborne_pc_windows_port",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "waleedrz10777-cyber/Bloodborne-save-editor",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne save editor"
+      ]
+    },
+    {
+      "name": "WarpZephyr/AcParamEditor",
+      "default_branch": "master",
+      "archived": false,
+      "matched_queries": [
+        "fromsoftware param editor"
+      ]
+    },
+    {
+      "name": "WarpZephyr/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "whp199/bloodborne-server",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "willthehuman/ps4-bloodborne-crossplay",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne"
+      ]
+    },
+    {
+      "name": "Wozzardman/shadnet-p2p",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "shadnet bloodborne",
+        "bloodborne server"
+      ]
+    },
+    {
+      "name": "wqerq/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "Yenis/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "zebubull/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "zeroscratch/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    },
+    {
+      "name": "ztw0219-oss/Smithbox",
+      "default_branch": "main",
+      "archived": false,
+      "matched_queries": [
+        "bloodborne modding tools"
+      ]
+    }
+  ]
+}
