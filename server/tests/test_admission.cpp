@@ -46,6 +46,37 @@ int HellosFromOneAddressAreLimited() {
   return 0;
 }
 
+// A flood of different source IPs must never erase an active peer's spent
+// hello bucket. The old >100000 implementation cleared the whole hash table,
+// resetting all rate limits and offering a repeated full burst.
+int HelloFloodNeverResetsActiveBucketsOrGrowsUnbounded() {
+  Limits limits;
+  limits.hellos_per_second = 0;
+  limits.hello_burst = 2;
+  Guard guard{limits};
+  constexpr qint64 Start = 1000;
+  CHECK(guard.AllowHello(Home, Start));
+  CHECK(guard.AllowHello(Home, Start));
+  CHECK(!guard.AllowHello(Home, Start));
+  // Home + 99,999 unique sources fill the entire fixed budget.
+  for (quint32 n = 0; n < 99'999; ++n) {
+    CHECK(guard.AllowHello(0x10000000u + n, Start));
+  }
+  // The next unknown address is refused, rather than evicting live peers.
+  CHECK(!guard.AllowHello(0x30000000u, Start));
+  CHECK(!guard.AllowHello(Home, Start));
+  CHECK(guard.Count().hellos_refused == 3);
+  // Once all the old addresses are idle for two minutes, an opportunistic
+  // bounded cleanup frees space and legitimate newcomers can enter.
+  constexpr qint64 AfterIdle = Start + 120'001;
+  CHECK(guard.AllowHello(0x30000000u, AfterIdle));
+  CHECK(guard.AllowHello(Home, AfterIdle));
+  CHECK(guard.AllowHello(Home, AfterIdle));
+  CHECK(!guard.AllowHello(Home, AfterIdle));
+  CHECK(guard.Count().hellos_refused == 4);
+  return 0;
+}
+
 int LinksAndAccountsAnAddress() {
   Limits limits;
   limits.links_per_address = 2;
@@ -223,6 +254,7 @@ int ASmallSocketBufferIsNoticed() {
 int main() {
   int failed = 0;
   failed |= HellosFromOneAddressAreLimited();
+  failed |= HelloFloodNeverResetsActiveBucketsOrGrowsUnbounded();
   failed |= LinksAndAccountsAnAddress();
   failed |= AFloodingLinkIsDroppedAndReportedNeverBanned();
   failed |= ANoisyPeerDoesNotBanItsNatNeighbour();
