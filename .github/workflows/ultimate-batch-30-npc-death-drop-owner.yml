@@ -1,0 +1,97 @@
+name: "Ultimate B30 NPC death-drop ownership by character generation"
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ultimate-batch-30-npc-death-drop-owner.yml'
+      - 'emulator/src/core/bloodborne_flags_store.cpp'
+      - 'tools/re/tests/test_npc_death_drop_owner.py'
+      - 'docs/ULTIMATE_BATCH_30.md'
+      - 'tools/ultimate/batch_30_manifest.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b30-npc-owner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-production-reward-guards:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-29-personal-invasion-recovery-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Exact five B29 to B30 files and production/test Git blob pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin experiment/ultimate-batch-29-personal-invasion-recovery-20261109:refs/remotes/origin/b29
+          git diff --name-only origin/b29 HEAD > /tmp/b30-changed.txt
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          m=json.loads(Path('tools/ultimate/batch_30_manifest.json').read_text())
+          actual=set(Path('/tmp/b30-changed.txt').read_text().splitlines())
+          expected=set(m['changed_paths'])
+          assert len(expected)==5 and actual==expected,(sorted(actual-expected),sorted(expected-actual))
+          assert m['batch_id']=='B30-2026-11-09' and m['parent_pr']==61
+          assert all(m['safety'].values())
+          for pin in m['pinned_blobs']:
+              sha=subprocess.check_output(['git','hash-object',pin['path']],text=True).strip()
+              assert sha==pin['git_blob_sha1'],(pin['path'],sha)
+          print('B30_EXACT_FIVE_FILES_SOURCE_SHA_PASS')
+          PY
+      - name: Real NPC death drop path requires known character and post-call dedup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('emulator/src/core/bloodborne_flags_store.cpp').read_text()
+          part=src.split('void GiveNpcDeathDrops(',1)[1].split('void GiveDeferredBossItems()',1)[0]
+          assert 'RefreshNpcDeathDropLedger(owner, in_session, given_owner, given)' in part
+          assert 'CurrentDeferredRewardOwner()' in part and 'given_slot' not in part
+          assert part.index('RefreshNpcDeathDropLedger(') < part.index('const bool guest = IsPartyGuestRole()')
+          assert part.index('HasVtable(item_man, MapItemManVtable,') < part.index('given.insert(drop.death_flag)')
+          assert part.index('(item_man, drop.lot, 0);') < part.index('given.insert(drop.death_flag)')
+          assert src.count('bool RefreshNpcDeathDropLedger(')==1
+          helper=src.split('bool RefreshNpcDeathDropLedger(',1)[1].split('struct HeldBossItem',1)[0]
+          assert 'current != recorded' in helper and 'current.slot >= 0' in helper
+          assert 'awarded.clear()' in helper
+          print('B30_CHARACTER_GENERATION_AND_NO_UNKNOWN_SLOT_PRODUCTION_CONTRACT_PASS')
+          PY
+
+  real-cpp-owner-fixtures:
+    needs: exact-production-reward-guards
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Configure native Microsoft compiler for real production C++20 fixture
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Test actual NPC ledger and owner tracking with platform-native compiler
+        shell: bash
+        run: python3 -m unittest discover -s tools/re/tests -p 'test_npc_death_drop_owner.py' -v
+      - name: Verify previous deferred boss/NPC queue ownership and MapItemMan load regressions
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+      - name: No game saves, full emulator, installs or production deployment
+        shell: bash
+        run: echo B30_CPP_NATIVE_OWNER_TESTS_ONLY_NO_FORNEX_NO_PRIVATE_SAVES_NO_FULL_REBUILD_NO_RELEASE
