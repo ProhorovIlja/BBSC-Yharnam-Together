@@ -1,0 +1,77 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B13-2026-11-09",
+  "parent_pr": 44,
+  "parent_branch": "experiment/ultimate-batch-12-member-data-slot-guard-20261109",
+  "status": "EXPERIMENTAL_BOSS_INSIGHT_PER_CHARACTER_QUEUE_GUARD",
+  "scope": "production game-thread client reward ownership and bounded source fixtures",
+  "source_bug": "GiveEncounterInsight kept unowned static points_due across save slot switches and could grant previous hunter's boss discovery insight to newly loaded hunter.",
+  "behavior": [
+    "pending Insight tied to (character_slot, deferred_reward_character_generation)",
+    "pending queue for first hunter retained through normal slot switches in the same running process",
+    "replaced save character generation invalidates old pending for same slot",
+    "300ms one-point payout and original native AddSpEffect retained",
+    "boss watcher reset when current owner changes"
+  ],
+  "source_files": [
+    {
+      "path": "emulator/src/core/bloodborne_party.h",
+      "blob_sha1": "1950d2f7ad1a773e77977c1167a1a6488acfc01e"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_re_internal.h",
+      "blob_sha1": "c2ba3c64f105f20bada9375a10600d87f1b24a75"
+    },
+    {
+      "path": "emulator/src/core/bloodborne_travel.cpp",
+      "blob_sha1": "b7648891b6143c3fe83f67b835b66d2f92ca085b"
+    },
+    {
+      "path": "emulator/tests/bloodborne/test_bloodborne_party.cpp",
+      "blob_sha1": "8697e7df1ac0749f5a1b8749389c000d2e75930c"
+    },
+    {
+      "path": "tools/re/tests/test_encounter_insight_owner.py",
+      "blob_sha1": "d05a6d9d9a7aea81e5a93f2446dd67571644979a"
+    },
+    {
+      "path": "docs/ULTIMATE_BATCH_13.md",
+      "blob_sha1": "65e99cd775d16976d39686cb79e3ad6bcee5dd9e"
+    }
+  ],
+  "changed_paths": [
+    ".github/workflows/ultimate-batch-12-member-data-slot-guard.yml",
+    ".github/workflows/ultimate-batch-13-insight-owner.yml",
+    "emulator/src/core/bloodborne_party.h",
+    "emulator/src/core/bloodborne_re_internal.h",
+    "emulator/src/core/bloodborne_travel.cpp",
+    "emulator/tests/bloodborne/test_bloodborne_party.cpp",
+    "tools/re/tests/test_encounter_insight_owner.py",
+    "docs/ULTIMATE_BATCH_13.md",
+    "tools/ultimate/batch_13_manifest.json"
+  ],
+  "safety": {
+    "no_deploy": true,
+    "no_game_assets": true,
+    "no_live_saves": true,
+    "no_full_engine_build": true,
+    "no_public_release": true
+  },
+  "not_claimed": [
+    "Not a validated real-game fix for YT #508 messenger shop stock, which remains open",
+    "No crash-safe durable outstanding Insight queue across process restart",
+    "No proof that the void native AddSpEffect call succeeded",
+    "No complete Windows 1.4 integrated client/server build or game QA",
+    "No native ELF-free Windows Bloodborne.exe milestone"
+  ],
+  "provenance": [
+    "source inspection in cumulative B12 1.4.0 branch",
+    "upstream YT #508 open; current flag per-player rules existing, shop stock direct cause unknown",
+    "prior B04/05 deferred item owner generation already present in shared production source"
+  ],
+  "legacy_ci_scope_fix": {
+    "path": ".github/workflows/ultimate-batch-12-member-data-slot-guard.yml",
+    "original_pr": 44,
+    "behavior": "original B11-to-B12 exact diff gate is restricted to PR with B11 base; descendants have own exact parent source gates"
+  }
+}

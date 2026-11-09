@@ -1553,18 +1553,32 @@ constexpr s32 InsightPointEffect = 4680;
 // through the player's own add-effect virtual, as 9350 does.
 void GiveEncounterInsight(bool in_session) {
     static EncounterInsightWatch watch;
-    static s32 points_due = 0;
-    static std::chrono::steady_clock::time_point last_point{};
+    static EncounterInsightPayout payout;
+    const int slot = character_slot.load(std::memory_order_relaxed);
+    const u64 generation = deferred_reward_character_generation.load(std::memory_order_relaxed);
+    if (payout.ObserveOwner(slot, generation)) {
+        // The previous hunter's dead-boss baseline must not affect this save.
+        watch.Reset();
+    }
+    if (slot < 0) {
+        watch.Reset();
+        return;
+    }
     for (const EncounterInsight& boss :
          watch.Tick(IsPartyGuestRole(), in_session, [](s32 flag) { return EventFlagOn(flag); })) {
+        if (!payout.Add(boss.amount)) {
+            continue;
+        }
         reinterpret_cast<bool PS4_SYSV_ABI (*)(u64, s32, bool)>(
             image_base + PartyGhostSetEventFlagOffset)(0, boss.once_flag, true);
-        points_due += boss.amount;
-        LOG_INFO(Debug, "Bloodborne party: boss of {} down; {} insight for finding it (flag {})",
-                 boss.kill_event, boss.amount, boss.once_flag);
+        LOG_INFO(Debug, "Bloodborne party: boss of {} down; {} insight for finding it (flag {}), "
+                        "{} pending for this character",
+                 boss.kill_event, boss.amount, boss.once_flag, payout.Remaining());
     }
-    const auto now = std::chrono::steady_clock::now();
-    if (points_due <= 0 || now - last_point < std::chrono::milliseconds{300}) {
+    // Awarding continues after leaving the team, but never to another save slot.
+    // The queue is per-character; a slot reused by a new hunter invalidates old points.
+    const s64 now_ms = SteadyMilliseconds();
+    if (!payout.CanPay(now_ms)) {
         return;
     }
     const u64 player = GetLocalPlayer();
@@ -1573,8 +1587,7 @@ void GiveEncounterInsight(bool in_session) {
     }
     reinterpret_cast<AddSpEffectFn>(image_base + AddSpEffectOffset)(
         player, InsightPointEffect, player, 0, 1, 0, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0);
-    last_point = now;
-    --points_due;
+    payout.Paid(now_ms);
 }
 
 // See RechecksShopLines: once per save slot, the messengers' weapon lines a broken event patch
