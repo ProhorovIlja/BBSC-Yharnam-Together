@@ -1,0 +1,58 @@
+name: "Ultimate B20 hosted Docker release-only job scope (no deployment)"
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/deploy.yml'
+      - '.github/workflows/ultimate-batch-20-ci-release-scope.yml'
+      - 'docs/ULTIMATE_BATCH_20.md'
+      - 'tools/ultimate/batch_20_manifest.json'
+      - 'tools/ultimate/test_batch_20_release_ci_scope.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b20-ci-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-ci-policy-and-negative-publish-tests:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-19-cmake-native-output-20261109')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Confirm exact 5-file B19 to B20 CI-only delta
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-19-cmake-native-output-20261109:refs/remotes/origin/b19
+          git diff --name-only origin/b19 HEAD > /tmp/b20-paths.txt
+          cat /tmp/b20-paths.txt
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          m=json.loads(Path("tools/ultimate/batch_20_manifest.json").read_text())
+          actual=set(Path("/tmp/b20-paths.txt").read_text().splitlines())
+          allowed=set(m["changed_paths"])
+          assert len(allowed)==5 and actual==allowed,(sorted(actual-allowed), sorted(allowed-actual))
+          assert m["batch_id"]=="B20-2026-11-09" and m["parent_pr"]==51
+          assert all(m["safety"].values())
+          for item in m["source_pins"]:
+              blob=Path(item["path"]).read_bytes()
+              sha=hashlib.sha1(b"blob "+str(len(blob)).encode()+b"\0"+blob).hexdigest()
+              assert sha==item["git_blob_sha1"],(item["path"],sha,item["git_blob_sha1"])
+          print("B20_ONLY_CI_POLICY_FIVE_SOURCE_FILES_PINNED")
+          PY
+      - name: Verify all original release tests and protect experimental + manual builds
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_20_release_ci_scope.py' -v
+          echo 'B20_STACKED_DRAFT_SKIP_DOCKER_RELEASE_PR_CHECK_AND_MANUAL_NO_GHCR_PUSH_PASS'
+      - name: Explicit no external changes
+        run: echo 'B20_NO_DOCKER_BUILD_NO_GHCR_LOGIN_NO_GHCR_PUSH_NO_FORNEX_NO_PRIVATE_SAVES'
