@@ -1,0 +1,110 @@
+name: Ultimate B13 boss Insight per-character owner guard (source C++)
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_re_internal.h'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_party.cpp'
+      - 'tools/re/tests/test_encounter_insight_owner.py'
+      - 'docs/ULTIMATE_BATCH_13.md'
+      - 'tools/ultimate/batch_13_manifest.json'
+      - '.github/workflows/ultimate-batch-13-insight-owner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b13-insight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-source-diff-and-pins:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Validate B12 to B13 eight-file source and test boundary
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            experiment/ultimate-batch-12-member-data-slot-guard-20261109:refs/remotes/origin/b12
+          git diff --name-only origin/b12 HEAD > /tmp/b13-paths.txt
+          cat /tmp/b13-paths.txt
+          if grep -vE '^(emulator/src/core/bloodborne_party\.h|emulator/src/core/bloodborne_re_internal\.h|emulator/src/core/bloodborne_travel\.cpp|emulator/tests/bloodborne/test_bloodborne_party\.cpp|tools/re/tests/test_encounter_insight_owner\.py|docs/ULTIMATE_BATCH_13\.md|tools/ultimate/batch_13_manifest\.json|\.github/workflows/ultimate-batch-13-insight-owner\.yml)$' /tmp/b13-paths.txt; then
+            echo 'B13 unexpectedly changed game/server/renderer/save or packaging code' >&2
+            exit 1
+          fi
+          test "$(wc -l < /tmp/b13-paths.txt)" -eq 8
+      - name: Check immutable production source/test Git blobs
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          m=json.loads(Path("tools/ultimate/batch_13_manifest.json").read_text())
+          assert m["batch_id"]=="B13-2026-11-09" and m["parent_pr"]==44
+          assert len(m["changed_paths"])==8 and all(m["safety"].values())
+          for row in m["source_files"]:
+              data=Path(row["path"]).read_bytes()
+              gitblob=hashlib.sha1(b"blob "+str(len(data)).encode()+b"\0"+data).hexdigest()
+              assert gitblob == row["blob_sha1"], f"{row['path']}: {gitblob} != {row['blob_sha1']}"
+          print("B13_ACTUAL_SOURCE_PIN_PASS")
+          PY
+
+  real-production-native-linux:
+    needs: exact-source-diff-and-pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile source-extracted C++ boss Insight reward-owner fixture
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_encounter_insight_owner.py' -v
+          echo 'B13_LINUX_PRODUCTION_INSIGHT_OWNER_PASS'
+      - name: Recheck inherited C++ savedata and late-join source regressions
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_member_data_slot_guard.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_metadata_atomic_replace.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_order.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_guest_world_write_retry.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+          python3 -m unittest discover -s tools/ultimate -p 'test_batch_10_build_failure.py' -v
+          echo 'B06_TO_B12_INHERITED_PRODUCTION_SOURCE_REGRESSIONS_PASS'
+
+  real-production-native-windows:
+    needs: exact-source-diff-and-pins
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Keep Linux and Windows source SHA identical
+        shell: pwsh
+        run: git config --global core.autocrlf input
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          cache: true
+          install: >-
+            mingw-w64-clang-x86_64-toolchain
+            mingw-w64-clang-x86_64-python
+      - name: Compile production C++ payout owner class as real Windows executable
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tools/re/tests -p 'test_encounter_insight_owner.py' -v
+          echo 'B13_WINDOWS_PRODUCTION_INSIGHT_OWNER_PASS_NO_GAME'
