@@ -1,0 +1,43 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B20-2026-11-09",
+  "parent_pr": 51,
+  "parent_branch": "experiment/ultimate-batch-19-cmake-native-output-20261109",
+  "status": "CI_ONLY_NO_PER_PATCH_DOCKER_OR_MANUAL_GHCR_PUBLISH",
+  "changed_paths": [
+    ".github/workflows/deploy.yml",
+    ".github/workflows/ultimate-batch-20-ci-release-scope.yml",
+    "docs/ULTIMATE_BATCH_20.md",
+    "tools/ultimate/batch_20_manifest.json",
+    "tools/ultimate/test_batch_20_release_ci_scope.py"
+  ],
+  "source_pins": [
+    {
+      "path": ".github/workflows/deploy.yml",
+      "git_blob_sha1": "c68a67ab3912aba5b238e52c47374b835809a2db"
+    },
+    {
+      "path": "tools/ultimate/test_batch_20_release_ci_scope.py",
+      "git_blob_sha1": "66f9afaf6e21562621b14a76aeb8e0f96abc09d8"
+    }
+  ],
+  "jobs_gate": {
+    "stacked_draft_pr": "all three hosted deploy.yml jobs skipped",
+    "pr_to_main_or_hosted_server": "Helm/Terraform/Docker build and local smoke required",
+    "push_main_or_hosted_server": "Helm/Terraform/Docker build and GHCR push allowed",
+    "workflow_dispatch": "Helm/Terraform/Docker build and local smoke, NO GHCR publish"
+  },
+  "evidence": "B17/B18 stacked PR server/src changes triggered heavy Deploy files workflow in addition to dedicated native Qt6 CI; B19 separate Windows full compiler still pending.",
+  "safety": {
+    "no_live_deploy": true,
+    "no_game_assets": true,
+    "no_player_saves": true,
+    "no_public_release": true,
+    "no_source_game_changes": true
+  },
+  "limitations": [
+    "B20 CI stage scoping does not validate Windows game, native ELF-free port or 5 real players",
+    "An explicitly requested manual hosted Docker build still costs CI resources, but can no longer push GHCR",
+    "The policy does not prohibit a future main/hosted-server push from publishing images: that remains the original intended release path"
+  ]
+}
