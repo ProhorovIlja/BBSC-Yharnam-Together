@@ -1,0 +1,57 @@
+{
+  "schema": "bbsc-ultimate-batch-v1",
+  "batch_id": "B19-2026-11-09",
+  "parent_pr": 50,
+  "parent_branch": "experiment/ultimate-batch-18-account-rate-memory-20261109",
+  "status": "EXPERIMENTAL_WINDOWS_REAL_PE_FINALIZATION_COREUTILS_FREE",
+  "changed_paths": [
+    ".github/workflows/ultimate-native-client-windows.yml",
+    "bbport/build.sh",
+    "docs/ULTIMATE_BATCH_19.md",
+    "tools/ultimate/batch_19_manifest.json",
+    "tools/ultimate/test_batch_16_windows_finalization.py"
+  ],
+  "pinned_blobs": [
+    {
+      "path": "bbport/build.sh",
+      "git_blob_sha1": "134a737b091d49d247de84b25e84704fef8f8c05"
+    },
+    {
+      "path": "tools/ultimate/test_batch_16_windows_finalization.py",
+      "git_blob_sha1": "8caaa6d256877d67461d0dbe98d1b68bd87a18c7"
+    }
+  ],
+  "actual_failure": {
+    "run": "https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42598837011",
+    "stages": [
+      "net PASS",
+      "gpu PASS",
+      "final PASS"
+    ],
+    "outputs": [
+      "bb-probe.exe present",
+      "bb-gpu-capabilities.exe present",
+      "bb-play.exe present"
+    ],
+    "failure": "WINDOWS_NATIVE_COPY_FAILED rc=127, missing coreutils cp; wc byte counts blank; production mode file not written"
+  },
+  "source_safety": {
+    "no_live_deploy": true,
+    "no_private_game_assets": true,
+    "no_player_saves": true,
+    "no_public_release": true,
+    "no_protocol_change": true
+  },
+  "tests": [
+    "real CMake -E copy_if_different and compare_files in production Bash finalizer",
+    "simulate no Unix cp/wc/cmp functions: all return 127, finalization still succeeds",
+    "simulate copy rc37 and postcopy corruption rc47 before mode file",
+    "Windows actual three native AMD64 PE32+ file validation on clean first pass",
+    "inherited B10/B12/B13/B14 compiler fixtures"
+  ],
+  "limits": [
+    "Windows full executable compile must pass before claiming green",
+    "No actual Bloodborne gameplay or native no-PS4-ELF binary",
+    "No gameplay measured or private Fornex deployment"
+  ]
+}

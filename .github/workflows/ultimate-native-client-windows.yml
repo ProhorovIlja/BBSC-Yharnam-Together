@@ -1,4 +1,4 @@
-name: "Ultimate B16 native Windows finalization and cumulative server source build"
+name: "Ultimate B19 native Windows finalization without Unix coreutils"
 
 on:
   pull_request:
@@ -6,9 +6,11 @@ on:
       - '.github/workflows/ultimate-native-client-windows.yml'
       - 'bbport/build.sh'
       - 'docs/ULTIMATE_BATCH_16.md'
-      - 'tools/ultimate/batch_16_manifest.json'
+      - 'tools/ultimate/batch_19_manifest.json'
       - 'tools/ultimate/test_batch_16_windows_finalization.py'
       - 'tools/ultimate/test_batch_14_windows_native_resources.py'
+      - 'docs/ULTIMATE_BATCH_19.md'
+      - 'tools/ultimate/batch_19_manifest.json'
   workflow_dispatch:
 
 permissions:
@@ -20,7 +22,7 @@ concurrency:
 
 jobs:
   source-fixtures:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-15-server-client-history-merge-20261109')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-18-account-rate-memory-20261109')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -28,33 +30,33 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Restrict to exact B15-to-B16 six-path source/test finalization change
+      - name: Restrict to exact B18-to-B19 five-path source/test finalization change
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin \
-            experiment/ultimate-batch-15-server-client-history-merge-20261109:refs/remotes/origin/b15
-          git diff --name-only origin/b15 HEAD >/tmp/b16-diff.txt
-          cat /tmp/b16-diff.txt
-          if grep -vE '^(bbport/build\.sh|\.github/workflows/ultimate-native-client-windows\.yml|docs/ULTIMATE_BATCH_16\.md|tools/ultimate/batch_16_manifest\.json|tools/ultimate/test_batch_16_windows_finalization\.py|tools/ultimate/test_batch_14_windows_native_resources\.py)$' /tmp/b16-diff.txt; then
+            experiment/ultimate-batch-18-account-rate-memory-20261109:refs/remotes/origin/b18
+          git diff --name-only origin/b18 HEAD >/tmp/b19-diff.txt
+          cat /tmp/b19-diff.txt
+          if grep -vE '^(bbport/build\.sh|\.github/workflows/ultimate-native-client-windows\.yml|docs/ULTIMATE_BATCH_19\.md|tools/ultimate/batch_19_manifest\.json|tools/ultimate/test_batch_16_windows_finalization\.py)$' /tmp/b19-diff.txt; then
             echo 'Unexpected runtime, game assets or deployment change' >&2
             exit 1
           fi
-          test "$(wc -l </tmp/b16-diff.txt)" -eq 6
+          test "$(wc -l </tmp/b19-diff.txt)" -eq 5
       - name: Pin actual production Windows build shell and test identities
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           import hashlib,json
-          m=json.loads(Path("tools/ultimate/batch_16_manifest.json").read_text())
-          assert m["batch_id"]=="B16-2026-11-09" and m["parent_pr"]==47
-          assert len(m["changed_paths"])==6
-          assert all(m[k] for k in ("no_deploy","no_game_assets","no_live_saves","no_public_release"))
+          m=json.loads(Path("tools/ultimate/batch_19_manifest.json").read_text())
+          assert m["batch_id"]=="B19-2026-11-09" and m["parent_pr"]==50
+          assert len(m["changed_paths"])==5
+          assert all(m["source_safety"].values())
           for item in m["pinned_blobs"]:
               b=Path(item["path"]).read_bytes()
               sha=hashlib.sha1(b"blob "+str(len(b)).encode()+b"\0"+b).hexdigest()
               assert sha==item["git_blob_sha1"],f'{item["path"]}: {sha} != {item["git_blob_sha1"]}'
-          print("B16_EXACT_FINALIZATION_SOURCE_PINS_PASS")
+          print("B19_CMAKE_NATIVE_FINALIZATION_SOURCE_PINS_PASS")
           PY
       - name: Compile inherited reward/join code and execute exact build resource controls
         run: |
@@ -68,7 +70,7 @@ jobs:
           echo 'B16_PRODUCTION_OUTPUT_FINALIZATION_FIXTURE_PASS'
 
   build-engine:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-15-server-client-history-merge-20261109')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'experiment/ultimate-batch-18-account-rate-memory-20261109')
     needs: source-fixtures
     runs-on: windows-2022
     timeout-minutes: 55
@@ -83,27 +85,26 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - name: Verify exact B15-to-B16 finalization source scope
+      - name: Verify exact B18-to-B19 finalization scope
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          git fetch --no-tags --depth=1 origin 'experiment/ultimate-batch-15-server-client-history-merge-20261109:refs/remotes/origin/b15'
+          git fetch --no-tags --depth=1 origin 'experiment/ultimate-batch-18-account-rate-memory-20261109:refs/remotes/origin/b18'
           if ($LASTEXITCODE -ne 0) { throw 'B15 baseline unavailable' }
-          $paths = @(git diff --name-only refs/remotes/origin/b15 HEAD)
+          $paths = @(git diff --name-only refs/remotes/origin/b18 HEAD)
           if ($LASTEXITCODE -ne 0) { throw 'Could not compare cumulative source' }
           $allowed = @(
             '.github/workflows/ultimate-native-client-windows.yml',
             'bbport/build.sh',
-            'docs/ULTIMATE_BATCH_16.md',
-            'tools/ultimate/batch_16_manifest.json',
-            'tools/ultimate/test_batch_16_windows_finalization.py',
-            'tools/ultimate/test_batch_14_windows_native_resources.py'
+            'docs/ULTIMATE_BATCH_19.md',
+            'tools/ultimate/batch_19_manifest.json',
+            'tools/ultimate/test_batch_16_windows_finalization.py'
           )
           foreach ($item in $paths) {
             Write-Host "B16_SOURCE_PATH $item"
             if ($item -notin $allowed) { throw "Unexpected file in cumulative Windows integration: $item" }
           }
-          if ($paths.Count -ne $allowed.Count) { throw "Expected 6 exact B16 paths, got $($paths.Count)" }
+          if ($paths.Count -ne 5 -or $allowed.Count -ne 5) { throw "Expected 5 exact B19 paths, got $($paths.Count)" }
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -248,10 +249,11 @@ jobs:
           fi
           echo 'WINDOWS_NATIVE_CLIENT_BUILD_FINISHED'
           tail -n 12 out/ultimate-native-build.log
-          test "$(tr -d '\r\n' <out/build-mode.txt)" = production
           python - <<'PY'
           import re
           from pathlib import Path
+          assert Path("out/build-mode.txt").read_text(errors="replace").strip() == "production"
+          print("WINDOWS_PRODUCTION_MODE_MARKER_PASS")
           # Verify actual CMAKE_C_FLAGS_RELWITHDEBINFO and
           # CMAKE_CXX_FLAGS_RELWITHDEBINFO, not just workflow flags.
           cache = Path("out/gpu/CMakeCache.txt").read_text(errors="replace")
@@ -261,14 +263,10 @@ jobs:
               assert re.search(pattern, cache), f"missing actual optimized low-memory build flag: {name}"
           print("WINDOWS_ACTUAL_C_AND_CXX_LOW_DEBUG_CACHE_PASS")
           PY
-          for exe in bb-probe.exe bb-gpu-capabilities.exe bb-play.exe; do
-            test -s "out/$exe" || { echo "Missing native executable: $exe"; exit 1; }
-            magic=$(head -c 2 "out/$exe" | od -An -t x1 | tr -d '[:space:]')
-            test "$magic" = 4d5a || { echo "Not a Windows PE executable: $exe"; exit 1; }
-            sha256sum "out/$exe"
-          done
+          # Python is guaranteed by this CLANG64 job; coreutils are not.
           python - <<'PY'
           from pathlib import Path
+          import hashlib
           import struct
           for name in ("bb-probe.exe", "bb-gpu-capabilities.exe", "bb-play.exe"):
               path = Path("out") / name
@@ -285,6 +283,14 @@ jobs:
                   optional_magic = struct.unpack("<H", exe.read(2))[0]
                   assert optional_magic == 0x20b, f"{name}: not PE32+"
               print("VALID_AMD64_PE32_PLUS", name)
+              sha = hashlib.sha256()
+              with path.open("rb") as output:
+                  while True:
+                      chunk = output.read(1048576)
+                      if not chunk:
+                          break
+                      sha.update(chunk)
+              print("WINDOWS_EXE_SHA256", name, sha.hexdigest())
           PY
           echo 'BBPORT_PRODUCTION_WINDOWS_PE_BUILD_PASS_NO_GAME'
 
