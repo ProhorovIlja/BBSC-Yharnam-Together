@@ -378,14 +378,39 @@ TEST(TeamWorld, AGuestFollowsTheStoryStepsTheHostChanged) {
     before.on = {1100, 1205, 9401};
     WorldFlags after = before;
     after.on = {1100, 1300, 6630, 9401, 9403, 9801, 12404000, 50000100};
-    EXPECT_EQ(TeamStoryToFollow(before, after),
+    EXPECT_EQ(TeamStoryToFollow(before, after, 1000),
               (std::vector<std::pair<s32, bool>>{{1205, false}, {1300, true}}));
-    EXPECT_TRUE(TeamStoryToFollow(before, before).empty());
-    // Nothing taken yet, or the blocks changed (another host's world): the loads take it.
-    EXPECT_TRUE(TeamStoryToFollow(WorldFlags{}, after).empty());
+    EXPECT_TRUE(TeamStoryToFollow(before, before, 1000).empty());
+    // No old baseline is safe for a fresh team/world: the load handles it.
+    EXPECT_TRUE(TeamStoryToFollow(WorldFlags{}, after, 1000).empty());
     WorldFlags other = after;
     other.blocks = {1, 9};
-    EXPECT_TRUE(TeamStoryToFollow(before, other).empty());
+    // The previously existing global block must NOT lose NPC/quest changes
+    // just because the host's area/block coverage changed at the same time.
+    EXPECT_EQ(TeamStoryToFollow(before, other, 1000),
+              (std::vector<std::pair<s32, bool>>{{1205, false}, {1300, true}}));
+}
+
+// B31: an additional map's event flag block must not suppress a host NPC
+// story transition in the already-covered global block; *new* blocks still
+// wait for their own map's load, and per-player flags never follow the host.
+TEST(TeamWorld, NpcStoryChangesSurviveHostWorldBlockExpansionAndContraction) {
+    WorldFlags before;
+    before.blocks = {1, 2, 6, 9, 12410};
+    before.on = {1100, 1121, 1205, 2301, 6749, 9401, 12410000};
+    WorldFlags after;
+    after.blocks = {1, 6, 9, 12410, 12411};
+    after.on = {1100, 1300, 6749, 9401, 12410000, 12411001};
+    EXPECT_EQ(TeamStoryToFollow(before, after, 1000),
+              (std::vector<std::pair<s32, bool>>{{1121, false}, {1205, false}, {1300, true}}))
+        << "Eileen/Henryk-like NPC world state survives a new map block; removed block 2 ignored";
+    EXPECT_TRUE(TeamStoryToFollow(before, after, 0).empty());
+    EXPECT_TRUE(TeamStoryToFollow(WorldFlags{}, after, 1000).empty());
+
+    // Reverse report adds block 2; its stale flags are NOT changed live in a
+    // guest already standing on another map, but the global NPC block is.
+    EXPECT_EQ(TeamStoryToFollow(after, before, 1000),
+              (std::vector<std::pair<s32, bool>>{{1121, true}, {1205, true}, {1300, false}}));
 }
 
 // Kaniel's playtest 2026-10-24: the team world's sync set the host's current altar view
@@ -409,7 +434,7 @@ TEST(TeamWorld, TheCurrentAltarIsNoTeamWorlds) {
     EXPECT_TRUE(WorldFlagChanges(PerBlock, guest, team).empty());
     WorldFlags before = team;
     before.on = {94600003};
-    EXPECT_EQ(TeamStoryToFollow(before, team), (std::vector<std::pair<s32, bool>>{}));
+    EXPECT_EQ(TeamStoryToFollow(before, team, 1000), (std::vector<std::pair<s32, bool>>{}));
 }
 
 // The 2026-10-23 gestures case (rig gesture-own): the host learned Alfred's Pray (flag 6749), and
@@ -421,8 +446,8 @@ TEST(TeamWorld, AGuestKeepsItsOwnGestureFlags) {
     before.on = {1100};
     WorldFlags after = before;
     after.on = {1100, 6744, 6748, 6749, 6770, 70000007};
-    EXPECT_EQ(TeamStoryToFollow(before, after), (std::vector<std::pair<s32, bool>>{{6748, true}}));
-    EXPECT_EQ(TeamStoryToFollow(after, before), (std::vector<std::pair<s32, bool>>{{6748, false}}));
+    EXPECT_EQ(TeamStoryToFollow(before, after, 1000), (std::vector<std::pair<s32, bool>>{{6748, true}}));
+    EXPECT_EQ(TeamStoryToFollow(after, before, 1000), (std::vector<std::pair<s32, bool>>{{6748, false}}));
 }
 
 // Kaniel 2026-10-30: when the host levelled up in the Dream, guests knelt too. The Doll's talk sets
@@ -436,9 +461,9 @@ TEST(TeamWorld, AGuestKeepsItsOwnDollBlessingFlags) {
     before.on = {72100110};
     WorldFlags after = before;
     after.on = {72100099, 72100100, 72100101, 72100102, 72100103, 72100110};
-    EXPECT_EQ(TeamStoryToFollow(before, after),
+    EXPECT_EQ(TeamStoryToFollow(before, after, 1000),
               (std::vector<std::pair<s32, bool>>{{72100099, true}, {72100103, true}}));
-    EXPECT_EQ(TeamStoryToFollow(after, before),
+    EXPECT_EQ(TeamStoryToFollow(after, before, 1000),
               (std::vector<std::pair<s32, bool>>{{72100099, false}, {72100103, false}}));
 }
 
@@ -450,7 +475,7 @@ TEST(TeamWorld, AGuestKeepsItsOwnNpcGiftTalk) {
     before.on = {1121};
     WorldFlags after = before;
     after.on = {1121, 72410300, 72410301, 72410302, 72410309};
-    EXPECT_EQ(TeamStoryToFollow(before, after),
+    EXPECT_EQ(TeamStoryToFollow(before, after, 1000),
               (std::vector<std::pair<s32, bool>>{{72410309, true}}));
 }
 
@@ -484,7 +509,7 @@ TEST(TeamWorld, AGuestDoesNotFollowTheHostsLampLightRequest) {
     before.on = {1100};
     WorldFlags after = before;
     after.on = {1100, 1300, 72200201};
-    EXPECT_EQ(TeamStoryToFollow(before, after), (std::vector<std::pair<s32, bool>>{{1300, true}}));
+    EXPECT_EQ(TeamStoryToFollow(before, after, 1000), (std::vector<std::pair<s32, bool>>{{1300, true}}));
 }
 
 // Phase 6: the team join without signs or a bell. The host opens its session once it stands in
