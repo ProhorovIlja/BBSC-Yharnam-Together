@@ -236,11 +236,11 @@ private:
     HANDLE pipe = INVALID_HANDLE_VALUE;
 };
 
-// Only the game thread should ultimately populate level, build and boss names.
-// The following existing snapshot surfaces already expose co-op, duel and
-// invasion states without memory reads on the Discord IPC worker thread.
+// The game thread publishes a validated, mutex-protected PartyPanel snapshot:
+// current area/BL/build and (B60) active boss name and encounter timestamp.
+// The Discord worker never dereferences game pointers or runs a second RPC publisher.
 std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop_lobby& lobby,
-                         std::int64_t started, std::int64_t boss_started) {
+                         std::int64_t started) {
     bbcoop_duel duel{};
     bbcoop_duel_view(&duel);
     bbcoop_invasion invasion{};
@@ -251,7 +251,8 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
                        : lobby.in_team ? "Team lobby" : "Title screen";
     snapshot.session_started_unix = started;
     snapshot.boss_fighting = panel.local_boss_fight;
-    snapshot.boss_started_unix = boss_started;
+    snapshot.boss = panel.local_boss_fight ? panel.local_boss_name : "";
+    snapshot.boss_started_unix = panel.local_boss_fight ? panel.local_boss_started_unix : 0;
     if (panel.local_level >= 4 && panel.local_level <= 544) {
         snapshot.level = panel.local_level;
     }
@@ -338,9 +339,6 @@ DWORD WINAPI DiscordThread(LPVOID) {
     std::string sent;
     std::uint64_t nonce = 0;
     auto next_try = std::chrono::steady_clock::now();
-    bool boss_previous = false;
-    std::uint32_t boss_previous_map = 0;
-    std::int64_t boss_started = 0;
     for (;;) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
         if (!discord.Connected()) {
@@ -378,22 +376,13 @@ DWORD WINAPI DiscordThread(LPVOID) {
         }
         Core::Bloodborne::PartyPanel panel;
         Core::Bloodborne::ReadPartyPanel(panel); // also copies the cached snapshot while solo
-        // A new observed boss encounter on this map restarts Discord's elapsed
-        // timer. While the fight lasts, keep its start even when we spectate;
-        // return to the session timer immediately when the encounter ends.
-        if (panel.local_boss_fight && (!boss_previous || panel.map != boss_previous_map)) {
-            boss_started = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-        } else if (!panel.local_boss_fight) {
-            boss_started = 0;
-        }
-        boss_previous = panel.local_boss_fight;
-        boss_previous_map = panel.map;
+        // Names and encounter start are the game's read-only snapshot.
+        // This polling thread must never guess the boss from the map.
         static bbcoop_lobby lobby; // large: kept off this thread's stack
         if (bbcoop_lobby_view(&lobby) == 0) {
             lobby = {};
         }
-        const std::string activity = ActivityJson(panel, lobby, started, boss_started);
+        const std::string activity = ActivityJson(panel, lobby, started);
         if (activity == sent) {
             continue;
         }
