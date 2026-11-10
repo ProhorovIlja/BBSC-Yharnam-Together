@@ -48,7 +48,7 @@ jobs:
           assert 'static PhantomKeyItemLedger ledger;' not in travel
           assert 'std::ofstream{file, std::ios::binary | std::ios::trunc}' not in travel
           for token in ('CreateNewRevision(', 'ReadReady(', 'CanonicalDebt(', '.writer.lock',
-                        '.pending', '.ready', 'Checksum('):
+                        '.pending', '.ready', 'Checksum(', 'ScanLatest(', 'ScanStatus::Blocked'):
               assert token in fileh,token
           for token in ('WhatWasGainedComesBackAfterTheGameStartsAgain',
                         'WhatIsOwedGoesInTheNextPhantomsListToo',
