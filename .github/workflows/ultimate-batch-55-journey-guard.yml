@@ -1,0 +1,64 @@
+name: Ultimate B55 journey target and save backup guard
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/ultimate_journey_policy.h'
+      - 'tools/ultimate/ultimate_journey_policy_smoke.cpp'
+      - 'docs/ULTIMATE_BATCH_55.md'
+      - '.github/workflows/ultimate-batch-55-journey-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b55-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify production header and regression assertions
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h = Path('emulator/src/core/ultimate_journey_policy.h').read_text(encoding='utf8')
+          t = Path('tools/ultimate/ultimate_journey_policy_smoke.cpp').read_text(encoding='utf8')
+          d = Path('docs/ULTIMATE_BATCH_55.md').read_text(encoding='utf8')
+          for word in ('world_epoch', 'cycle_index', 'boss_id', 'arena_key', 'verified_backup_save_revision', 'StaleSaveBackup', 'ConfirmationStale'):
+              assert word in h, word
+              assert word in t, word
+          assert 'B54 code flaw' in d and 'Not implemented' in d
+          PY
+  compile-tests:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile production policy under two compilers; run all B54+B55 regression scenarios
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              tools/ultimate/ultimate_journey_policy_smoke.cpp \
+              -o "/tmp/ultimate-b55-${compiler}"
+            "/tmp/ultimate-b55-${compiler}"
+          done
