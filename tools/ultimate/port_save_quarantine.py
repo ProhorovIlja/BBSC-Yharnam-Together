@@ -128,6 +128,7 @@ def stage_snapshot(user: Path, which: str) -> Path:
     partial = quarantine / (token + ".partial")
     ready = quarantine / (token + ".ready")
     partial.mkdir(mode=0o700)  # exclusive; no reuse of earlier partial copy
+    promoted = False
     try:
         records = []
         for rel, original, size in inventory:
@@ -159,6 +160,7 @@ def stage_snapshot(user: Path, which: str) -> Path:
         if ready.exists() or ready.is_symlink():
             raise SnapshotError("snapshot destination already exists")
         partial.rename(ready)
+        promoted = True
         verify_snapshot(ready)
         return ready
     except Exception:
@@ -166,6 +168,10 @@ def stage_snapshot(user: Path, which: str) -> Path:
         # the original save or any previous complete snapshot.
         if partial.exists():
             shutil.rmtree(partial)
+        # A failed post-promotion check must never leave an unverified
+        # directory marked ".ready". Delete ONLY the unique one just created.
+        if promoted and ready.exists():
+            shutil.rmtree(ready)
         raise
 
 
@@ -174,8 +180,13 @@ def verify_snapshot(snapshot: Path) -> dict:
     if snapshot.suffix != ".ready":
         raise SnapshotError("only completed snapshots can be verified")
     _real_directory(snapshot)
+    manifest_path = snapshot / MANIFEST
     try:
-        with (snapshot / MANIFEST).open("r", encoding="utf-8") as inp:
+        manifest_stat = manifest_path.lstat()
+        if (not stat.S_ISREG(manifest_stat.st_mode) or
+                manifest_path.is_symlink() or manifest_stat.st_size > 2 * 1024 * 1024):
+            raise SnapshotError("unsafe or oversized snapshot manifest")
+        with manifest_path.open("r", encoding="utf-8") as inp:
             manifest = json.load(inp)
     except (OSError, UnicodeError, ValueError) as exc:
         raise SnapshotError("missing or unreadable snapshot manifest") from exc
@@ -194,7 +205,7 @@ def verify_snapshot(snapshot: Path) -> dict:
         rel, size, digest = record.get("path"), record.get("size"), record.get("sha256")
         if (not isinstance(rel, str) or not rel or rel.startswith("/") or
                 "\\" in rel or any(x in ("", ".", "..") for x in rel.split("/")) or
-                rel == MANIFEST or rel.endswith(".bbtmp") or rel in names):
+                ":" in rel or rel == MANIFEST or rel.endswith(".bbtmp") or rel in names):
             raise SnapshotError("unsafe or duplicate manifest path")
         if (type(size) is not int or size < 0 or size > MAX_FILE_BYTES or
                 not isinstance(digest, str) or len(digest) != 64 or
