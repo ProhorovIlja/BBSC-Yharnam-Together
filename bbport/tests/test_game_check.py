@@ -111,6 +111,55 @@ class GameCheckTests(unittest.TestCase):
         with mock.patch.object(game_check, 'LANCE_60FPS_IMAGE', game_check.image_sha256(game)):
             self.assertEqual(game_check.problem(game)[0], 'patched_eboot')
 
+    def test_external_port_fast_preflight_cache_is_explicit_opt_in(self):
+        game = self.game('CUSA03173', '01.09')
+        cache = Path(self.tmp.name) / 'out' / 'game_check.json'
+        with mock.patch.object(game_check, 'SUPPORTED_IMAGE', game_check.image_sha256(game)):
+            self.assertIsNone(game_check.problem(game, cache=cache))
+            self.assertTrue(cache.exists())
+            # No full binary decode or repeat shader walk after a matching
+            # user-requested cache. Without cache=, hashing still occurs.
+            with mock.patch.object(game_check, '_problem',
+                                   side_effect=AssertionError('verified cache unused')):
+                self.assertIsNone(game_check.problem(game, cache=cache))
+                with self.assertRaisesRegex(AssertionError, 'verified cache unused'):
+                    game_check.problem(game)
+        # Overwrite with a corrupted binary (size also changes) and refuse
+        # using the previously successful preflight result.
+        (game / 'eboot.bin').write_bytes(b'broken')
+        self.assertEqual(game_check.problem(game, cache=cache)[0], 'unreadable')
+
+    def test_external_port_corrupt_cache_is_not_a_pass(self):
+        game = self.game('CUSA03173', '01.09')
+        cache = Path(self.tmp.name) / 'out' / 'game_check.json'
+        cache.parent.mkdir(parents=True)
+        cache.write_text('{broken', encoding='utf-8')
+        with mock.patch.object(game_check, 'SUPPORTED_IMAGE', game_check.image_sha256(game)):
+            self.assertIsNone(game_check.problem(game, cache=cache))
+            self.assertIn('passed', cache.read_text(encoding='utf-8'))
+
+    def test_external_port_locked_shader_scan_reports_but_does_not_crash(self):
+        game = self.game('CUSA03173', '01.09')
+        self.shaders(game, dcx(b'valid' * 50))
+        old = Path.read_bytes
+        def fake_read(path):
+            if path.suffix == '.dcx':
+                raise PermissionError('file temporarily locked')
+            return old(path)
+        with mock.patch.object(Path, 'read_bytes', fake_read):
+            self.assertEqual(game_check.broken_files(game), [])
+
+    def test_external_port_clean_eboot_warning_ignores_skip_switch(self):
+        game = self.game('CUSA03173', '01.09')
+        actual_image = game_check.image_sha256(game)
+        with mock.patch.object(game_check, 'SUPPORTED_IMAGE', actual_image):
+            self.assertIs(game_check.eboot_clean(game), True)
+        os.environ['BB_SKIP_GAME_CHECK'] = '1'
+        with mock.patch.object(game_check, 'SUPPORTED_IMAGE', 'not-the-real-game-hash'):
+            self.assertIs(game_check.eboot_clean(game), False)
+        (game / 'eboot.bin').write_bytes(b'not a decrypted image')
+        self.assertIsNone(game_check.eboot_clean(game))
+
     def test_skip_switch(self):
         os.environ['BB_SKIP_GAME_CHECK'] = '1'
         self.assertIsNone(game_check.problem(self.game('CUSA03173', '01.00')))
