@@ -388,6 +388,7 @@ add_executable(shadps4_bloodborne_test
     bloodborne/test_bloodborne_three_players.cpp
     bloodborne/test_bloodborne_eboot.cpp
     bloodborne/test_bloodborne_patch_sites.cpp
+    bloodborne/test_bloodborne_titles.cpp
     bloodborne/test_bloodborne_fuzz.cpp
     bloodborne/test_bloodborne_autoplay.cpp
     bloodborne/test_bloodborne_harder_enemies.cpp

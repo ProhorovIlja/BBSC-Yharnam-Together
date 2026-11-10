@@ -1,0 +1,66 @@
+name: "Ultimate B49 all nine Bloodborne 1.09 CUSA titles receive co-op patches"
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_titles.h'
+      - 'emulator/src/core/bloodborne_patches.cpp'
+      - 'emulator/src/core/bloodborne_join.cpp'
+      - 'emulator/src/core/bloodborne_re_tracer.cpp'
+      - 'emulator/tests/CMakeLists.txt'
+      - 'emulator/tests/bloodborne/test_bloodborne_titles.cpp'
+      - 'tools/ultimate/test_batch_49_titles_portable.cpp'
+      - 'tools/ultimate/test_batch_49_cusa_titles.py'
+      - 'docs/ULTIMATE_BATCH_49.md'
+      - '.github/workflows/ultimate-batch-49-nine-cusa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b49-cusa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-actual-runtime-and-launcher-parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert all 9 title IDs match launcher/game-check and safety site guard
+        shell: bash
+        run: python -m unittest discover -s tools/ultimate -p 'test_batch_49_cusa_titles.py' -v
+      - name: Never read original game files or player saves
+        shell: bash
+        run: echo B49_NO_EBOOT_OR_REAL_GAME_REQUIRED
+
+  cxx-title-classifier:
+    needs: check-actual-runtime-and-launcher-parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile exact production C++20 game title header GCC and Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+              -Iemulator/src tools/ultimate/test_batch_49_titles_portable.cpp -o /tmp/b49_cusa
+            /tmp/b49_cusa
+          done
+          echo B49_NINE_RETAIL_CUSA_RUNTIME_GUARD_GCC_AND_CLANG_PASS
+      - name: Never publish or deploy experiments
+        run: echo B49_DRAFT_NO_FORNEX_NO_SAVES_NO_GAME_ASSETS
