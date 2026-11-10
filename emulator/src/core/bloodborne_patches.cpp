@@ -11,6 +11,7 @@
 #include "core/bloodborne_re_internal.h"
 #include "core/bloodborne_send_pace.h"
 #include "core/bloodborne_team.h"
+#include "core/bloodborne_titles.h"
 #include "core/bloodborne_trade.h"
 #include "core/bloodborne_write_watch.h"
 
@@ -1842,20 +1843,24 @@ bool SeamlessCoreInstalled() {
            healing_fountain_host_availability_hook_installed;
 }
 
-// Whether this game is the one the seamless patches are for: Bloodborne CUSA03173 at 01.09.
+// These patches are for the shared 1.09 executable, ANY retail Bloodborne
+// edition. Actual hook-site byte verification remains the final safety gate.
 bool IsSeamlessCoopGame() {
-    if (MemoryPatcher::g_game_serial != "CUSA03173") {
-        return false;
-    }
     const auto* param_sfo = Common::Singleton<PSF>::Instance();
     const std::string_view app_version = param_sfo->GetString("APP_VER").value_or("Unknown");
-    if (app_version != "01.09") {
+    const CoopGame game = SeamlessCoopGameFor(MemoryPatcher::g_game_serial, app_version);
+    if (game == CoopGame::OtherGame) {
         LOG_ERROR(Debug,
-                  "Bloodborne seamless patches require CUSA03173 01.09; loaded version is {}",
-                  app_version);
-        return false;
+                  "Bloodborne seamless patches require Bloodborne 01.09; title {} version {}: "
+                  "not a supported Bloodborne edition",
+                  MemoryPatcher::g_game_serial, app_version);
+    } else if (game == CoopGame::OtherVersion) {
+        LOG_WARNING(Debug,
+                    "Bloodborne seamless patches target 01.09, but {} param.sfo says {}: "
+                    "actual executable hook-site bytes decide if co-op is safe",
+                    MemoryPatcher::g_game_serial, app_version);
     }
-    return true;
+    return GetsSeamlessCoop(game);
 }
 
 // The RE tracer's site at `offset` (Sites), or null.
