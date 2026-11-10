@@ -1,0 +1,56 @@
+name: "Ultimate B53 Doll hit during blessing recovers kneeling hunter"
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_re_internal.h'
+      - 'emulator/src/core/bloodborne_kills_hp.cpp'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_flag_rules.cpp'
+      - 'tools/ultimate/test_batch_53_doll_hit.py'
+      - 'docs/ULTIMATE_BATCH_53.md'
+      - '.github/workflows/ultimate-batch-53-doll-hit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b53-doll-hit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate real local Doll HP and interrupted blessing hook
+        shell: bash
+        run: python -m unittest discover -s tools/ultimate -p 'test_batch_53_doll_hit.py' -v
+  compile-real-doll-hit-class:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile actual C++20 DollHitEndsBlessing class with GCC and Clang
+        shell: bash
+        run: python tools/ultimate/test_batch_53_doll_hit.py --compile
+      - name: Never touch game files, live Fornex or character saves
+        run: echo B53_DRAFT_NO_GAME_ASSETS_NO_SAVES_NO_DEPLOY
