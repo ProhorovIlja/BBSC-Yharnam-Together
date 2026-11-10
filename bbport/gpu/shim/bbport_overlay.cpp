@@ -4327,9 +4327,26 @@ void DrawPlayersPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
         const std::string status = self ? T("You", "Вы")
                                    : in_my_team ? T("Your team", "Ваша команда")
                                                 : TeamStateText(p);
-        draw->AddText(ImVec2(left + S(13.0f), y + S(11.0f)),
+        const auto& privacy = BbSettings::Get();
+        std::string details;
+        if (privacy.roster_levels) {
+            details = std::string("Lv. ") + (p.level > 0 ? std::to_string(p.level) : "—");
+        }
+        // No real per-account RTT or consented 4-stat profile in LobbyState:
+        // never invent numbers or use the server's private anti-cheat sheet.
+        if (privacy.roster_latency) details += (details.empty() ? "" : "  |  ") +
+            std::string("Ping: —");
+        if (privacy.roster_builds) details += (details.empty() ? "" : "  |  ") +
+            std::string("Build: —");
+        draw->AddText(ImVec2(left + S(13.0f), y + S(details.empty() ? 11.0f : 3.0f)),
                       self ? Gold() : Plain(),
                       Fit(p.name, width * 0.52f).c_str());
+        if (!details.empty()) {
+            ImGui::PushFont(MenuArt::Font(), 14.0f);
+            draw->AddText(ImVec2(left + S(13.0f), y + S(26.0f)), Dim(),
+                          Fit(details.c_str(), width * 0.52f).c_str());
+            ImGui::PopFont();
+        }
         draw->AddText(ImVec2(left + width * 0.56f, y + S(11.0f)), Plain(0.75f),
                       Fit(status.c_str(), width * 0.20f).c_str());
         if (!self && !in_my_team) {
@@ -7269,8 +7286,18 @@ void MemberMark(ImDrawList* draw, ImVec2 at, int index, bool label = true) {
     }
     draw->AddCircle(at, r, down ? Party::Blood(0.95f) : Gray(dead ? 0.5f : 1.0f), 32, S(2.0f));
     if (label) {
-        Party::Text(draw, sans_font, S(14.0f), ImVec2(at.x, at.y + r + S(3.0f)), Gray(0.95f), name, 0.5f);
-        NoteName(sans_font, S(14.0f), ImVec2(at.x, at.y + r + S(3.0f)), name, 0.5f);
+        std::string caption;
+        if (BbSettings::Get().map_teammate_names) caption = name;
+        if (BbSettings::Get().roster_levels && m.level > 0) {
+            if (!caption.empty()) caption += "  ";
+            caption += "Lv." + std::to_string(m.level);
+        }
+        if (!caption.empty()) {
+            Party::Text(draw, sans_font, S(14.0f), ImVec2(at.x, at.y + r + S(3.0f)),
+                        Gray(0.95f), caption.c_str(), 0.5f);
+            NoteName(sans_font, S(14.0f), ImVec2(at.x, at.y + r + S(3.0f)),
+                     caption.c_str(), 0.5f);
+        }
     }
 }
 
@@ -7403,7 +7430,8 @@ void DrawPicture(ImDrawList* draw, const Frame& frame, const std::vector<const b
                 const bbcoop_map_member& m = view.members[i];
                 if (m.has_at && m.map != 0) {
                     MemberMark(draw, frame.At(m.map, m.x, m.z, m.y), i,
-                               BbSettings::Get().map_teammate_names);
+                               BbSettings::Get().map_teammate_names ||
+                               (BbSettings::Get().roster_levels && m.level > 0));
                 }
             }
         }
