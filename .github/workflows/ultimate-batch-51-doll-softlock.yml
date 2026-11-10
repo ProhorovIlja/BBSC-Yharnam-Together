@@ -1,0 +1,54 @@
+name: "Ultimate B51 Doll level-up quick-cancel animation softlock"
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_flag_rules.cpp'
+      - 'tools/ultimate/test_batch_51_doll_cancel.py'
+      - 'docs/ULTIMATE_BATCH_51.md'
+      - '.github/workflows/ultimate-batch-51-doll-softlock.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b51-doll-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify real Doll animation flags and gameplay GTest call paths
+        shell: bash
+        run: python -m unittest discover -s tools/ultimate -p 'test_batch_51_doll_cancel.py' -v
+  compile-actual-doll-state-machine:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and execute actual C++20 class GCC and Clang, fast cancel and replay
+        shell: bash
+        run: python tools/ultimate/test_batch_51_doll_cancel.py --compile
+      - name: Never touch private saves, game install or Fornex
+        run: echo B51_NO_GAME_FILES_NO_PRODUCTION_NO_INSTALLER
