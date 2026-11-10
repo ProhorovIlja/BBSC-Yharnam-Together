@@ -76,6 +76,27 @@ class SetupMustNotTouchUserSaves(unittest.TestCase):
         self.assertIn('"user"', check)
         self.assertIn('"savedata"', check)
 
+    def test_launcher_uninstall_only_cleans_generated_artifacts(self):
+        import ast
+        coop = (ROOT / "bbport/launcher/bbport_coop.py").read_text(encoding="utf-8")
+        module = ast.parse(coop)
+        made = next(
+            ast.literal_eval(node.value)
+            for node in module.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "MADE_FOLDERS"
+                    for t in node.targets)
+        )
+        self.assertEqual(set(made), {"out", "event-patch"})
+        self.assertTrue(set(made).isdisjoint({"user", "savedata", "coop-game"}))
+        uninstall = coop.split("def uninstall(install):", 1)[1].split(
+            "\\ndef view_roots(", 1
+        )[0]
+        self.assertIn("for name in MADE_FOLDERS:", uninstall)
+        self.assertIn("remove_tree(install / name)", uninstall)
+        self.assertNotIn("remove_tree(install / 'user')", uninstall)
+        self.assertNotIn("remove_tree(install / 'savedata')", uninstall)
+
     def test_negative_fixture_detects_an_unprotected_staged_release(self):
         poisoned = self.contents.replace(
             r"\user\*,\savedata\*", "", 1
