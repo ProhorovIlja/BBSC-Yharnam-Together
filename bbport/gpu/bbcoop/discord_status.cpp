@@ -258,7 +258,7 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
     if (panel.local_stats_valid) {
         const auto& a = panel.local_offensive_stats;
         if (const auto mask = BbHunterBuild::Mask({a[0], a[1], a[2], a[3]})) {
-            snapshot.build = BbHunterBuild::English(*mask);
+            snapshot.build = BbHunterBuild::DiscordShort(*mask);
         }
     }
     snapshot.host = lobby.in_team && lobby.leader;
