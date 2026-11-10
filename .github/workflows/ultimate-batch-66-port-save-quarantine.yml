@@ -1,0 +1,61 @@
+name: Ultimate B66 port save quarantine and isolation
+on:
+  pull_request:
+    paths:
+      - 'tools/ultimate/port_save_quarantine.py'
+      - 'tools/ultimate/test_port_save_quarantine.py'
+      - 'docs/ULTIMATE_BATCH_66.md'
+      - '.github/workflows/ultimate-batch-66-port-save-quarantine.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quarantine-regressions:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile tool and run only synthetic-save regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/ultimate/port_save_quarantine.py tools/ultimate/test_port_save_quarantine.py
+          python -m unittest discover -s tools/ultimate -p 'test_port_save_quarantine.py' -v
+      - name: Verify both real save directories are never replaced
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          tool=Path('tools/ultimate/port_save_quarantine.py').read_text(encoding='utf-8')
+          tests=Path('tools/ultimate/test_port_save_quarantine.py').read_text(encoding='utf-8')
+          doc=Path('docs/ULTIMATE_BATCH_66.md').read_text(encoding='utf-8')
+          for x in ('def stage_snapshot(', 'def verify_snapshot(',
+                    'ultimate_quarantine', 'savedata_party', 'savedata',
+                    'partial.rename(ready)', '_digest(dest)', '_digest(original)',
+                    'os.fsync('):
+              assert x in tool,x
+          assert 'shutil.rmtree(party)' not in tool
+          assert 'source.rename(' not in tool
+          assert 'def restore' not in tool
+          for name in ('test_solo_stages_only_to_quarantine_not_party',
+                       'test_existing_quarantines_are_never_overwritten',
+                       'test_locked_or_broken_copy_preserves_every_active_source',
+                       'test_post_promotion_verification_failure_removes_only_new_candidate',
+                       'test_source_changes_mid_copy_are_rejected'):
+              assert name in tests,name
+          assert 'power-loss' in doc and 'no 1-click import' in doc.lower()
+          PY
+      - name: No live saves or production access
+        shell: bash
+        run: echo B66_TEMP_FIXTURES_ONLY_NO_REAL_SAVES_NO_FORNEX
