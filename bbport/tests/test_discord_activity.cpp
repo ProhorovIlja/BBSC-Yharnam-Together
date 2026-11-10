@@ -201,6 +201,91 @@ int main() {
     assert(Describe(p, stats).details.find('\n') == std::string::npos);
     assert(Describe(p, stats).state.find('\n') == std::string::npos);
 
+    // B62: reproduce the **two real fields + timer** seen in the uploaded
+    // Discord desktop profile, rather than inventing a third custom field.
+    PresenceSnapshot example;
+    example.location = "Central Yharnam";
+    example.level = 25;
+    example.build = "STR";
+    example.guest = true;
+    example.members = 2;
+    example.capacity = 5;
+    example.session_started_unix = 1600000000;
+    PresencePrivacy visible;
+    visible.show_location = true;
+    visible.show_level = true;
+    visible.show_build = true;
+    visible.show_boss = true;
+    const auto screenshot = PresenceLayout::ReferenceCard;
+    auto card = Describe(example, visible, screenshot);
+    assert(card.details == "In Central Yharnam");
+    assert(card.state == "BL 25   STR Build · Co-op (2/5)");
+    assert(card.start == 1600000000);
+
+    example.boss_fighting = true;
+    example.boss = "Father Gascoigne";
+    example.boss_started_unix = 1600000099;
+    card = Describe(example, visible, screenshot);
+    assert(card.details == "Fighting Father Gascoigne");
+    assert(card.state == "BL 25   STR Build · Co-op (2/5)");
+    assert(card.start == 1600000099);
+    example.spectating = true;
+    card = Describe(example, visible, screenshot);
+    assert(card.details == "Spectating in Central Yharnam");
+    assert(card.state == "BL 25   STR Build · Co-op (2/5)");
+    example.spectating = false;
+    example.boss.clear();
+    card = Describe(example, visible, screenshot);
+    assert(card.details == "Boss fight");
+    visible.show_boss = false;
+    card = Describe(example, visible, screenshot);
+    assert(card.details == "In Central Yharnam");
+    assert(card.start == 1600000000); // privacy: no fight-only timer
+    visible.show_boss = true;
+
+    example.boss_fighting = false;
+    example.guest = false;
+    card = Describe(example, visible, screenshot);
+    assert(card.details == "In Central Yharnam");
+    assert(card.state == "BL 25   STR Build · Solo");
+
+    example.invading = true;
+    example.boss_fighting = true; // stale boss cache must not override invader state
+    card = Describe(example, visible, screenshot);
+    assert(card.details == "In Central Yharnam");
+    assert(card.state == "BL 25   STR Build · Invading");
+    example.invading = false;
+    example.boss_fighting = false;
+    example.duel = true;
+    example.team_duel = true;
+    assert(Describe(example, visible, screenshot).state == "BL 25   STR Build · In Team Duel");
+    example.duel = false;
+    example.team_duel = false;
+
+    // The user's original B61 compact mode is still intact and selectable.
+    example.guest = true;
+    auto compact = Describe(example, visible, PresenceLayout::StatusFirst);
+    assert(compact.details == "Central Yharnam | BL 25   STR Build");
+    assert(compact.state == "In co-op (2/5)");
+
+    example.discord_party_counter = true;
+    card = Describe(example, visible, screenshot);
+    assert(card.state == "BL 25   STR Build · Co-op");
+    example.discord_party_counter = false;
+
+    visible.show_level = false;
+    visible.show_build = false;
+    card = Describe(example, visible, screenshot);
+    assert(card.details == "In Central Yharnam");
+    assert(card.state == "Co-op (2/5)");
+    visible.show_location = false;
+    card = Describe(example, visible, screenshot);
+    assert(card.details == "Hunting");
+    // The two fields do not contain newlines and we never send untrusted
+    // player text as a fake third Discord line.
+    assert(card.details.find('\n') == std::string::npos);
+    assert(card.state.find('\n') == std::string::npos);
+
     std::puts("discord activity: ok");
     return 0;
 }
