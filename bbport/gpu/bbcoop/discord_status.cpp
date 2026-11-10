@@ -392,6 +392,16 @@ DWORD WINAPI DiscordThread(LPVOID) {
         }
         Core::Bloodborne::PartyPanel panel;
         Core::Bloodborne::ReadPartyPanel(panel); // also copies the cached snapshot while solo
+        // B63: ReadPartyPanel is a copy of the LAST game tick. Clear its
+        // game-derived fields if the game stops ticking on a load, crash or
+        // world teardown. Do not reuse a stale boss timer/identity or BL.
+        // The lobby below has its own live view (title-screen party handling).
+        const auto now_steady_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (!DiscordActivity::GameSnapshotFresh(panel.rpc_snapshot_steady_ms, now_steady_ms)) {
+            panel = {};
+        }
         // Names and encounter start are the game's read-only snapshot.
         // This polling thread must never guess the boss from the map.
         static bbcoop_lobby lobby; // large: kept off this thread's stack

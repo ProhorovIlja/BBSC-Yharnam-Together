@@ -2097,6 +2097,11 @@ void PostVitalsAndPanel(PartyDeathRun& run, const DeathTick& tick) {
         panel.me = at;
         panel.camera_heading = CameraHeadingNow();
     }
+    // Timestamp the completed game snapshot, not the start of a possibly
+    // expensive tick; ReadPartyPanel copies this atomically with the fields.
+    panel.rpc_snapshot_steady_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
     SetPartyPanel(std::move(panel));
 }
 
