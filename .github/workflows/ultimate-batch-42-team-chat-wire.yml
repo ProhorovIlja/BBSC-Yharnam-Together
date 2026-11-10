@@ -59,6 +59,23 @@ jobs:
         run: |
           g++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -Iserver             server/tests/test_chat_policy.cpp -o /tmp/test_chat_policy
           /tmp/test_chat_policy
+      - name: Regress permitted offline-edited saves vs active runtime cheats
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -pedantic -Iserver \
+            server/tests/test_cheat_watch.cpp -o /tmp/test_cheat_watch
+          /tmp/test_cheat_watch
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("server/coop/cheat_watch.h").read_text()
+          integrated = Path("server/tests/test_bloodborne_world.cpp").read_text()
+          assert '"level-mismatch", Suspicion::Info' in source
+          fragment = integrated.split('int CheatsAndEditedSavesAreNoted() {',1)[1].split('int main() {',1)[0]
+          assert 'BloodborneCoop::Suspicion::Info' in fragment
+          assert 'BloodborneCoop::Suspicion::Certain' in fragment
+          print('B42_B34_POLICY_AND_WORLD_TEST_PARITY_PASS')
+          PY
 
   chat-server-docker-regressions:
     needs: chat-source-validation
