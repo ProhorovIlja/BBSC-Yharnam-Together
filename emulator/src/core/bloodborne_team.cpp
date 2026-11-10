@@ -542,13 +542,15 @@ u64 HomeWorlds::Version(std::string_view id) const {
 }
 
 bool HomeWorlds::Add(std::string_view id) {
-    if (!IsWorldIdWord(id) || Has(id)) {
+    // B64 safety hardening over upstream #554: dropping the OLDEST known
+    // home-world when the 17th is created can later misclassify that host's
+    // world as a guest world and restore a stale personal snapshot over it.
+    // Refuse expansion instead: preserve every already-owned world until
+    // an explicitly verified migration/archival process is implemented.
+    if (!IsWorldIdWord(id) || Has(id) || worlds.size() >= MaxHomeWorlds) {
         return false;
     }
     worlds.push_back({std::string{id}, 0});
-    if (worlds.size() > MaxHomeWorlds) {
-        worlds.erase(worlds.begin(), worlds.end() - MaxHomeWorlds);
-    }
     return true;
 }
 
