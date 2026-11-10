@@ -394,6 +394,10 @@ bool TakeLobbyMessage(const bbcoop::Envelope& envelope) {
     }
     if (envelope.has_lobby_state()) {
         std::scoped_lock lock{team_mutex};
+        const auto& old_lobby = team_gate.Lobby();
+        if (old_lobby && old_lobby->team().id() != envelope.lobby_state().team().id()) {
+            chat_inbox.clear(); // a former team's messages must not enter the next team
+        }
         team_gate.TakeLobby(envelope.lobby_state());
         NoteTeamRules(envelope.lobby_state(), lobby_member);
         if (!envelope.lobby_state().notice().empty()) {
