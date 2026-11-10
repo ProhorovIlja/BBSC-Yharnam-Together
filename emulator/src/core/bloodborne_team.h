@@ -441,6 +441,9 @@ std::vector<HeldGoods> OwedKeyItemsToGive(std::span<const OwedKeyItem> owed,
 // left out.
 std::string EncodeOwedKeyItems(std::span<const OwedKeyItem> owed);
 std::vector<OwedKeyItem> ParseOwedKeyItems(std::string_view text);
+// B68: persistence must fail closed on truncated, malformed, duplicate or
+// unknown text. The legacy best-effort parser is not a safe disk read gate.
+std::optional<std::vector<OwedKeyItem>> ParseOwedKeyItemsStrict(std::string_view text);
 // The looks at a guest's key item lists, and what they owe its own list.
 class PhantomKeyItemLedger {
 public:
