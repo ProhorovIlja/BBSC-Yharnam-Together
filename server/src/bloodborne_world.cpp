@@ -1087,6 +1087,10 @@ void Service::Take(Member& member, const bbcoop::Envelope& envelope, qint64 now_
         OnCharacterSheet(member, envelope.character_sheet(), now_ms, result);
         return;
     }
+    if (envelope.has_chat_send()) {
+        OnChat(member, envelope.chat_send(), now_ms);
+        return;
+    }
     // An invader in a world, or one on its way with no world of its own: in no world here.
     if (member.hostile || (member.party.isEmpty() &&
                            (searches.contains(member.key) || !InvadedBy(member.key).isEmpty()))) {
@@ -1972,6 +1976,12 @@ std::optional<QString> Service::Oversized(const bbcoop::Envelope& envelope) {
             return QStringLiteral("a team world too large");
         }
         break;
+    case bbcoop::Envelope::kChatSend:
+        if (text(envelope.chat_send().text(), 512) ||
+            text(envelope.chat_send().target(), MaxNameBytes)) {
+            return QStringLiteral("a chat message too long");
+        }
+        break;
     case bbcoop::Envelope::kCharacterSheet: {
         const bbcoop::CharacterSheet& sheet = envelope.character_sheet();
         if (text(sheet.character(), MaxCharacterBytes) || sheet.attributes_size() > 6 ||
@@ -2534,6 +2544,63 @@ void Service::Expect(const std::string& member, std::vector<bbcoop::TeamRequest>
         expected.clear(); // tickets nobody used (each holds 2 minutes)
     }
     expected[member] = std::move(requests);
+}
+
+void Service::OnChat(Member& member, const bbcoop::ChatSend& said, qint64 now_ms) {
+    // Chat requires a signed-in, currently active link, even on a local shadNet server.
+    // Never trust a sender/team claimed by a game, nor accept a lobby login without an
+    // authenticated identity. Legacy synthetic identities can play, but cannot use chat.
+    if (member.lobby.empty() || member.online_id.isEmpty() || member.quiet || member.hostile ||
+        member.lobby != AuthenticatedMember(member.online_id)) {
+        return;
+    }
+    std::vector<BloodborneCoop::Comms::Peer> roster;
+    roster.reserve(members.size());
+    for (const auto& [key, online] : members) {
+        if (online.lobby.empty() || online.online_id.isEmpty() || online.quiet || online.hostile ||
+            online.lobby != AuthenticatedMember(online.online_id)) {
+            continue;
+        }
+        BloodborneCoop::Comms::Peer peer;
+        peer.id = online.lobby;
+        if (const bbcoop::Team* team = lobby.TeamOf(online.lobby)) {
+            peer.team = team->id(); // snapshot of the CURRENT TeamLobby membership
+        }
+        roster.push_back(std::move(peer));
+    }
+    // Only team messages are enabled at this milestone: no global shard flood or DM until
+    // receiving preferences, report/block lists and cross-shard federation exist.
+    BloodborneCoop::Comms::Decision decision;
+    if (said.scope() == static_cast<std::uint32_t>(BloodborneCoop::Comms::Scope::Team)) {
+        decision = chat_gate.Route(member.lobby,
+                                   {BloodborneCoop::Comms::Scope::Team, said.text(), {}},
+                                   roster, now_ms, false);
+    }
+    bbcoop::Envelope response;
+    bbcoop::ChatEvent& notice = *response.mutable_chat_event();
+    notice.set_scope(said.scope());
+    notice.set_from(member.lobby);
+    notice.set_status(static_cast<std::uint32_t>(decision.status));
+    notice.set_ack(true);
+    SendTo(member, response, now_ms); // no untrusted text in failure acknowledgements
+    if (!decision.allowed()) return;
+
+    // Send only to one currently authenticated, online link per destination account.
+    // Gate has already enforced live team membership and deduplicated the audience.
+    std::set<std::string> remaining{decision.recipients.begin(), decision.recipients.end()};
+    bbcoop::Envelope delivered;
+    bbcoop::ChatEvent& event = *delivered.mutable_chat_event();
+    event.set_scope(said.scope());
+    event.set_from(member.lobby);
+    event.set_text(said.text());
+    for (auto& [key, recipient] : members) {
+        if (recipient.quiet || recipient.online_id.isEmpty() ||
+            recipient.lobby != AuthenticatedMember(recipient.online_id)) continue;
+        if (remaining.erase(recipient.lobby)) {
+            SendTo(recipient, delivered, now_ms);
+        }
+        if (remaining.empty()) break;
+    }
 }
 
 void Service::OnTeamRequest(Member& member, const bbcoop::TeamRequest& said, qint64 now_ms,
