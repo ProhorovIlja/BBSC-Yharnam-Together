@@ -4,7 +4,7 @@
 
 ## Actual code in this batch
 
-1. `bbport/gpu/bbcoop/discord_presence_policy.h`: the guest status is now **`In co-op session (N/M)`**; for unknown or invalid counts, it says only **`In co-op session`**, never fake membership. The boss encounter takes precedence in Discord's one details row, but an explicitly shared local **level and build remain appended** during the fight. With boss visibility disabled, both boss identity and fight-only timer are omitted to avoid privacy leakage. A spectator (especially a player dead in an active boss fight) is **`Spectating`** even if a stale duel flag is present. Other roles keep B56 semantics: `Hosting`, `Invading`, `In Team Duel`, `In-duel`.
+1. `bbport/gpu/bbcoop/discord_presence_policy.h`: for private sessions without a Discord-native party counter, the guest status is **`In co-op session (N/M)`**; with a valid `party.size` in Discord IPC the `state` is **`In co-op session`** and Discord itself displays **`In co-op session (N of M)`**. This avoids duplicate `(2/5) (2 of 5)` text while retaining Discord party grouping and Join invitations. For unknown or invalid counts it says only **`In co-op session`**, never fakes membership. This choice follows [Discord's current Rich Presence guide](https://github.com/discord/discord-api-docs/blob/main/developers/discord-social-sdk/development-guides/setting-rich-presence.mdx). The boss encounter takes precedence in Discord's one details row, but an explicitly shared local **level and build remain appended** during the fight. With boss visibility disabled, both boss identity and fight-only timer are omitted to avoid privacy leakage. A spectator (especially a player dead in an active boss fight) is **`Spectating`** even if a stale duel flag is present. Other roles keep B56 semantics: `Hosting`, `Invading`, `In Team Duel`, `In-duel`.
 2. `bbport/gpu/bbcoop/build_archetype.h` from B45 remains authoritative: STR/SKL/BLT/ARC independently qualify at >=18, masks 0-15 render meaningful 16 labels, invalid 0 or >99 stats reject the label. `bbport/tests/test_discord_activity.cpp` now checks **all 16 masks**, threshold boundaries, build retention in boss fights, privacy and exact `2/5` and `3/5` strings. This is *reuse*, not a second competing classifier.
 3. `bbport/launcher/bbport_coop.py`: independent persisted preferences in `user/coop.json`: `discord_show_area` and `discord_show_boss` default ON; `discord_show_level` and `discord_show_build` default OFF until the player opts in. They map to `BB_DISCORD_SHOW_AREA`, `BB_DISCORD_SHOW_BOSS`, `BB_DISCORD_SHOW_LEVEL`, `BB_DISCORD_SHOW_BUILD` only while Discord RPC itself is ON. On other launches all child-env status and privacy keys are cleared, including stale parent values. The ID of the user's registered Discord application may be supplied via a **numeric 17-20 digit** `BB_DISCORD_APP_ID` in the launcher environment; invalid inputs are rejected. No third-party app ID is hijacked.
 4. `bbport/launcher/bbport_launcher_win.py`: when a valid Discord application ID is configured, the co-op settings show independent **Location / Level / Build (stats 18+) / Boss and fight timer** options next to the existing overall Discord RPC toggle. The options persist through existing `coop.json` saving, and are not global/team-authoritative.
@@ -12,12 +12,12 @@
 
 ## Examples (format, not captured live-game proof)
 
-- In Central Yharnam | Lv 90 | Strength/Arcane **·** In co-op session (2/5)
+- In Central Yharnam | Lv 90 | Strength/Arcane **·** In co-op session (2 of 5) when the native Discord party counter renders; otherwise the formatter falls back to `In co-op session (2/5)`.
 - Boss: Cleric Beast | Lv 90 | Quality **·** Hosting; Discord elapsed time uses the ongoing fight start
 - In Fishing Hamlet | Lv 120 | Skill/Blood **·** Spectating (if watching the fight)
 - Solo: `Solo hunter`, invader: `Invading`, team duel: `In Team Duel`
 
-Actual boss name detection still requires a validated encounter-to-name game adapter; the B56 runtime currently says `Boss fight` rather than guessing a boss. The examples illustrate the formatter with supplied *verified* names, not a promise of that adapter.
+Actual boss name detection still requires a validated encounter-to-name game adapter; the B56 runtime currently says `Boss fight` rather than guessing a boss. The examples illustrate the formatter with supplied *verified* names, not a promise of that adapter. Current Discord IPC also refuses to publish a guessed occupancy count or join link when the actual lobby member count is missing/invalid.
 
 ## Important blocker, not hidden
 
