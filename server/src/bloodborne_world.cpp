@@ -37,6 +37,7 @@
 #include <unistd.h>
 #endif
 
+#include "coop/boss_victories.h"
 #include "coop/coop_messages.h"
 #include "coop/packet_routes.h"
 
@@ -1318,6 +1319,7 @@ void Service::TakeWorld(Member& member, PartyWorld& world, const bbcoop::Envelop
     bbcoop::JournalRecord record;
     std::vector<WorldLogEntry> entries;
     bool changed = false;
+    std::vector<std::uint32_t> confirmed_boss_flags;
     switch (envelope.body_case()) {
     case bbcoop::Envelope::kShown:
         if (!member.host) {
@@ -1332,8 +1334,25 @@ void Service::TakeWorld(Member& member, PartyWorld& world, const bbcoop::Envelop
             return;
         }
         const std::string& bits = envelope.map_state().bits();
-        entries = world.host.MapState(envelope.map_state().map(),
-                                      std::vector<u8>(bits.begin(), bits.end()));
+        const std::uint32_t map = envelope.map_state().map();
+        const auto& before = world.host.MapStateNow();
+        // Never announce a stored boss flag merely because a map/snapshot is
+        // loaded, a new link comes online, or the host switches maps.
+        const bool ongoing_map = before.map == map && before.bits.size() * 8 >= MapFlagCount &&
+                                 bits.size() * 8 >= MapFlagCount;
+        entries = world.host.MapState(map, std::vector<u8>(bits.begin(), bits.end()));
+        if (ongoing_map && world.team && member.lobby == member.name &&
+            !member.online_id.isEmpty() && member.name == AuthenticatedMember(member.online_id) &&
+            lobby.TeamOf(member.name) != nullptr) {
+            for (const WorldLogEntry& entry : entries) {
+                if (entry.kind != WorldLogKind::MapFlagOn || entry.map != map ||
+                    !BossMapFlagIndex(map, entry.subject)) continue;
+                const std::uint32_t flag = BossMapFlagBase(map) + entry.subject;
+                if (world.boss_notices_sent.insert(flag).second) {
+                    confirmed_boss_flags.push_back(flag);
+                }
+            }
+        }
         *record.mutable_map_state() = envelope.map_state();
         changed = !entries.empty();
         break;
@@ -1405,6 +1424,28 @@ void Service::TakeWorld(Member& member, PartyWorld& world, const bbcoop::Envelop
     }
     if (!entries.empty()) {
         SendEntries(world, entries, now_ms);
+    }
+    // Server-authored notices only from a newly accepted 0->1 progression
+    // flag on an already observed map. No client message may request a victory.
+    // This is a verified state transition, not independent boss simulation.
+    if (!confirmed_boss_flags.empty()) {
+        const bbcoop::Team* team = lobby.TeamOf(member.name);
+        for (const std::uint32_t flag : confirmed_boss_flags) {
+            bbcoop::Envelope notice;
+            bbcoop::ChatEvent& event = *notice.mutable_chat_event();
+            event.set_scope(static_cast<std::uint32_t>(BloodborneCoop::Comms::Scope::Team));
+            event.set_kind(1); // boss victory, not player-originated plain text
+            event.set_boss_flag(flag);
+            event.set_text("Boss defeated"); // client localizes and optionally hides spoilers
+            if (!team) break;
+            for (auto& [key, other] : members) {
+                if (other.party != world.name || other.quiet || other.hostile ||
+                    other.lobby.empty() || other.online_id.isEmpty() ||
+                    other.lobby != AuthenticatedMember(other.online_id) ||
+                    lobby.TeamOf(other.lobby) != team) continue;
+                SendTo(other, notice, now_ms);
+            }
+        }
     }
 }
 
