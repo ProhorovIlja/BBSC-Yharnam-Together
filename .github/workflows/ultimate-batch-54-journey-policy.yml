@@ -1,0 +1,55 @@
+name: Ultimate B54 safe journey policy
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/ultimate_journey_policy.h'
+      - 'tools/ultimate/ultimate_journey_policy_smoke.cpp'
+      - 'docs/ULTIMATE_BATCH_54.md'
+      - '.github/workflows/ultimate-batch-54-journey-policy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate policy and provenance without game files
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h = Path('emulator/src/core/ultimate_journey_policy.h').read_text()
+          t = Path('tools/ultimate/ultimate_journey_policy_smoke.cpp').read_text()
+          doc = Path('docs/ULTIMATE_BATCH_54.md').read_text()
+          for part in ('manual_new_game_plus = false', 'boss_rematches = false', 'verified_backup', 'party_active', 'save_revision', 'ConfirmationStale', 'ConfirmationMissing'):
+              assert part in h, part
+          for part in ('ReadyNG', 'ReadyRematch', 'OnlineSessionBusy', 'ConfirmationStale', 'ConfirmationMissing'):
+              assert part in t, part
+          assert 'NOT yet' in doc and 'No Fornex deployment' in doc
+          PY
+  compile-policy:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile policy with GCC and Clang and run regression scenarios
+        shell: bash
+        run: |
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -Wall -Wextra -Werror -pedantic -I emulator/src               tools/ultimate/ultimate_journey_policy_smoke.cpp -o "/tmp/ultimate-b54-${compiler}"
+            "/tmp/ultimate-b54-${compiler}"
+          done
