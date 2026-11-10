@@ -1616,6 +1616,37 @@ int QuickMatchFindsOrMakesAnOpenTeam() {
   return 0;
 }
 
+// B43: a public hosted shard sends only a few names, but the badge is
+// computed from the entire authoritative lobby, not the truncated list.
+int ServerPopulationDoesNotEqualTruncatedList() {
+  TeamLobby lobby = NewLobby();
+  lobby.SetHosted(2, 4);
+  for (int i = 0; i < 23; ++i) {
+    const std::string member = "hunter-" + std::to_string(i);
+    lobby.Arrive(member, "Player " + std::to_string(i), true);
+  }
+  const bbcoop::LobbyState first = lobby.StateFor("hunter-0");
+  CHECK(first.online_count_known());
+  CHECK(first.online_count() == 23);
+  CHECK(first.players_size() <= 2);
+  CHECK(first.players_size() < static_cast<int>(first.online_count()));
+  CHECK(lobby.Players().size() == 23);
+
+  // An actual lobby sign-out lowers the count; a temporary quiet connection
+  // still belongs to the server until the lobby lifecycle removes it.
+  lobby.Quiet("hunter-1", true, 10'000);
+  CHECK(lobby.StateFor("hunter-0").online_count() == 23);
+  lobby.Leave("hunter-1");
+  CHECK(lobby.StateFor("hunter-0").online_count() == 22);
+  lobby.Leave("hunter-0");
+  CHECK(lobby.StateFor("hunter-2").online_count() == 21);
+
+  // Creating a team does not create or delete player accounts.
+  CHECK(lobby.Request("hunter-2", Request(Action::CREATE)).changed);
+  CHECK(lobby.StateFor("hunter-2").online_count() == 21);
+  return 0;
+}
+
 int main() {
   int failed = 0;
   failed |= TheLeaderSetsTheTeamsRules();
@@ -1655,6 +1686,7 @@ int main() {
   failed |= HostedServersKeepEveryPlayersWorlds();
   failed |= AHostedPlayersWorldsAreCapped();
   failed |= AHostedLobbyListsFewOthers();
+  failed |= ServerPopulationDoesNotEqualTruncatedList();
   failed |= EveryHunterOnlineShowsWithItsTeam();
   failed |= TheLeaderAllowsInvaders();
   failed |= AFriendJoinsByTheTeamsCode();
