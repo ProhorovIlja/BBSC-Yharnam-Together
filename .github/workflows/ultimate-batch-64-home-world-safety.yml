@@ -46,6 +46,10 @@ jobs:
           for token in ('HomeWorlds::Add(', 'HomeWorlds::NoteVersion(',
                         'HowToTakeTeamWorld(', 'OldSavesWorld(', 'ParseHomeWorlds('):
               assert token in cpp,token
+          assert 'worlds.size() >= MaxHomeWorlds' in cpp
+          assert 'worlds.erase(worlds.begin()' not in cpp
+          assert 'EXPECT_FALSE(home.Add("home-16"))' in test
+          assert 'EXPECT_FALSE(ParseHomeWorlds(excessive))' in test
           assert 'CopyVerifiedWorldArchiveNoClobber' in files
           assert 'copy_options::none' in files
           assert 'fs::remove(archive, cleanup)' in files
