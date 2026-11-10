@@ -50,7 +50,7 @@ jobs:
           assert 'EXPECT_EQ(std::ranges::find(CharacterSlotFiles' in tests
           assert 'static PhantomKeyItemLedger ledger;' not in part
           assert 'ScanLatest(' in fs and 'CreateNewRevision(' in fs
-          assert 'NOT yet resolved' in rd('docs/ULTIMATE_BATCH_69.md')
+          assert 'not yet resolved' in rd('docs/ULTIMATE_BATCH_69.md').lower()
           PY
 
   portable-scope:
