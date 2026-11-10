@@ -18,6 +18,10 @@ Tests: tools/ultimate/test_port_save_quarantine.py, entirely synthetic temporary
 
 Important distinction: This is a protective archive/staging primitive, not a coherent multi-file live snapshot of a running game. Do not use during game writes. OS-level power-loss durability of all file and directory metadata is NOT established. There is no 1-click import, online save migration or rollback automation. B66 does NOT claim to fix the playable #22 host rollback or #35 phantom items: user saves must remain isolated until game-session/slot identity and filesystem transaction tests pass.
 
+## B67 complementary actual Windows port change
+
+The same source review led to a separate [Draft PR #89 in ProhorovIlja/bloodborne_pc_windows_port](https://github.com/ProhorovIlja/bloodborne_pc_windows_port/pull/89), where the existing launcher can actually request solo-to-party save replacement. This separate source branch implements unique pending backups, SHA-256, exclusive lock, recovery of interrupted promotions, support for visy's legacy `savedata_party.replaced` path, and a **real launcher pre-start recovery gate** that refuses to launch a party immediately after restoring an old backup. Windows/Linux synthetic save regressions: [B67 CI workflow](https://github.com/ProhorovIlja/bloodborne_pc_windows_port/actions/workflows/b67-party-save-rollback.yml). This is a complement, NOT evidence that the two incompatible YT and P2P save formats can be merged; no real save migrations or releases.
+
 ## Next integration decisions
 
 - Compare Windows port save namespace and per-character side files with our Yharnam Together team world and save paths, requiring an explicit per-runtime profile and verified restores before making a launcher toggle.
