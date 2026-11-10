@@ -574,6 +574,12 @@ extern "C" int bbcoop_lobby_view(bbcoop_lobby* lobby) {
     const std::string me = Coop::TeamLobbyMember();
     CopyName(lobby->me, sizeof(lobby->me), me);
     lobby->signed_in = 1;
+    // B43: do not infer a server population from the bounded UI roster.
+    lobby->online_count_known = state->online_count_known() ? 1 : 0;
+    if (lobby->online_count_known) {
+        lobby->online_count = static_cast<int>(std::min<std::uint32_t>(
+            state->online_count(), 1'000'000u));
+    }
     lobby->menu = Coop::TeamMenuOpen() ? 1 : 0;
     bool in_hunt = false;
     lobby->playing = Coop::TeamPlaying(&in_hunt) ? 1 : 0;
