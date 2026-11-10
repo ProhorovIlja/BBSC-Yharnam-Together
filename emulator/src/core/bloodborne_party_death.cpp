@@ -2019,6 +2019,24 @@ void PostVitalsAndPanel(PartyDeathRun& run, const DeathTick& tick) {
     for (PanelMember& member : panel.members) {
         member.shown = Coop::CharacterNameOf(member.member);
     }
+    // B56: the Discord IPC worker may read only this guarded game-thread
+    // snapshot, never live PS4 game pointers. These offsets are the same 1.09
+    // PlayerGameData attribute fields validated by bbport's save editor:
+    // +0x58 Strength, +0x60 Skill, +0x68 Bloodtinge, +0x70 Arcane.
+    panel.local_level = OwnCharacterLevel();
+    const u64 own_data = OwnGameData();
+    if (own_data >= 0x10000 &&
+        HasMemoryAccess(own_data + 0x58, 0x70 - 0x58 + 4, MemoryProt::CpuRead)) {
+        panel.local_offensive_stats = {
+            ReadValue<s32>(own_data, 0x58), ReadValue<s32>(own_data, 0x60),
+            ReadValue<s32>(own_data, 0x68), ReadValue<s32>(own_data, 0x70)
+        };
+        panel.local_stats_valid = std::ranges::all_of(
+            panel.local_offensive_stats, [](s32 stat) { return stat >= 1 && stat <= 99; });
+    }
+    // Spectating a boss still counts as being in its encounter for the timer.
+    panel.local_boss_fight = (tick.alive && EventFlagOn(BossFightFlag)) ||
+                             (vital == Vital::Spectate && run.spectating_boss_fight);
     panel.vital = tick.in_session ? vital : Vital::Off;
     panel.landed = run.downed.DamageLanded();
     panel.needed = run.downed.DamageNeeded();
