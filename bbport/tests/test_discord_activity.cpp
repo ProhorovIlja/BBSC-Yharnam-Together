@@ -27,6 +27,73 @@ int main() {
     assert(JoinSecret("", "t1", Ask, Invite, 2, 5) == "t:t1");
     assert(JoinSecret("", "t1", Invite, Invite, 2, 5).empty()) ; // a member of a closed team
     assert(JoinSecret("KTCDAB", "t1", Open, Invite, 5, 5).empty()); // full
+    // B63: a cached PartyPanel is a lease, not permanent game truth.
+    // Every state derived from a stalled game must be discarded by the
+    // production Discord worker after the bounded monotonic interval.
+    static_assert(GameSnapshotMaxAgeMs == 10'000);
+    static_assert(GameSnapshotFresh(1000, 1000));
+    static_assert(GameSnapshotFresh(1000, 11000)); // inclusive boundary
+    static_assert(!GameSnapshotFresh(1000, 11001));
+    static_assert(!GameSnapshotFresh(0, 1001)); // never observed
+    static_assert(!GameSnapshotFresh(-1, 1001));
+    static_assert(!GameSnapshotFresh(2000, 1999)); // future / epoch mismatch
+    static_assert(!GameSnapshotFresh(100, 0));
+    static_assert(!GameSnapshotFresh(100, 100'101));
+
+    // B63: bad UTF-8 boundaries used to leave an orphan leading byte.
+    // A 2-byte code point split at byte 120 must be excluded entirely.
+    std::string two = std::string(119, 'a') + "\xC3\xA9";
+    BoundValidUtf8(two);
+    assert(two == std::string(119, 'a'));
+    two = std::string(118, 'a') + "\xC3\xA9";
+    BoundValidUtf8(two);
+    assert(two.size() == 120 && two.ends_with("\xC3\xA9"));
+
+    // 3-byte code point split after its first/second bytes.
+    std::string three = std::string(118, 'a') + "\xE2\x82\xAC";
+    BoundValidUtf8(three);
+    assert(three == std::string(118, 'a'));
+    three = std::string(117, 'a') + "\xE2\x82\xAC";
+    BoundValidUtf8(three);
+    assert(three.size() == 120 && three.ends_with("\xE2\x82\xAC"));
+
+    // 4-byte emoji must not be cut mid-sequence, even if the last byte
+    // would have been a UTF-8 continuation byte.
+    std::string four = std::string(117, 'b') + "\xF0\x9F\xA9\xB8";
+    BoundValidUtf8(four);
+    assert(four == std::string(117, 'b'));
+    four = std::string(116, 'b') + "\xF0\x9F\xA9\xB8";
+    BoundValidUtf8(four);
+    assert(four.size() == 120 && four.ends_with("\xF0\x9F\xA9\xB8"));
+
+    // Malformed/overlong and surrogate input must not leak into Discord.
+    std::string malformed = std::string("ok") + "\xC0\xAF";
+    BoundValidUtf8(malformed);
+    assert(malformed == "ok");
+    malformed = std::string("ok") + "\xED\xA0\x80"; // UTF-8 surrogate
+    BoundValidUtf8(malformed);
+    assert(malformed == "ok");
+    malformed = std::string("ok") + "\xF4\x90\x80\x80"; // > U+10FFFF
+    BoundValidUtf8(malformed);
+    assert(malformed == "ok");
+    malformed = std::string("ok") + "\xE2\x82"; // truncated sequence
+    BoundValidUtf8(malformed);
+    assert(malformed == "ok");
+    malformed = "untouched";
+    BoundValidUtf8(malformed);
+    assert(malformed == "untouched");
+
+    // Final UI formatting uses the same defensive text clipping in BOTH
+    // Discord fields, including legitimate multibyte localized area names.
+    PresenceSnapshot localized;
+    localized.location = std::string(118, 'Z') + "\xE2\x82\xAC";
+    localized.guest = true;
+    localized.members = 2;
+    localized.capacity = 5;
+    auto localized_card = Describe(localized, {}, PresenceLayout::ReferenceCard);
+    assert(localized_card.details.size() <= 120);
+    assert(localized_card.state == "Co-op (2/5)");
+
     // B61 contract: details stay FIXED as location + optional BL/build.
     // Discord exposes only details and state, not an independent BL row.
     PresenceSnapshot p;
