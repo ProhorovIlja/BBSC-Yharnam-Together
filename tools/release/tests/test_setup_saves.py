@@ -90,7 +90,7 @@ class SetupMustNotTouchUserSaves(unittest.TestCase):
         self.assertEqual(set(made), {"out", "event-patch"})
         self.assertTrue(set(made).isdisjoint({"user", "savedata", "coop-game"}))
         uninstall = coop.split("def uninstall(install):", 1)[1].split(
-            "\\ndef view_roots(", 1
+            "\ndef view_roots(", 1
         )[0]
         self.assertIn("for name in MADE_FOLDERS:", uninstall)
         self.assertIn("remove_tree(install / name)", uninstall)
