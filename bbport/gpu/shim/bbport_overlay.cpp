@@ -5112,8 +5112,14 @@ void Screen() {
         const bool invading = bbcoop_invasion_view(&invasion) != 0 && invasion.role == BBCOOP_INVASION_INVADER &&
                               invasion.phase != BBCOOP_INVASION_ENDED;
         if (!lobby.in_team && lobby.playing) {
+            // Existing server InvadeRequest already runs automatic random
+            // matching with level bands, consent and timeouts. Distinguish this
+            // PvP search from the PvE team Quick Match and manual-target future.
             const char* invade =
-                invading ? T("Leave the invasion", "Покинуть вторжение") : T("Invade a hunt", "Вторгнуться в охоту");
+                invading ? (invasion.phase == BBCOOP_INVASION_SEARCHING
+                                ? T("Cancel PvP search", "Отменить поиск PvP")
+                                : T("Leave the invasion", "Покинуть вторжение"))
+                         : T("Quick PvP invasion", "Быстрое вторжение PvP");
             if (Button(draw, "invade", invade, ImVec2(bx, by), ImVec2(bw, bh), lobby.signed_in != 0)) {
                 bbcoop_invade(invading ? 0 : 1);
             }
