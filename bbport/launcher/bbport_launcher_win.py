@@ -4088,8 +4088,25 @@ class Launcher:
         # and the others see the character's name. No party settings: the team is made in the game (the team screen after Continue).
         # Kaniel 2026-11-01: off by default; a friend joins from Discord only on a public server.
         if bbport_coop.DISCORD_APP_ID:
-            self.coop_rule_switch(self.cell(page, 3, 0, '', span=2), 'discord_status',
+            discord = self.cell(page, 3, 0, '', span=2)
+            self.coop_rule_switch(discord, 'discord_status',
                                   _('Show my game on Discord', 'Показывать мою игру в Discord'))
+            # Privacy choices apply only to this local hunter's Discord RPC.
+            # Keep them compact: the co-op popup must fit smaller displays.
+            choices = self.tk.Frame(discord, bg=CARD)
+            choices.pack(anchor='w', fill='x', pady=(px(3), 0))
+            left = self.tk.Frame(choices, bg=CARD)
+            right = self.tk.Frame(choices, bg=CARD)
+            left.pack(side='left', anchor='n')
+            right.pack(side='left', anchor='n', padx=(px(12), 0))
+            self.coop_rule_switch(left, 'discord_show_area',
+                                  _('Location', 'Локация'), width=px(300))
+            self.coop_rule_switch(right, 'discord_show_level',
+                                  _('Level', 'Уровень'), width=px(300))
+            self.coop_rule_switch(left, 'discord_show_build',
+                                  _('Build (stats 18+)', 'Билд (статы от 18)'), width=px(300))
+            self.coop_rule_switch(right, 'discord_show_boss',
+                                  _('Boss and fight timer', 'Босс и таймер боя'), width=px(300))
         cell = self.cell(page, 2, 0, '', span=2)
         # Two lines: in the longer languages the four did not fit the card in one.
         row = self.tk.Frame(cell, bg=CARD)
@@ -4650,12 +4667,12 @@ class Launcher:
         self.coop_vars[key] = v
         return v
 
-    def coop_rule_switch(self, parent, key, title):
+    def coop_rule_switch(self, parent, key, title, width=None):
         text = self.coop_rule_var(key)
         on = self.tk.BooleanVar(value=text.get() == '1')
         on.trace_add('write', lambda *_a: text.set('1' if on.get() else ''))
         text.trace_add('write', lambda *_a: on.get() != (text.get() == '1') and on.set(text.get() == '1'))
-        row = self.switch(parent, on, title, self.px(640))
+        row = self.switch(parent, on, title, self.px(640) if width is None else width)
         row.pack(anchor='w', pady=(self.px(4), 0))
         return row
 
