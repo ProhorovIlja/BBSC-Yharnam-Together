@@ -1,0 +1,87 @@
+name: Ultimate B60 boss identity and game-thread encounter clock
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/ultimate_boss_names_gpl2.h'
+      - 'emulator/src/core/ultimate_boss_presence.h'
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_re_internal.h'
+      - 'emulator/src/core/bloodborne_party_death.cpp'
+      - 'bbport/gpu/bbcoop/discord_status.cpp'
+      - 'emulator/tests/bloodborne/test_ultimate_boss_presence.cpp'
+      - 'docs/ULTIMATE_BATCH_60.md'
+      - '.github/workflows/ultimate-batch-60-boss-gauge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify game-thread read-only gauge, exact offsets and Discord consumption
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          rd = lambda p: Path(p).read_text(encoding='utf-8')
+          name = rd('emulator/src/core/ultimate_boss_names_gpl2.h')
+          policy = rd('emulator/src/core/ultimate_boss_presence.h')
+          game = rd('emulator/src/core/bloodborne_party_death.cpp')
+          panel = rd('emulator/src/core/bloodborne_party.h')
+          run = rd('emulator/src/core/bloodborne_re_internal.h')
+          rpc = rd('bbport/gpu/bbcoop/discord_status.cpp')
+          old = rd('emulator/src/core/bloodborne_party.cpp')
+          for token in ('BossGaugesPointerOffset = 0x05562878',
+                        'BossGaugesOffset = 0x1658',
+                        'BossGaugeSlots = 3', 'BossGaugeSize = 0x14'):
+              assert token in panel, token
+          assert 'std::vector<u32> BossGaugesUp' in old
+          assert 'std::array<std::pair<std::int32_t, std::string_view>, 87>' in name
+          assert 'erezeth/bloodborne-rpc' in name and 'GPL-2.0-only' in name
+          for token in ('NameFromActiveGauges', 'slot[0x10] == 0',
+                        'handle == -1', 'EncounterClock', 'current_map_'):
+              assert token in policy, token
+          for token in ('HasMemoryAccess(holder + BossGaugesOffset, BossPresence::GaugeBytes',
+                        'MemoryProt::CpuRead', 'NameFromActiveGauges(gauges)',
+                        'run.rpc_boss_clock.Observe(', 'local_boss_started_unix'):
+              assert token in game, token
+          assert 'BossPresence::EncounterClock rpc_boss_clock' in run
+          assert 'std::string local_boss_name' in panel
+          assert 's64 local_boss_started_unix' in panel
+          assert 'snapshot.boss = panel.local_boss_fight ? panel.local_boss_name' in rpc
+          assert 'snapshot.boss_started_unix = panel.local_boss_fight ? panel.local_boss_started_unix' in rpc
+          assert 'boss_previous' not in rpc
+          assert 'GPL-2.0-only' in rd('docs/ULTIMATE_BATCH_60.md')
+          PY
+
+  cxx-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang compile and run actual decoder, catalog and encounter clock
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+              -I emulator/src \
+              emulator/tests/bloodborne/test_ultimate_boss_presence.cpp \
+              -o "/tmp/ultimate-b60-${compiler}"
+            "/tmp/ultimate-b60-${compiler}"
+          done

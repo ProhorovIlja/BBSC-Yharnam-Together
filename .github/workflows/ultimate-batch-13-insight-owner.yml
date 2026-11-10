@@ -23,6 +23,10 @@ concurrency:
 
 jobs:
   exact-source-diff-and-pins:
+    # The 9-file diff was the original B12 -> B13 review boundary.
+    # Applying it to B60 (or other later cumulative batches) is a false
+    # failure: their new features intentionally touch additional paths.
+    if: github.head_ref == 'experiment/ultimate-batch-13-insight-character-ownership-20261109'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
@@ -109,3 +113,19 @@ jobs:
           set -euo pipefail
           python -m unittest discover -s tools/re/tests -p 'test_encounter_insight_owner.py' -v
           echo 'B13_WINDOWS_PRODUCTION_INSIGHT_OWNER_PASS_NO_GAME'
+
+  successor-insight-regression:
+    # Later batches still exercise the real B13 reward-owner fixture, without
+    # treating valid cumulative edits as violations of B13's historic allowlist.
+    if: github.head_ref != 'experiment/ultimate-batch-13-insight-character-ownership-20261109'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate actual inherited boss Insight owner source after cumulative edits
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_encounter_insight_owner.py' -v
+          echo B13_INHERITED_INSIGHT_OWNER_SOURCE_PASS

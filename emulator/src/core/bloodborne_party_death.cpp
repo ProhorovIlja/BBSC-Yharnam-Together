@@ -2037,6 +2037,35 @@ void PostVitalsAndPanel(PartyDeathRun& run, const DeathTick& tick) {
     // Spectating a boss still counts as being in its encounter for the timer.
     panel.local_boss_fight = (tick.alive && EventFlagOn(BossFightFlag)) ||
                              (vital == Vital::Spectate && run.spectating_boss_fight);
+    // B60: read the *same* 1.09 gauge table this co-op already uses to clear
+    // stale boss bars on death (BossGaugesPointerOffset / BossGaugesOffset).
+    // Unlike ClearBossBarsAfterDeath, this path is read-only. It never scans
+    // arbitrary process memory or guesses boss names from the current map.
+    static_assert(BossPresence::GaugeSlots == BossGaugeSlots &&
+                  BossPresence::GaugeSize == BossGaugeSize);
+    if (panel.local_boss_fight) {
+        const u64 holder = ReadValue<u64>(image_base + BossGaugesPointerOffset, 0);
+        if (holder >= 0x10000 &&
+            holder <= std::numeric_limits<u64>::max() - BossGaugesOffset &&
+            HasMemoryAccess(holder + BossGaugesOffset, BossPresence::GaugeBytes,
+                            MemoryProt::CpuRead)) {
+            std::array<u8, BossPresence::GaugeBytes> gauges{};
+            std::memcpy(gauges.data(),
+                        reinterpret_cast<const void*>(holder + BossGaugesOffset),
+                        gauges.size());
+            if (const auto name = BossPresence::NameFromActiveGauges(gauges)) {
+                panel.local_boss_name.assign(name->data(), name->size());
+            }
+        }
+    }
+    // The encounter timestamp is observed on the actual game tick, not
+    // invented by the 2-second Discord IPC loop. Phase label changes leave
+    // the timer intact; quitting the encounter or changing maps resets it.
+    run.rpc_boss_clock.Observe(
+        panel.local_boss_fight, tick.map,
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    panel.local_boss_started_unix = run.rpc_boss_clock.StartedUnix();
     panel.vital = tick.in_session ? vital : Vital::Off;
     panel.landed = run.downed.DamageLanded();
     panel.needed = run.downed.DamageNeeded();
