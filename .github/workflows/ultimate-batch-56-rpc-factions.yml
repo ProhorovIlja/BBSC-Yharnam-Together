@@ -43,7 +43,7 @@ jobs:
           tests = Path('emulator/tests/bloodborne/test_ultimate_pvp_faction_rules.cpp').read_text()
           for name in ('discord_presence_policy.h', 'DiscordActivity::Describe', 'bbcoop_invasion_view', 'bbcoop_duel_view', 'JoinOffered'):
               assert name in p, name
-          for name in ('Invading', 'In Team Duel', 'Spectating', 'Hosting', 'In co-op (', 'boss_started_unix', 'show_level = false'):
+          for name in ('Invading', 'In Team Duel', 'Spectating', 'Hosting', 'out.state = "In co-op" + party_suffix();', 'boss_started_unix', 'show_level = false'):
               assert name in rpc, name
           for name in ('MaySeePrivateHud', 'MayReviveByHit', 'DisconnectAll', 'DisconnectOne', 'host_allowed', 'global_enabled'):
               assert name in pvp, name
