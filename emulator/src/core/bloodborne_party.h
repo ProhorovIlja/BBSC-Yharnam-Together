@@ -1166,6 +1166,13 @@ public:
 private:
     bool blessing_seen = false;
 };
+// Official YT #555: event m21_00 12100121 sets 12100122 when the local
+// hunter holds the Small Hair Ornament. In co-op another player's event-flag
+// broadcast can keep this character's personal "Give" dialog flag wrong.
+// Reconcile this flag from the CURRENT character's goods, never team inventory.
+constexpr s32 DollGiveFlag = 12100122;
+constexpr u32 SmallHairOrnamentGoods = 4300;
+std::optional<bool> DollGiveFix(bool party_configured, bool flag_on, bool holds);
 // The other player's "set this event flag" (0x017C0570) and "event ended" (0x017C0901) messages
 // leave these flags and events alone in a party: what one player received is not given to the
 // other (the Hunter's Dream messengers' gift events and flags, 12101020-12101029, and the

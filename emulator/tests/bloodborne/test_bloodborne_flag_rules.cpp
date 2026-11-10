@@ -686,6 +686,22 @@ TEST(BloodborneFlagRules, TheDollsLevelUpFlagStaysWithoutABlessingOrOutOfCoop) {
     EXPECT_FALSE(solo.Tick(true, true, false, false)) << "blessing out of mode forgotten";
 }
 
+// The Doll's "Give" appears only for the hunter who holds Small Hair
+// Ornament 4300. This is a PERSONAL dialog flag; another hunter's event or
+// item inventory must never suppress or grant it for this save.
+TEST(BloodborneFlagRules, TheDollsGiveFollowsThePlayersOrnament) {
+    EXPECT_EQ(DollGiveFlag, 12100122);
+    EXPECT_EQ(SmallHairOrnamentGoods, 4300u);
+    EXPECT_EQ(RuleFor(DollGiveFlag).owner, FlagOwner::PerPlayer);
+    EXPECT_TRUE(KeepsLocalFlag(true, DollGiveFlag));
+    EXPECT_EQ(DollGiveFix(true, false, true), std::optional<bool>{true});
+    EXPECT_EQ(DollGiveFix(true, true, false), std::optional<bool>{false});
+    EXPECT_EQ(DollGiveFix(true, true, true), std::nullopt);
+    EXPECT_EQ(DollGiveFix(true, false, false), std::nullopt);
+    EXPECT_EQ(DollGiveFix(false, false, true), std::nullopt);
+    EXPECT_EQ(DollGiveFix(false, true, false), std::nullopt);
+}
+
 // m21_00 12105020-12105024 (01.09): on while any of the headstone's lamps is lit.
 TEST(BloodborneFlagRules, AHeadstoneIsLitByThisPlayersOwnLamps) {
     const std::set<s32> lit{12407830, 13207810};

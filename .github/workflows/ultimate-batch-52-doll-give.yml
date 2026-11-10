@@ -1,0 +1,55 @@
+name: "Ultimate B52 Doll Small Hair Ornament Give dialog personal flag"
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_party.cpp'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_flag_rules.cpp'
+      - 'tools/ultimate/test_batch_52_doll_ornament.py'
+      - 'docs/ULTIMATE_BATCH_52.md'
+      - '.github/workflows/ultimate-batch-52-doll-give.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b52-doll-give-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit actual inventory read and Doll event flag hook, no item mutation
+        shell: bash
+        run: python -m unittest discover -s tools/ultimate -p 'test_batch_52_doll_ornament.py' -v
+  compile-production-give-rule:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile actual production DollGiveFix and HeldItemFlagFix GCC and Clang
+        shell: bash
+        run: python tools/ultimate/test_batch_52_doll_ornament.py --compile
+      - name: No game asset, user save, production or installer access
+        run: echo B52_NO_PRIVATE_GAME_NO_FORNEX_NO_RELEASE

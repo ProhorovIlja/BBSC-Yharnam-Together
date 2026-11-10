@@ -1847,6 +1847,29 @@ void KeepHeldItemFlagsOwn() {
     }
 }
 
+// Small Hair Ornament (goods 4300) belongs to THIS character, not the team's
+// shared event state. Keep the Doll's "Give" dialogue flag 12100122 in sync
+// with the local inventory, without granting, consuming or modifying any item.
+void KeepDollGiveFlagOwn() {
+    static s64 checked_ms = 0;
+    const s64 now_ms = SteadyMilliseconds();
+    if (!party_controller || now_ms - checked_ms < 1'000 || GetLocalPlayer() < 0x10000 ||
+        !PlayerItemsReadable()) {
+        return;
+    }
+    checked_ms = now_ms;
+    const bool holds =
+        TradeHeld({BloodborneCoop::TradeItemKind::Goods, SmallHairOrnamentGoods, 0}) > 0;
+    const auto fix = DollGiveFix(true, EventFlagOn(DollGiveFlag), holds);
+    if (!fix) {
+        return;
+    }
+    reinterpret_cast<bool PS4_SYSV_ABI (*)(u64, s32, bool)>(
+        image_base + PartyGhostSetEventFlagOffset)(0, DollGiveFlag, *fix);
+    LOG_INFO(Debug, "Bloodborne party: Doll Give flag {} {}: this player {} the ornament",
+             DollGiveFlag, *fix ? "set" : "cleared", holds ? "holds" : "has no");
+}
+
 // See GestureFlagFix: every second, a gesture's flag goes off while this player has not learned
 // the gesture, so the NPC's talk gives it (a save that took the host's flag from a team world).
 void KeepGestureFlagsOwn() {
@@ -2039,6 +2062,7 @@ void TickPlayersOnThisMap() {
                  [&] { GiveNpcDeathDrops(in_session, IsUsablePackedMap(map) ? map : 0); });
     GiveBackPhantomKeyItems();
     KeepHeldItemFlagsOwn();
+    KeepDollGiveFlagOwn();
     KeepGestureFlagsOwn();
     KeepGiftTalkFlagsOwn();
     KeepOwnedWeaponFlagsOwn();
