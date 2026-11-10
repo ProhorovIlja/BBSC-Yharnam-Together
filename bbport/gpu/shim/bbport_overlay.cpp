@@ -1808,6 +1808,35 @@ void DisplayTab() {
     Toggle("map_fog", T("Map fog of war", "Туман на карте"), s.map_fog,
            T("The map hides what your hunter has not walked near yet. Off shows the whole map.",
              "Карта скрывает то, рядом с чем ваш охотник ещё не проходил. Выкл. показывает всю карту."));
+    // Ultimate B45: independent LOCAL visual and social preferences.
+    // None of these changes the server's team, invasion or map authority.
+    Toggle("social_chat", T("Text chat", "Текстовый чат"), s.social_chat,
+           T("Show and send team text messages. Off discards incoming chat text; boss notices remain separate.",
+             "Показывать и отправлять сообщения команды. Выкл. отбрасывает текст, события боссов отдельно."));
+    Toggle("social_boss_events", T("Boss victory notifications", "Сообщения о победах над боссами"),
+           s.social_boss_events,
+           T("Show server-originated team victory notices in the hunt feed independently of chat.",
+             "Показывать сообщения о победах команды независимо от текстового чата."));
+    Toggle("map_teammates", T("Teammates on the map", "Союзники на карте"), s.map_teammates,
+           T("Hide or show other hunters' markers on the map; your own marker and lamps always remain.",
+             "Скрыть или показать метки союзников на карте. Ваша метка и фонари остаются."));
+    Toggle("map_teammate_names", T("Names beside map markers", "Имена у меток на карте"),
+           s.map_teammate_names,
+           T("Show character names beside the party's map markers; independent of markers themselves.",
+             "Показывать имена у меток союзников независимо от самих меток."),
+           s.map_teammates);
+    Toggle("roster_levels", T("Show hunter levels", "Показывать уровни охотников"), s.roster_levels,
+           T("Show authoritative character levels when received from the party vitals; unknown otherwise.",
+             "Показывать уровень из данных группы, если получен; иначе прочерк."));
+    Toggle("roster_latency", T("Show hunter ping", "Показывать пинг охотников"), s.roster_latency,
+           T("Display only a measured, fresh transport RTT; unavailable ping is shown as unknown.",
+             "Пинг показывается лишь при достоверном измерении; иначе прочерк."));
+    Toggle("roster_builds", T("Show hunter builds", "Показывать билды охотников"), s.roster_builds,
+           T("Build labels use STR/SKL/BLT/ARC attributes at 18+, only if players share profile stats.",
+             "Билды по Силе, Ловкости, Крови и Тайне от 18 включительно, если игрок делится статами."));
+    Toggle("share_build_stats", T("Share my build stats", "Делиться своим билдом"), s.share_build_stats,
+           T("Prepare opt-in for a future verified profile channel; does NOT broadcast stats yet.",
+             "Согласие для будущего защищённого обмена билдом. Сейчас статы НЕ передаются."));
     Choice("fps_limit", T("FPS limit", "Лимит FPS"), BbSettings::FpsLimitIndex(s.fps_limit),
            BbSettings::FpsLimitCount,
            [&](int i) {
@@ -7369,10 +7398,13 @@ void DrawPicture(ImDrawList* draw, const Frame& frame, const std::vector<const b
         if (BbSettings::Get().bloodstains && view.has_stain && charts.contains(view.stain.map)) {
             StainMark(draw, view.stain, frame.At(view.stain.map, view.stain.x, view.stain.z, view.stain.y));
         }
-        for (int i = 0; i < view.member_count; ++i) {
-            const bbcoop_map_member& m = view.members[i];
-            if (m.has_at && m.map != 0) {
-                MemberMark(draw, frame.At(m.map, m.x, m.z, m.y), i);
+        if (BbSettings::Get().map_teammates) {
+            for (int i = 0; i < view.member_count; ++i) {
+                const bbcoop_map_member& m = view.members[i];
+                if (m.has_at && m.map != 0) {
+                    MemberMark(draw, frame.At(m.map, m.x, m.z, m.y), i,
+                               BbSettings::Get().map_teammate_names);
+                }
             }
         }
         if (view.has_me && view.map != 0) {
