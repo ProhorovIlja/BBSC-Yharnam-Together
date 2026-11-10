@@ -47,13 +47,21 @@ inline constexpr bool ValidPartyCount(int members, int capacity) {
     return capacity > 0 && members > 0 && members <= capacity;
 }
 
+// Only the two Discord text fields are available. ReferenceCard follows
+// the user's supplied real-profile screenshot: area on row one, adjacent
+// BL/build + context on row two, and the elapsed time below. The exact
+// additional independent status row shown in the user's mockup would require
+// a third custom Discord field, which the documented RPC API does not offer.
+enum class PresenceLayout { StatusFirst, ReferenceCard };
+
 struct PresenceText {
     std::string details;
     std::string state;
     std::int64_t start = 0;
 };
 
-inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& privacy) {
+inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& privacy,
+                             PresenceLayout layout = PresenceLayout::StatusFirst) {
     PresenceText out;
     // B61: user's visual contract is location, then BL / build, then
     // activity status, then a live elapsed timer. Discord RPC itself has
@@ -121,6 +129,40 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
     if (out.start == 0) {
         out.start = std::max<std::int64_t>(0, s.session_started_unix);
     }
+    if (layout == PresenceLayout::ReferenceCard) {
+        // Screenshot-compatible card presentation. The first line carries
+        // the area normally, or the boss activity during an encounter.
+        // The second carries Blood Level, build and co-op/role together.
+        // These are supported native fields, never injected line breaks.
+        if (s.spectating) {
+            out.details = location_visible ? "Spectating in " + s.location : "Spectating";
+        } else if (s.boss_fighting && privacy.show_boss) {
+            out.details = s.boss.empty() ? "Boss fight" : "Fighting " + s.boss;
+        } else {
+            out.details = location_visible ? "In " + s.location : "Hunting";
+        }
+
+        std::string stats;
+        if (has_bl) {
+            stats = "BL " + std::to_string(*s.level);
+        }
+        if (privacy.show_build && !s.build.empty() && s.build.size() <= 48) {
+            if (!stats.empty()) stats += "   ";
+            stats += s.build + " Build";
+        }
+
+        std::string role = out.state;
+        if (s.host && !s.boss_fighting && role == "Hosting" && !s.discord_party_counter &&
+            ValidPartyCount(s.members, s.capacity)) {
+            role += party_suffix();
+        }
+        if (role == "Solo hunter") role = "Solo";
+        if (role == "In co-op" || role.starts_with("In co-op (")) {
+            role.replace(0, 7, "Co-op");
+        }
+        out.state = stats.empty() ? role : stats + " · " + role;
+    }
+
     // Discord's two text fields are compact; use an honest truncated label.
     if (out.details.size() > 120) {
         out.details.resize(120);
