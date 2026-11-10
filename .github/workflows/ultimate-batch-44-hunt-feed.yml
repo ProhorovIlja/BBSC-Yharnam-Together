@@ -1,0 +1,87 @@
+name: "Ultimate B44 team chat and boss victory feed, no deployment"
+
+on:
+  pull_request:
+    paths:
+      - 'server/coop/boss_victories.h'
+      - 'server/coop/coop.proto'
+      - 'server/src/bloodborne_world.h'
+      - 'server/src/bloodborne_world.cpp'
+      - 'server/tests/test_boss_victories.cpp'
+      - 'server/tests/test_bloodborne_world.cpp'
+      - 'emulator/src/core/bloodborne_server_world.cpp'
+      - 'emulator/src/core/bloodborne_re_internal.h'
+      - 'bbport/gpu/bbcoop.h'
+      - 'bbport/gpu/bbcoop/coop.cpp'
+      - 'bbport/gpu/shim/bbport_overlay.cpp'
+      - 'tools/ultimate/test_batch_44_hunt_feed.py'
+      - '.github/workflows/ultimate-batch-44-hunt-feed.yml'
+      - 'docs/ULTIMATE_BATCH_44.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b44-hunt-feed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify boss-flag, team routing, native chat panel source
+        shell: bash
+        run: python -m unittest discover -s tools/ultimate -p 'test_batch_44_hunt_feed.py' -v
+      - name: No production or private game action
+        shell: bash
+        run: echo B44_SOURCE_TESTS_OFFLINE
+
+  cpp-boss-catalog:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile C++20 canonical progression flags and fog exclusion tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -Iserver \
+            server/tests/test_boss_victories.cpp -o /tmp/b44_catalog
+          /tmp/b44_catalog
+
+  full-server-ctest:
+    needs: cpp-boss-catalog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Fetch only Protobuf dependency
+        run: git submodule update --init --depth=1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Compile actual ShadNet C++20 Qt6 protobuf and real world tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build --build-arg BUILD_JOBS=2 \
+            -f server/hosting/Dockerfile --target verification-tests \
+            -t bbsc-ultimate-b44-boss-feed-disposable-tests .
+          echo B44_REAL_BOSS_EVENT_TEAM_ISOLATION_AND_CHAT_SERVER_TESTS_PASS
+      - name: Keep draft until clean native client and game clients are validated
+        run: echo B44_NO_FORNEX_NO_SAVES_NO_RELEASE_NO_PRIVATE_GAME_ASSETS

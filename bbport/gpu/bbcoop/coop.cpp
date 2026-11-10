@@ -554,6 +554,32 @@ void CopyPlayers(bbcoop_lobby_entry (&out)[N], int& count, const List& list,
 
 } // namespace
 
+extern "C" int bbcoop_chat_take(bbcoop_chat_event* out, int most) {
+    if (out == nullptr || most <= 0 || most > 64) return 0;
+    namespace Coop = Core::Bloodborne::Coop;
+    const auto events = Coop::TakeTeamChatEvents(most);
+    int count = 0;
+    for (const bbcoop::ChatEvent& event : events) {
+        bbcoop_chat_event& entry = out[count++];
+        entry = {};
+        entry.kind = static_cast<int>(event.kind());
+        entry.ack = event.ack() ? 1 : 0;
+        entry.status = event.status();
+        entry.boss_flag = event.boss_flag();
+        // Client UI receives a character display name, not a signed-in account id.
+        const std::string display = event.from().empty() ? std::string{}
+            : Coop::CharacterNameOf(event.from());
+        CopyName(entry.name, sizeof(entry.name), display.empty() ? "Hunter" : display);
+        CopyName(entry.text, sizeof(entry.text), event.text());
+    }
+    return count;
+}
+
+extern "C" int bbcoop_chat_send(const char* text) {
+    if (!text) return 0;
+    return Core::Bloodborne::Coop::SendTeamChatText(text) ? 1 : 0;
+}
+
 extern "C" int bbcoop_lobby_view(bbcoop_lobby* lobby) {
     namespace Coop = Core::Bloodborne::Coop;
     *lobby = {};

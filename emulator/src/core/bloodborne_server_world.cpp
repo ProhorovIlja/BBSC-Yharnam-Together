@@ -109,6 +109,7 @@ std::atomic<s64> save_opened_ms{0};
 bool lobby_playing = false;  // in a world (the load went)
 bool lobby_hello_due = true; // stream restarts and changes of lobby_playing
 std::deque<bbcoop::Envelope> lobby_outbox;
+std::deque<bbcoop::ChatEvent> chat_inbox; // bounded by 64; no persisted chat history
 // Phase 5b: the team's world as the server last sent it (none before), and what this game does
 // with it: a save playing in a team takes it as its loads bring each flag block (team_world_due;
 // a block once, team_world_blocks: the area's own changes stay), the team's host reports its own
@@ -383,8 +384,20 @@ std::optional<bbcoop::TeamRules> OwnTeamRules() {
 }
 
 bool TakeLobbyMessage(const bbcoop::Envelope& envelope) {
+    if (envelope.has_chat_event()) {
+        const bbcoop::ChatEvent& event = envelope.chat_event();
+        if (event.text().size() > 512 || event.from().size() > 64 || event.kind() > 1) return true;
+        std::scoped_lock lock{team_mutex};
+        if (chat_inbox.size() >= 64) chat_inbox.pop_front();
+        chat_inbox.push_back(event);
+        return true;
+    }
     if (envelope.has_lobby_state()) {
         std::scoped_lock lock{team_mutex};
+        const auto& old_lobby = team_gate.Lobby();
+        if (old_lobby && old_lobby->team().id() != envelope.lobby_state().team().id()) {
+            chat_inbox.clear(); // a former team's messages must not enter the next team
+        }
         team_gate.TakeLobby(envelope.lobby_state());
         NoteTeamRules(envelope.lobby_state(), lobby_member);
         if (!envelope.lobby_state().notice().empty()) {
@@ -2477,6 +2490,29 @@ void RefuseServerResumePoint() {
 std::optional<bbcoop::LobbyState> TeamLobbyState() {
     std::scoped_lock lock{team_mutex};
     return team_gate.Lobby();
+}
+
+std::vector<bbcoop::ChatEvent> TakeTeamChatEvents(int most) {
+    std::scoped_lock lock{team_mutex};
+    std::vector<bbcoop::ChatEvent> out;
+    const std::size_t count = most > 0 ? std::min(chat_inbox.size(), static_cast<std::size_t>(most))
+                                      : 0;
+    out.reserve(count);
+    while (out.size() < count) {
+        out.push_back(std::move(chat_inbox.front()));
+        chat_inbox.pop_front();
+    }
+    return out;
+}
+
+bool SendTeamChatText(const std::string& text) {
+    // The server remains the final validator (UTF-8, team, identity, flood cap).
+    if (!team_switch || text.empty() || text.size() > 512) return false;
+    bbcoop::Envelope envelope;
+    envelope.mutable_chat_send()->set_scope(2); // only team in B44
+    envelope.mutable_chat_send()->set_text(text);
+    QueueLobby(std::move(envelope));
+    return true;
 }
 
 std::string TeamLobbyMember() {

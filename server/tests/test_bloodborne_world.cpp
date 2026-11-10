@@ -2234,6 +2234,78 @@ int ATradeGoesThroughTheServerAndOutlivesItsRestart() {
 // Phase 5: the lobby on the service. Players sign in before any party, form a
 // team, ready up and start. Kaniel 2026-10-17: the team is only a session (a
 // new server has none); its world outlives the server.
+// B44: a boss feed entry is the server's accepted host-world 0->1
+// progression transition, never a game's free-text claim or a loaded snapshot.
+int BossVictoryAppearsExactlyOnceInsideTheRightTeam() {
+  Service service{{}};
+  service.RequireAuthenticatedIdentity();
+  Game a{1000, "61", 11, "a"};
+  Game b{1001, "62", 12, "b"};
+  Game other{1002, "63", 13, "c"};
+  const std::vector<Game*> games{&a, &b, &other};
+  qint64 now = 1'000'000;
+  for (Game* g : games) g->LobbyHello(false, now);
+  Pump(service, games, now);
+  a.Team(bbcoop::TeamRequest::CREATE, now);
+  other.Team(bbcoop::TeamRequest::CREATE, now);
+  Pump(service, games, now);
+  CHECK(a.lobby.has_team() && other.lobby.has_team());
+  CHECK(a.lobby.team().id() != other.lobby.team().id());
+  a.Team(bbcoop::TeamRequest::INVITE, now, b.name);
+  Pump(service, games, now);
+  b.Team(bbcoop::TeamRequest::ACCEPT, now, {}, a.lobby.team().id());
+  Pump(service, games, now);
+  CHECK(b.lobby.has_team());
+  a.Team(bbcoop::TeamRequest::READY, now, {}, {}, 0);
+  b.Team(bbcoop::TeamRequest::READY, now, {}, {}, 1);
+  Pump(service, games, now);
+  a.Team(bbcoop::TeamRequest::START, now);
+  Pump(service, games, now);
+  CHECK(!a.starts.empty() && !b.starts.empty());
+  a.claims_host = true;
+  a.Hello(now, QByteArray::fromStdString(a.starts.back().party()));
+  b.Hello(now, QByteArray::fromStdString(b.starts.back().party()));
+  Pump(service, games, now);
+  CHECK(a.welcome && a.welcome->accepted());
+  CHECK(b.welcome && b.welcome->accepted());
+
+  const u32 map = 0x18010000u; // Central Yharnam
+  const int flag_index = 1800;  // 12411800, accepted boss-defeat flag
+  std::vector<u8> bits((MapFlagCount + 7) / 8, 0);
+  a.MapState(map, bits, now);
+  Pump(service, games, now);
+  CHECK(a.chats.empty() && b.chats.empty() && other.chats.empty());
+  bits.at(flag_index / 8) |= static_cast<u8>(0x80 >> (flag_index % 8));
+  // A guest, even if it claims a defeated flag, cannot announce a boss.
+  b.MapState(map, bits, now);
+  Pump(service, games, now);
+  CHECK(a.chats.empty() && b.chats.empty());
+  a.MapState(map, bits, now);
+  Pump(service, games, now);
+  CHECK(a.chats.size() == 1 && b.chats.size() == 1);
+  CHECK(a.chats[0].kind() == 1 && a.chats[0].boss_flag() == 12411800u);
+  CHECK(b.chats[0].kind() == 1 && b.chats[0].text() == "Boss defeated" &&
+        b.chats[0].from().empty() && !b.chats[0].ack());
+  CHECK(other.chats.empty()); // a second team in same shard must not hear
+  // Repeated reports and same-map rollback cannot duplicate a notice.
+  a.MapState(map, bits, ++now);
+  Pump(service, games, now);
+  bits.at(flag_index / 8) = 0;
+  a.MapState(map, bits, ++now);
+  Pump(service, games, now);
+  bits.at(flag_index / 8) |= static_cast<u8>(0x80 >> (flag_index % 8));
+  a.MapState(map, bits, ++now);
+  Pump(service, games, now);
+  CHECK(a.chats.size() == 1 && b.chats.size() == 1);
+
+  // Another map's initial already-set state is a load, NOT a new defeat.
+  const u32 other_map = 0x18000000u; // Cathedral Ward
+  a.MapState(other_map, bits, ++now);
+  Pump(service, games, now);
+  CHECK(a.chats.size() == 1 && b.chats.size() == 1);
+  return 0;
+}
+
 int AuthenticatedTeamChatDoesNotCrossGroupsOrOldMembership() {
   Service service{{}};
   service.RequireAuthenticatedIdentity();
@@ -4866,6 +4938,8 @@ int main() {
       {"ACutMembersGoodbyeIsForTheHostOnly",
        ACutMembersGoodbyeIsForTheHostOnly},
       {"OnlyTheOwnersKillsAndHpCount", OnlyTheOwnersKillsAndHpCount},
+      {"BossVictoryAppearsExactlyOnceInsideTheRightTeam",
+       BossVictoryAppearsExactlyOnceInsideTheRightTeam},
       {"AuthenticatedTeamChatDoesNotCrossGroupsOrOldMembership",
        AuthenticatedTeamChatDoesNotCrossGroupsOrOldMembership},
       {"ATeamFormsAndStartsThroughTheService",
