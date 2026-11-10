@@ -133,6 +133,7 @@ typedef struct bbcoop_map_member {
     int has_at;
     float x, y, z;
     int vital; /* BBCOOP_VITAL_* */
+    uint32_t level; /* B45: from party vitals, 0 unknown */
 } bbcoop_map_member;
 /* Kaniel 2026-10-20: this player's own bloodstain on its map (any map), with its echoes (only its
  * own: Kaniel after v1.0.2). */
@@ -290,6 +291,7 @@ typedef struct bbcoop_lobby_entry {
     int team_members;
     int team_open;
     int team_started;
+    uint32_t level; /* team vitals only; 0 for everyone not currently verified */
 } bbcoop_lobby_entry;
 /* Amanises 2026-10-25: an open team as a player in no team sees it (`id` its team, `name` its
  * leader's). */
