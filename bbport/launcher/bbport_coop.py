@@ -62,6 +62,7 @@ DEFAULTS = {'game': '', 'update': '', 'role': 'guest', 'host_ip': '', 'account':
             # until the player explicitly enables discord_status.
             'discord_show_area': '1', 'discord_show_level': '',
             'discord_show_build': '', 'discord_show_boss': '1',
+            'discord_reference_layout': '1',
             # Kaniel 2026-11-01: 'local' (a host's own server, by its address: as ever) or 'global' (the
             # public server: its own accounts, bbport_auth.py, Kaniel 2026-11-03); the account's name while
             # signed in (never its password); another Global server's address than GLOBAL_SERVER (a test
@@ -1583,7 +1584,8 @@ def discord_environment(env, settings):
     fields = {'BB_DISCORD_SHOW_AREA': ('discord_show_area', '1'),
               'BB_DISCORD_SHOW_LEVEL': ('discord_show_level', ''),
               'BB_DISCORD_SHOW_BUILD': ('discord_show_build', ''),
-              'BB_DISCORD_SHOW_BOSS': ('discord_show_boss', '1')}
+              'BB_DISCORD_SHOW_BOSS': ('discord_show_boss', '1'),
+              'BB_DISCORD_REFERENCE_LAYOUT': ('discord_reference_layout', '1')}
     for key in ('BB_DISCORD_STATUS', 'BB_DISCORD_APP_ID', 'BB_DISCORD_JOIN', *fields):
         env.pop(key, None)
     if settings.get('discord_status') == '1' and DISCORD_APP_ID:

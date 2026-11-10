@@ -308,7 +308,14 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
                          std::string_view{std::getenv("BB_DISCORD_SHOW_BUILD")} == "1";
     privacy.show_boss = !std::getenv("BB_DISCORD_SHOW_BOSS") ||
                         std::string_view{std::getenv("BB_DISCORD_SHOW_BOSS")} == "1";
-    const auto shown = DiscordActivity::Describe(snapshot, privacy);
+    // The user's real Discord screenshot separates area from BL/build.
+    // ReferenceCard uses details=area (or boss) and state=BL/Build + role.
+    // Classic StatusFirst remains available for the earlier request.
+    const char* layout_env = std::getenv("BB_DISCORD_REFERENCE_LAYOUT");
+    const auto layout = layout_env && std::string_view{layout_env} == "0"
+                        ? DiscordActivity::PresenceLayout::StatusFirst
+                        : DiscordActivity::PresenceLayout::ReferenceCard;
+    const auto shown = DiscordActivity::Describe(snapshot, privacy, layout);
     std::string activity = "{\"details\":" + Json(shown.details) +
                            ",\"state\":" + Json(shown.state);
     if (shown.start > 0) {

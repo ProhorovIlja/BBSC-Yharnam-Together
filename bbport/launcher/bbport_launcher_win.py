@@ -4107,6 +4107,9 @@ class Launcher:
                                   _('Build (stats 18+)', 'Билд (статы от 18)'), width=px(300))
             self.coop_rule_switch(right, 'discord_show_boss',
                                   _('Boss and fight timer', 'Босс и таймер боя'), width=px(300))
+            self.coop_rule_switch(left, 'discord_reference_layout',
+                                  _('Discord card: location first', 'Discord: сначала локация'),
+                                  width=px(300))
         cell = self.cell(page, 2, 0, '', span=2)
         # Two lines: in the longer languages the four did not fit the card in one.
         row = self.tk.Frame(cell, bg=CARD)
