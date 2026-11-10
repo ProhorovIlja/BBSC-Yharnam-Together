@@ -4360,8 +4360,21 @@ struct ChatPage {
     int unread = 0;
     char draft[513] = {};
     std::deque<ChatLine> history; // in-memory only, at most 64 messages
+    std::string last_member, last_team; // never show another team's retained conversation
 };
 ChatPage chat_page;
+
+void SyncChatAudience() {
+    if (!lobby.signed_in) return;
+    const std::string member{lobby.me}, team{lobby.team};
+    if (chat_page.last_member != member || chat_page.last_team != team) {
+        chat_page.history.clear();
+        chat_page.unread = 0;
+        chat_page.draft[0] = 0;
+        chat_page.last_member = member;
+        chat_page.last_team = team;
+    }
+}
 
 void KeepChatLine(ChatLine line) {
     if (chat_page.history.size() >= 64) chat_page.history.pop_front();
