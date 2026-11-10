@@ -123,7 +123,8 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
     }
     // Discord has two short text fields and a single visible timer. Use the
     // fight start while the encounter runs, then restore play-session uptime.
-    if (s.boss_fighting && privacy.show_boss && s.boss_started_unix > 0) {
+    if (s.boss_fighting && privacy.show_boss && s.boss_started_unix > 0 &&
+        !s.invading && !s.invasion_searching && !s.duel) {
         out.start = s.boss_started_unix;
     }
     if (out.start == 0) {
