@@ -27,9 +27,49 @@ struct Revision {
     bool operator==(const Revision&) const = default;
 };
 
+// Canonical debt list, same contract as the game-side strict parser.
+// An empty payload is an explicit committed tombstone: NEVER infer one from
+// a missing/truncated file. No bells, duplicate items, extra whitespace or
+// malformed lines may be persisted.
+inline bool CanonicalDebt(std::string_view payload) {
+    if (payload.size() > 64 * 1024) return false;
+    std::array<std::uint64_t, 256> encountered{};
+    std::size_t count = 0;
+    while (!payload.empty()) {
+        const auto newline = payload.find('\n');
+        if (newline == payload.npos || count == encountered.size()) return false;
+        const auto row = payload.substr(0, newline);
+        payload.remove_prefix(newline + 1);
+        const auto first_space = row.find(' ');
+        if (first_space == row.npos) return false;
+        const auto second_space = row.find(' ', first_space + 1);
+        if (second_space == row.npos) return false;
+        const auto fields = std::array{
+            row.substr(0, first_space),
+            row.substr(first_space + 1, second_space - first_space - 1),
+            row.substr(second_space + 1)};
+        std::array<std::uint64_t, 3> nums{};
+        for (std::size_t i = 0; i < 3; ++i) {
+            if (fields[i].empty()) return false;
+            const auto [ptr, err] = std::from_chars(fields[i].data(),
+                                                     fields[i].data() + fields[i].size(), nums[i]);
+            if (err != std::errc{} || ptr != fields[i].data() + fields[i].size() ||
+                std::to_string(nums[i]) != fields[i]) return false;
+        }
+        if (nums[0] == 0 || nums[0] > UINT32_MAX ||
+            nums[1] == 0 || nums[1] > INT32_MAX ||
+            nums[2] > INT32_MAX || nums[2] < nums[1] ||
+            nums[0] == 200 || nums[0] == 205 || nums[0] == 225 || nums[0] == 4312 ||
+            std::find(encountered.begin(), encountered.begin() + count,
+                      nums[0]) != encountered.begin() + count) return false;
+        encountered[count++] = nums[0];
+    }
+    return true;
+}
+
 inline bool Valid(const Revision& r) {
     if (r.slot >= 64 || r.sequence == 0 || r.character_fingerprint.size() != 32 ||
-        r.debt.size() > 64 * 1024) return false;
+        !CanonicalDebt(r.debt)) return false;
     return std::all_of(r.character_fingerprint.begin(), r.character_fingerprint.end(),
                        [](unsigned char c) {
                            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
