@@ -1,0 +1,60 @@
+name: "Ultimate B48 real host-dead proof before guest enemy resurrection"
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_party.cpp'
+      - 'emulator/src/core/bloodborne_kills_hp.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_party_death.cpp'
+      - 'tools/ultimate/test_batch_48_guest_kills.py'
+      - 'docs/ULTIMATE_BATCH_48.md'
+      - '.github/workflows/ultimate-batch-48-guest-kill-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b48-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checked-engine-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate actual party engine and test regression references
+        shell: bash
+        run: |
+          python -m unittest discover -s tools/ultimate -p 'test_batch_48_guest_kills.py' -v
+      - name: Never read private saves or the running server
+        shell: bash
+        run: echo B48_NO_PRODUCTION_OR_PRIVATE_GAME_DEPENDENCY
+
+  compile-real-guest-revive-function:
+    needs: checked-engine-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and execute the EXACT extracted production C++ function GCC and Clang
+        shell: bash
+        run: python tools/ultimate/test_batch_48_guest_kills.py --compile
+      - name: Keep production and multiplayer gameplay unmodified
+        run: echo B48_NO_FORNEX_NO_USER_SAVES_NO_INSTALLER_NO_GAME_ASSETS

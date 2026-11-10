@@ -535,9 +535,16 @@ struct DeadCopy {
     bool boss = false;
 };
 constexpr s64 BringBackAfterMs = 3'000;
+// Upstream YT PR #564 (merged, 2026-11-10): the host's "alive" alone does
+// not prove that its generator revived an enemy. An unacknowledged guest kill
+// can still appear alive in the delayed host board for several seconds.
+// Only a host-dead sample no earlier than 15 seconds before this copy died
+// qualifies as a real host-generator revive.
+constexpr s64 HostDeadBeforeCopyMs = 15'000;
 std::vector<u32> BroughtBackByTheHost(std::span<const CharacterShown> host,
                                       std::span<const DeadCopy> dead_here,
-                                      const std::unordered_set<u32>& party_kills, s64 now_ms);
+                                      const std::unordered_set<u32>& party_kills,
+                                      const std::unordered_map<u32, s64>& host_dead, s64 now_ms);
 // Kaniel's DLC playtest 2026-10-28 (1.3.1): the host left, the session went to Lisara (#403), and
 // her copy had krolebord's dead enemies alive. His game brought them back every BringBackEvery,
 // and each time they died again at once by the game's own kill (and other enemies the respawn
