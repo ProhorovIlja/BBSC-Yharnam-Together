@@ -4,6 +4,7 @@
 #include <cstdio>
 #include "gpu/bbcoop/discord_activity.h"
 #include "gpu/bbcoop/discord_presence_policy.h"
+#include "gpu/bbcoop/build_archetype.h"
 
 using namespace DiscordActivity;
 
@@ -94,6 +95,15 @@ int main() {
     assert(Describe(p, public_stats).start == 1600000000);
     p.boss_fighting = false;
     assert(Describe(p, public_stats).start == 1600000000);
+
+    // B45 classifier reused instead of guessing a build from level.
+    // 18 inclusive across STR/SKL/BLT/ARC, with 16 combinations.
+    assert(BbHunterBuild::Mask({18, 17, 17, 17}) == 1);
+    assert(BbHunterBuild::Mask({18, 18, 17, 17}) == 3);
+    assert(BbHunterBuild::English(3) == "Quality");
+    assert(BbHunterBuild::Mask({18, 18, 18, 18}) == 15);
+    assert(BbHunterBuild::English(15) == "Omnibuild");
+    assert(!BbHunterBuild::Mask({18, 0, 18, 18}));
 
     std::puts("discord activity: ok");
     return 0;
