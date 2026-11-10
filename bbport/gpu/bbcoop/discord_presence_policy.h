@@ -152,13 +152,21 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         }
 
         std::string role = out.state;
-        if (s.host && !s.boss_fighting && role == "Hosting" && !s.discord_party_counter &&
-            ValidPartyCount(s.members, s.capacity)) {
+        // During a boss or spectate the activity goes on the FIRST field.
+        // The second describes character identity + actual session mode,
+        // without repeating "Fighting ..." twice in the same card.
+        if ((s.boss_fighting && privacy.show_boss) || s.spectating) {
+            if (s.host || s.guest) {
+                role = "Co-op" + party_suffix();
+            } else {
+                role = "Solo";
+            }
+        } else if (s.host && role == "Hosting") {
             role += party_suffix();
         }
         if (role == "Solo hunter") role = "Solo";
         if (role == "In co-op" || role.starts_with("In co-op (")) {
-            role.replace(0, 7, "Co-op");
+            role.replace(0, 8, "Co-op");
         }
         out.state = stats.empty() ? role : stats + " · " + role;
     }
