@@ -1,0 +1,73 @@
+name: Ultimate B62 screenshot-based Discord Rich Presence
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/bbcoop/discord_presence_policy.h'
+      - 'bbport/gpu/bbcoop/discord_status.cpp'
+      - 'bbport/launcher/bbport_coop.py'
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/tests/test_discord_activity.cpp'
+      - 'bbport/tests/test_coop_launcher.py'
+      - 'docs/ULTIMATE_BATCH_62.md'
+      - '.github/workflows/ultimate-batch-62-discord-reference.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  screenshot-source-and-launcher:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Python launcher and test actual Discord settings persistence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile bbport/launcher/bbport_coop.py bbport/launcher/bbport_launcher_win.py
+          (cd bbport/tests && python -m unittest test_coop_launcher.DiscordStatusTests)
+      - name: Validate production reference-card and privacy source contracts
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          rd = lambda f: Path(f).read_text(encoding='utf8')
+          h=rd('bbport/gpu/bbcoop/discord_presence_policy.h')
+          c=rd('bbport/gpu/bbcoop/discord_status.cpp')
+          settings=rd('bbport/launcher/bbport_coop.py')
+          gui=rd('bbport/launcher/bbport_launcher_win.py')
+          t=rd('bbport/tests/test_discord_activity.cpp')
+          assert 'enum class PresenceLayout { StatusFirst, ReferenceCard }' in h
+          assert 'layout == PresenceLayout::ReferenceCard' in h
+          assert 'stats += s.build + " Build";' in h
+          assert 'BL 25   STR Build · Co-op (2/5)' in t
+          assert 'Fighting Father Gascoigne' in t
+          assert 'Spectating in Central Yharnam' in t
+          assert 'BB_DISCORD_REFERENCE_LAYOUT' in c and 'BB_DISCORD_REFERENCE_LAYOUT' in settings
+          assert 'discord_reference_layout' in gui and 'discord_reference_layout' in settings
+          assert 'B62' in rd('docs/ULTIMATE_BATCH_62.md')
+          PY
+  cpp-screenshot-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile real production activity policy with GCC and Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -Wall -Wextra -Werror -pedantic -I bbport \
+              bbport/tests/test_discord_activity.cpp -o "/tmp/ultimate-b62-${compiler}"
+            "/tmp/ultimate-b62-${compiler}"
+          done
