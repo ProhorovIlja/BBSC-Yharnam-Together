@@ -1771,13 +1771,16 @@ void KeepHeadstoneFlagsOwn() {
     }
 }
 
-// See DollLevelUpClear: each frame in the co-op mode, the Doll's level-up flag off once her
-// blessing is over, so her next "Level Up" opens the menu again.
+// Keep the level-up animation guard until both of the Doll's own kneel,
+// stand-up and turn-back event steps have finished, not merely until her
+// blessing turns off (quick Circle cancel may happen mid animation).
 void ClearDollLevelUpFlagAfterHerBlessing() {
     static DollLevelUpClear clear;
     const bool playing = party_controller && GetLocalPlayer() >= 0x10000;
+    const bool steps_on =
+        playing && (EventFlagOn(DollBlessingFlag + 1) || EventFlagOn(DollBlessingFlag + 2));
     if (!clear.Tick(playing, playing && EventFlagOn(DollLevelUpFlag),
-                    playing && EventFlagOn(DollBlessingFlag))) {
+                    playing && EventFlagOn(DollBlessingFlag), steps_on)) {
         return;
     }
     reinterpret_cast<bool PS4_SYSV_ABI (*)(u64, s32, bool)>(
