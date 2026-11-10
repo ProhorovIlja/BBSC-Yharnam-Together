@@ -58,6 +58,10 @@ DEFAULTS = {'game': '', 'update': '', 'role': 'guest', 'host_ip': '', 'account':
             'rule_rot': '', 'rule_travel': '', 'rule_vote': '', 'rule_scale': '1',
             # Kaniel 2026-11-01: '1' shows the game on Discord (off by default).
             'discord_status': '',
+            # Optional Discord RPC fields; the entire RPC remains disabled
+            # until the player explicitly enables discord_status.
+            'discord_show_area': '1', 'discord_show_level': '',
+            'discord_show_build': '', 'discord_show_boss': '1',
             # Kaniel 2026-11-01: 'local' (a host's own server, by its address: as ever) or 'global' (the
             # public server: its own accounts, bbport_auth.py, Kaniel 2026-11-03); the account's name while
             # signed in (never its password); another Global server's address than GLOBAL_SERVER (a test
@@ -1565,17 +1569,28 @@ def unlocked_fps(fps_mode):
 
 
 # The Discord application the status shows as: ours, once made (empty: the option is not offered).
-DISCORD_APP_ID = ''
+# The official Ultimate Discord application ID is not registered in the
+# repository yet. Operators can provide a Discord-issued numeric application
+# ID in the launcher environment; never invent one or reuse another app's ID.
+_configured_discord_app_id = os.environ.get('BB_DISCORD_APP_ID', '')
+DISCORD_APP_ID = (_configured_discord_app_id if
+                  re.fullmatch(r'[0-9]{17,20}', _configured_discord_app_id) else '')
 
 
 def discord_environment(env, settings):
     """The Discord status's entries in the game's environment, off unless the player turned it on. A
     friend joins from Discord only on a public server: a home server's code means nothing to a stranger."""
-    for key in ('BB_DISCORD_STATUS', 'BB_DISCORD_APP_ID', 'BB_DISCORD_JOIN'):
+    fields = {'BB_DISCORD_SHOW_AREA': ('discord_show_area', '1'),
+              'BB_DISCORD_SHOW_LEVEL': ('discord_show_level', ''),
+              'BB_DISCORD_SHOW_BUILD': ('discord_show_build', ''),
+              'BB_DISCORD_SHOW_BOSS': ('discord_show_boss', '1')}
+    for key in ('BB_DISCORD_STATUS', 'BB_DISCORD_APP_ID', 'BB_DISCORD_JOIN', *fields):
         env.pop(key, None)
     if settings.get('discord_status') == '1' and DISCORD_APP_ID:
         env['BB_DISCORD_STATUS'] = '1'
         env['BB_DISCORD_APP_ID'] = DISCORD_APP_ID
+        for key, (setting, default) in fields.items():
+            env[key] = '1' if settings.get(setting, default) == '1' else '0'
         if settings.get('server_type') == 'global':
             env['BB_DISCORD_JOIN'] = '1'
     return env
