@@ -95,6 +95,62 @@ int main() {
     CHECK(RemoveWorldFileChecked(personal));
     CHECK(RemoveWorldFileChecked(empty));
 
+
+    // B64: the upstream home-world fix deleted the previous archived copy
+    // before renaming, then deleted source on failure. This archive function
+    // must NEVER delete original or clobber an existing backup.
+    using BloodborneCoop::TeamWorldFile::CopyVerifiedWorldArchiveNoClobber;
+    const fs::path origin = root / "personal_world_slot1.txt";
+    const fs::path archive = root / "personal_world_before_home_slot1.txt";
+    const std::string original("world-flags\0binary", 18);
+    CHECK(WriteWholeFileChecked(origin, original));
+    CHECK(CopyVerifiedWorldArchiveNoClobber(origin, archive));
+    CHECK(Read(origin) == original);
+    CHECK(Read(archive) == original);
+    CHECK(fs::file_size(archive) == original.size());
+    CHECK(!CopyVerifiedWorldArchiveNoClobber(origin, archive)); // no overwrite
+    CHECK(Read(origin) == original);
+    CHECK(Read(archive) == original);
+
+    // Even when its original evolves, the previously verified archive stays
+    // intact and a new caller-chosen revision is the only permitted target.
+    CHECK(WriteWholeFileChecked(origin, "world-with-2-new-lamps"));
+    CHECK(!CopyVerifiedWorldArchiveNoClobber(origin, archive));
+    CHECK(Read(archive) == original);
+    CHECK(Read(origin) == "world-with-2-new-lamps");
+    const fs::path archive_v2 = root / "personal_world_before_home_slot1.v2.txt";
+    CHECK(CopyVerifiedWorldArchiveNoClobber(origin, archive_v2));
+    CHECK(Read(archive_v2) == Read(origin));
+    CHECK(Read(archive) == original);
+
+    // Fault injection: missing destination directory and destination occupied
+    // by a directory. Neither case may affect the ONLY source snapshot.
+    CHECK(!CopyVerifiedWorldArchiveNoClobber(origin, root / "missing" / "archive.txt"));
+    const fs::path directory = root / "occupied-backup.txt";
+    fs::create_directory(directory);
+    CHECK(!CopyVerifiedWorldArchiveNoClobber(origin, directory));
+    CHECK(fs::is_directory(directory));
+    CHECK(Read(origin) == "world-with-2-new-lamps");
+
+    // A stale/dangling symlink never becomes a writable target (on Windows
+    // without developer-mode symlink privileges the optional test skips).
+    const fs::path link = root / "point-to-nothing";
+    std::error_code link_error;
+    fs::create_symlink(root / "not-present", link, link_error);
+    if (!link_error) {
+        CHECK(!CopyVerifiedWorldArchiveNoClobber(origin, link));
+        CHECK(fs::is_symlink(fs::symlink_status(link)));
+        fs::remove(link);
+    }
+
+    // Protect against accidentally passing a directory, empty source or
+    // same source/destination. Never treat an empty/corrupt world as a backup.
+    CHECK(!CopyVerifiedWorldArchiveNoClobber(directory, root / "directory-archive"));
+    CHECK(!CopyVerifiedWorldArchiveNoClobber(origin, origin));
+    CHECK(!CopyVerifiedWorldArchiveNoClobber(empty, root / "empty-archive.txt"));
+    CHECK(!fs::exists(root / "empty-archive.txt"));
+    CHECK(Read(origin) == "world-with-2-new-lamps");
+
     fs::remove_all(root);
     std::cout << "B28_REAL_PRODUCTION_PERSONAL_WORLD_FILE_WRITE_GATE_PASS\n";
     return 0;
