@@ -1047,7 +1047,7 @@ void FollowTeamStory(s64 now_ms);
 // player's lobby name; a request from the menu.
 std::optional<bbcoop::LobbyState> TeamLobbyState();
 // B44: bounded ephemeral inbox for actual server ChatEvent envelopes, one delivery per take.
-std::vector<bbcoop::ChatEvent> TakeTeamChatEvents();
+std::vector<bbcoop::ChatEvent> TakeTeamChatEvents(int most);
 // B44: only the team's text channel; global/DM remain server-disabled.
 bool SendTeamChatText(const std::string& text);
 // Phase 7: where the server says this member last stood in its team's world (once per run).
