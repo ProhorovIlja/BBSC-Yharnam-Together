@@ -478,6 +478,8 @@ message ChatEvent {
     string text = 3;     // plain text, no HTML/markup interpretation
     uint32 status = 4;  // 0 on success; else Comms::Status value for the sender's ack
     bool ack = 5;       // success/failure to the sender; false for another player's message
+    uint32 kind = 6;    // 0 player text, 1 server-owned boss victory (B44)
+    uint32 boss_flag = 7; // known shared progression flag, NOT a client-authored message
 }
 
 // Cheat watch (coop/cheat_watch.h, Kaniel 2026-11-04): game -> server only, never sent on. What
