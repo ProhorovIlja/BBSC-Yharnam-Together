@@ -1,0 +1,58 @@
+name: "Ultimate B47 Russian/Cyrillic Unicode Hunters browser regression"
+
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/bbcoop/roster_filter.h'
+      - 'bbport/gpu/bbcoop/tests/test_roster_filter.cpp'
+      - 'bbport/gpu/shim/bbport_overlay.cpp'
+      - 'tools/ultimate/test_batch_47_utf8_roster.py'
+      - 'docs/ULTIMATE_BATCH_47.md'
+      - '.github/workflows/ultimate-batch-47-utf8-roster.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b47-utf8-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actual-ui-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Real Teams UI invokes Unicode filter, identity remains account-based
+        shell: bash
+        run: python -m unittest discover -s tools/ultimate -p 'test_batch_47_utf8_roster.py' -v
+  cxx-utf8-fixtures:
+    needs: actual-ui-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Native C++20 multilingual filter with malformed UTF-8 safety regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+              -Ibbport/gpu bbport/gpu/bbcoop/tests/test_roster_filter.cpp -o /tmp/b47_utf8
+            /tmp/b47_utf8
+          done
+          echo B47_MULTILINGUAL_CASEFOLD_GCC_AND_CLANG_PASS
+      - name: Keep experimental branch draft
+        run: echo NO_FORNEX_NO_GAME_ASSETS_NO_PLAYER_SAVES_NO_INSTALLER
