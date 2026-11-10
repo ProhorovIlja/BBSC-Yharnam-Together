@@ -42,9 +42,9 @@ int main() {
     p.host = false;
     p.guest = true;
     shown = Describe(p, {});
-    assert(shown.state == "In co-op session (3/5)");
+    assert(shown.state == "In co-op (3/5)");
     p.members = 2;
-    assert(Describe(p, {}).state == "In co-op session (2/5)");
+    assert(Describe(p, {}).state == "In co-op (2/5)");
     assert(ValidPartyCount(2, 5));
     assert(!ValidPartyCount(0, 5));
     assert(!ValidPartyCount(6, 5));
@@ -52,12 +52,12 @@ int main() {
     // With party.size in Discord's payload, Discord itself adds "(2 of 5)".
     // State must not repeat the count, or friends see both formats together.
     p.discord_party_counter = true;
-    assert(Describe(p, {}).state == "In co-op session");
+    assert(Describe(p, {}).state == "In co-op");
     p.discord_party_counter = false;
     p.members = 3;
     p.members = 7; // unsupported/lying network count: do not invent ratio
     shown = Describe(p, {});
-    assert(shown.state == "In co-op session");
+    assert(shown.state == "In co-op");
     p.members = 3;
 
     p.duel = true;
@@ -88,11 +88,11 @@ int main() {
     public_stats.show_level = true;
     public_stats.show_build = true;
     shown = Describe(p, public_stats);
-    assert(shown.details == "In Central Yharnam | BL 25 | STR/ARC");
+    assert(shown.details == "In Central Yharnam | BL 25 | STR/ARC Build");
     public_stats.show_location = false;
-    assert(Describe(p, public_stats).details == "Hunting | BL 25 | STR/ARC");
+    assert(Describe(p, public_stats).details == "Hunting | BL 25 | STR/ARC Build");
     p.level = 9999;
-    assert(Describe(p, public_stats).details == "Hunting | STR/ARC");
+    assert(Describe(p, public_stats).details == "Hunting | STR/ARC Build");
     public_stats.show_location = true; // restore independent area consent for boss fixture
     public_stats.show_level = false;
     public_stats.show_build = false;
@@ -100,17 +100,17 @@ int main() {
     p.boss_fighting = true;
     p.boss_started_unix = 1600000123;
     shown = Describe(p, public_stats);
-    assert(shown.details == "Boss: Cleric Beast | Central Yharnam");
+    assert(shown.details == "Fighting Cleric Beast | Central Yharnam");
     assert(shown.start == 1600000123);
     public_stats.show_level = true;
     public_stats.show_build = true;
     p.level = 25;
     assert(Describe(p, public_stats).details ==
-           "Boss: Cleric Beast | Central Yharnam | BL 25 | STR/ARC");
+           "Fighting Cleric Beast | Central Yharnam | BL 25 | STR/ARC Build");
     public_stats.show_location = false;
-    assert(Describe(p, public_stats).details == "Boss: Cleric Beast | BL 25 | STR/ARC");
+    assert(Describe(p, public_stats).details == "Fighting Cleric Beast | BL 25 | STR/ARC Build");
     public_stats.show_boss = false;
-    assert(Describe(p, public_stats).details == "Hunting | BL 25 | STR/ARC");
+    assert(Describe(p, public_stats).details == "Hunting | BL 25 | STR/ARC Build");
     assert(Describe(p, public_stats).start == 1600000000); // privacy hides fight timer
     public_stats.show_boss = true;
     p.boss_started_unix = 0;
@@ -174,18 +174,43 @@ int main() {
     small.boss_started_unix = 1600000123;
     PresencePrivacy opt_in;
     opt_in.show_level = opt_in.show_build = true;
-    assert(Describe(small, opt_in).details == "Boss: Gehrman | Hunter's Dream | BL 25 | QLT");
+    assert(Describe(small, opt_in).details == "Fighting Gehrman | Hunter's Dream | BL 25 | QLT Build");
     assert(Describe(small, opt_in).start == 1600000123);
     opt_in.show_boss = false;
-    assert(Describe(small, opt_in).details == "In Hunter's Dream | BL 25 | QLT");
+    assert(Describe(small, opt_in).details == "In Hunter's Dream | BL 25 | QLT Build");
     assert(Describe(small, opt_in).start == 1600000000);
     opt_in.show_location = false;
-    assert(Describe(small, opt_in).details == "Hunting | BL 25 | QLT");
+    assert(Describe(small, opt_in).details == "Hunting | BL 25 | QLT Build");
     opt_in.show_boss = true;
-    assert(Describe(small, opt_in).details == "Boss: Gehrman | BL 25 | QLT");
+    assert(Describe(small, opt_in).details == "Fighting Gehrman | BL 25 | QLT Build");
     opt_in.show_level = opt_in.show_build = false;
     opt_in.show_boss = false;
     assert(Describe(small, opt_in).details == "Hunting");
+
+    // B59: while observing another hunter's boss fight, avoid claiming
+    // "Fighting" ourselves. State and details should agree on spectating.
+    opt_in.show_boss = true;
+    small.spectating = true;
+    assert(Describe(small, opt_in).state == "Spectating");
+    assert(Describe(small, opt_in).details == "Watching Gehrman");
+    assert(Describe(small, opt_in).start == 1600000123);
+    small.spectating = false;
+    small.boss.clear();
+    assert(Describe(small, opt_in).details == "Boss fight");
+    small.boss_fighting = false;
+    assert(Describe(small, opt_in).details == "Hunting");
+    assert(Describe(small, opt_in).start == 1600000000);
+
+    // Short labels for every 18+ archetype are classifier-owned. Only the
+    // activity presentation appends "Build" and never doubles it in the game.
+    opt_in.show_build = true;
+    small.build = "STR";
+    assert(Describe(small, opt_in).details == "Hunting | STR Build");
+    small.build = "STR/ARC";
+    assert(Describe(small, opt_in).details == "Hunting | STR/ARC Build");
+    small.build.clear();
+    assert(Describe(small, opt_in).details == "Hunting");
+
 
 
     std::puts("discord activity: ok");
