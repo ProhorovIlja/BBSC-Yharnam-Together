@@ -41,17 +41,17 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          h = Path('bbport/gpu/bbcoop/discord_presence_policy.h').read_text()
-          t = Path('bbport/tests/test_discord_activity.cpp').read_text()
-          c = Path('bbport/launcher/bbport_coop.py').read_text()
-          ui = Path('bbport/launcher/bbport_launcher_win.py').read_text()
+          h = Path('bbport/gpu/bbcoop/discord_presence_policy.h').read_text(encoding='utf-8')
+          t = Path('bbport/tests/test_discord_activity.cpp').read_text(encoding='utf-8')
+          c = Path('bbport/launcher/bbport_coop.py').read_text(encoding='utf-8')
+          ui = Path('bbport/launcher/bbport_launcher_win.py').read_text(encoding='utf-8')
           assert 'In co-op session (' in h and 'In co-op (' not in h
           assert 'In co-op session (2/5)' in t
           assert 'for (unsigned mask = 0; mask < 16; ++mask)' in t
           for key in ('discord_show_area', 'discord_show_level', 'discord_show_build', 'discord_show_boss'):
               assert key in c and key in ui, key
           assert 'DISCORD_APP_ID' in c
-          assert 'B57' in Path('docs/ULTIMATE_BATCH_57.md').read_text()
+          assert 'B57' in Path('docs/ULTIMATE_BATCH_57.md').read_text(encoding='utf-8')
           PY
   compiled-cpp:
     runs-on: ubuntu-24.04
