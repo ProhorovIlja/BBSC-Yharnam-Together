@@ -2,6 +2,7 @@
 #include "bbport_overlay.h"
 #include "../bbcoop/lobby_rows.h"
 #include "../bbcoop/roster_dedup.h"
+#include "../bbcoop/roster_filter.h"
 
 #include <algorithm>
 #include <array>
@@ -4289,16 +4290,14 @@ void DrawPlayersPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
     for (int i = 0; i < lobby.player_count; ++i) {
         BbRoster::AppendUniqueOnline(listed, lobby.players[i], BBCOOP_LOBBY_OFFLINE);
     }
-    const auto folded = [](std::string value) {
-        for (char& c : value) {
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
-        return value;
-    };
-    const std::string query = folded(players_page.filter);
+    // Account IDs are used for dedup, but character names are searched
+    // through Unicode-aware (bounded) case-folding. ASCII tolower() cannot
+    // find Russian and other non-English names reliably.
+    const std::string query = BbRoster::FoldPlayerSearch(players_page.filter);
     std::vector<const bbcoop_lobby_entry*> shown;
     for (const bbcoop_lobby_entry* player : listed) {
-        if (query.empty() || folded(player->name).find(query) != std::string::npos) {
+        if (query.empty() ||
+            BbRoster::FoldPlayerSearch(player->name).find(query) != std::string::npos) {
             shown.push_back(player);
         }
     }
