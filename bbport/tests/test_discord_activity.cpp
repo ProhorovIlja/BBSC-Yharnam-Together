@@ -45,6 +45,15 @@ int main() {
     assert(shown.state == "In co-op session (3/5)");
     p.members = 2;
     assert(Describe(p, {}).state == "In co-op session (2/5)");
+    assert(ValidPartyCount(2, 5));
+    assert(!ValidPartyCount(0, 5));
+    assert(!ValidPartyCount(6, 5));
+    assert(!ValidPartyCount(2, 0));
+    // With party.size in Discord's payload, Discord itself adds "(2 of 5)".
+    // State must not repeat the count, or friends see both formats together.
+    p.discord_party_counter = true;
+    assert(Describe(p, {}).state == "In co-op session");
+    p.discord_party_counter = false;
     p.members = 3;
     p.members = 7; // unsupported/lying network count: do not invent ratio
     shown = Describe(p, {});
