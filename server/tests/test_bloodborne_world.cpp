@@ -4732,7 +4732,12 @@ int CheatsAndEditedSavesAreNoted() {
   CHECK(suspect.member == "host");
   CHECK(suspect.findings.contains("cheats"));
   CHECK(suspect.findings.contains("level-mismatch"));
+  // B34: offline-edited stats are permitted online. A first-sheet mismatch
+  // is informational, NOT proof that an editor ran during this session.
   CHECK(suspect.findings.at("level-mismatch").level ==
+        BloodborneCoop::Suspicion::Info);
+  // A currently enabled runtime cheat patch is still marked distinctly.
+  CHECK(suspect.findings.at("cheats").level ==
         BloodborneCoop::Suspicion::Certain);
   CHECK(suspect.findings.at("cheats").character == "Hunter");
   // Once a run.
