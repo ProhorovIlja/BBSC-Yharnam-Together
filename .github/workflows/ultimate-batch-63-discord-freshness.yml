@@ -1,0 +1,82 @@
+name: Ultimate B63 game snapshot TTL and UTF-8 Discord safeguards
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/bbcoop/discord_presence_policy.h'
+      - 'bbport/gpu/bbcoop/discord_status.cpp'
+      - 'bbport/tests/test_discord_activity.cpp'
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_party_death.cpp'
+      - 'docs/ULTIMATE_BATCH_63.md'
+      - '.github/workflows/ultimate-batch-63-discord-freshness.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify real game-to-Discord timestamp lease and UTF-8 guard
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          rd = lambda p: Path(p).read_text(encoding='utf8')
+          h = rd('emulator/src/core/bloodborne_party.h')
+          tick = rd('emulator/src/core/bloodborne_party_death.cpp')
+          rpc = rd('bbport/gpu/bbcoop/discord_status.cpp')
+          policy = rd('bbport/gpu/bbcoop/discord_presence_policy.h')
+          tests = rd('bbport/tests/test_discord_activity.cpp')
+          for text in ('rpc_snapshot_steady_ms = 0',):
+              assert text in h, text
+          assert 'panel.rpc_snapshot_steady_ms =' in tick
+          assert 'std::chrono::steady_clock::now().time_since_epoch()' in tick
+          assert 'SetPartyPanel(std::move(panel));' in tick
+          assert 'GameSnapshotFresh(panel.rpc_snapshot_steady_ms' in rpc
+          assert 'panel = {};' in rpc
+          assert 'bbcoop_lobby_view(&lobby)' in rpc
+          assert 'GameSnapshotMaxAgeMs = 10\'000' in policy
+          assert 'inline void BoundValidUtf8' in policy
+          assert 'BoundValidUtf8(out.details);' in policy
+          assert 'BoundValidUtf8(out.state);' in policy
+          assert 'GameSnapshotFresh(1000, 11000)' in tests
+          assert 'GameSnapshotFresh(1000, 11001)' in tests
+          assert 'Fighting Father Gascoigne' in tests
+          assert 'malformed = std::string("ok")' in tests
+          assert 'B63' in rd('docs/ULTIMATE_BATCH_63.md')
+          PY
+      - name: Compile launcher sources and run scoped Discord opt-in regressions
+        shell: bash
+        run: |
+          python -m py_compile bbport/launcher/bbport_coop.py bbport/launcher/bbport_launcher_win.py
+          (cd bbport/tests && python -m unittest test_coop_launcher.DiscordStatusTests)
+
+  cpp-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build actual production policy and Unicode/stale snapshot tests with GCC + Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I bbport \
+              bbport/tests/test_discord_activity.cpp \
+              -o "/tmp/ultimate-b63-${cxx}"
+            "/tmp/ultimate-b63-${cxx}"
+          done
