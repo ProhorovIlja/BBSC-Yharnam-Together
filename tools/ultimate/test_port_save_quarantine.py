@@ -126,6 +126,36 @@ class QuarantineTests(unittest.TestCase):
                 stage_snapshot(self.root, "party")
         self.assertEqual(verify_snapshot(prior)["source_kind"], "solo")
 
+    def test_post_promotion_verification_failure_removes_only_new_candidate(self):
+        import port_save_quarantine as mod
+        old_ready = stage_snapshot(self.root, "solo")
+        real_verify = mod.verify_snapshot
+
+        def fail_promoted(candidate):
+            if candidate == old_ready:
+                return real_verify(candidate)
+            raise SnapshotError("simulated manifest validation failure")
+
+        with mock.patch.object(mod, "verify_snapshot", side_effect=fail_promoted):
+            with self.assertRaisesRegex(SnapshotError, "simulated"):
+                stage_snapshot(self.root, "party")
+        self.assertEqual(real_verify(old_ready)["source_kind"], "solo")
+        self.assertEqual(list(old_ready.parent.glob("*.ready")), [old_ready])
+        self.assertEqual((self.root / "savedata_party" / "party.txt").read_text(),
+                         "private test party")
+
+    def test_backup_parent_symlink_is_not_followed(self):
+        outside = self.root / "external"
+        outside.mkdir()
+        root = self.root / "save_backups"
+        try:
+            root.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks not permitted in this Windows runner")
+        with self.assertRaises(SnapshotError):
+            stage_snapshot(self.root, "solo")
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_source_changes_mid_copy_are_rejected(self):
         import port_save_quarantine as mod
         real = mod._copy_one
