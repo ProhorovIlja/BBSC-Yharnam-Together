@@ -310,6 +310,7 @@ extern "C" int bbcoop_map_view(bbcoop_map* map, int open) {
         std::snprintf(out.board, sizeof(out.board), "%s", member.member.c_str());
         out.map = member.map;
         out.vital = static_cast<int>(member.vital);
+        out.level = member.level;
         if (member.at) {
             out.has_at = 1;
             out.x = (*member.at)[0];
@@ -643,6 +644,10 @@ extern "C" int bbcoop_lobby_view(bbcoop_lobby* lobby) {
         lobby->death_mode = static_cast<int>(Core::Bloodborne::TeamDeathMode(*state));
         lobby->join = static_cast<int>(team.join());
         lobby->quick_waiting = team.quick() && team.members_size() == 1 ? 1 : 0;
+        // B45: real team levels come from the current vitals board. Do not
+        // impersonate a profile service or leak anti-cheat character sheets.
+        Core::Bloodborne::PartyPanel live_panel;
+        Core::Bloodborne::ReadPartyPanel(live_panel);
         // The leader first.
         std::vector<const bbcoop::TeamMember*> members;
         for (const bbcoop::TeamMember& m : team.members()) {
@@ -661,6 +666,12 @@ extern "C" int bbcoop_lobby_view(bbcoop_lobby* lobby) {
             CopyName(out.id, sizeof(out.id), m->member());
             out.state = LobbyStateOf(m->state());
             out.ready = m->ready();
+            for (const Core::Bloodborne::PanelMember& live : live_panel.members) {
+                if (live.member == m->member()) {
+                    out.level = live.level;
+                    break;
+                }
+            }
         }
     }
     // Kaniel 2026-10-17: the server's worlds (any team's to pick, the leader's or, before a team, the
