@@ -1,0 +1,95 @@
+name: Ultimate B64 safe home-world policy and no-clobber archive
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_team.h'
+      - 'emulator/src/core/bloodborne_team.cpp'
+      - 'emulator/src/core/team_world_file.h'
+      - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
+      - 'emulator/tests/bloodborne/test_team_world_file.cpp'
+      - 'docs/ULTIMATE_BATCH_64.md'
+      - '.github/workflows/ultimate-batch-64-home-world-safety.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert policy is real but save migration is not secretly deployed
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          rd=lambda p:Path(p).read_text(encoding='utf8')
+          h=rd('emulator/src/core/bloodborne_team.h')
+          cpp=rd('emulator/src/core/bloodborne_team.cpp')
+          files=rd('emulator/src/core/team_world_file.h')
+          test=rd('emulator/tests/bloodborne/test_bloodborne_team.cpp')
+          arch=rd('emulator/tests/bloodborne/test_team_world_file.cpp')
+          game=rd('emulator/src/core/bloodborne_server_world.cpp')
+          for token in ('struct HomeWorlds', 'enum class TeamWorldTake',
+                        'enum class OldSaveWorld', 'ParseHomeWorlds'):
+              assert token in h,token
+          for token in ('HomeWorlds::Add(', 'HomeWorlds::NoteVersion(',
+                        'HowToTakeTeamWorld(', 'OldSavesWorld(', 'ParseHomeWorlds('):
+              assert token in cpp,token
+          assert 'CopyVerifiedWorldArchiveNoClobber' in files
+          assert 'copy_options::none' in files
+          assert 'fs::remove(archive, cleanup)' in files
+          assert 'fs::remove(source' not in files and 'fs::rename(source' not in files
+          assert 'TEST(HomeWorlds, HostLeadsOnlyWhenItsSavePlayedAloneAndServerIsSameVersion)' in test
+          assert 'Read(archive) == original' in arch
+          assert 'CopyVerifiedWorldArchiveNoClobber(origin, archive)' in arch
+          assert 'HomeWorldFile(' not in game and 'RetireOwnWorld(' not in game
+          assert 'B64' in rd('docs/ULTIMATE_BATCH_64.md')
+          PY
+
+  portable-real-file-archive:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang real production file helper on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_team_world_file.cpp \
+              -o "/tmp/ultimate-b64-archive-${cxx}"
+            timeout 30s "/tmp/ultimate-b64-archive-${cxx}"
+          done
+      - name: Enable native Microsoft C++20 build environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile and execute the same exact production file helper with MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_team_world_file.cpp /Fe:${{ runner.temp }}\ultimate-b64-archive.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\ultimate-b64-archive.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Never read real saves or deploy to production
+        shell: bash
+        run: echo B64_TEMP_DIRECTORY_ONLY_NO_SAVE_INPUTS_NO_FORNEX_NO_RELEASE
