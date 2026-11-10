@@ -369,6 +369,8 @@ private:
         qint64 last_wipe_ms = 0;
         // When each map last started over on its own (WorldLogHost::ResetMap), by map.
         std::map<std::uint32_t, qint64> map_reset_ms;
+        // B44: one transient victory notice per audited flag, never in the saved world log.
+        std::set<std::uint32_t> boss_notices_sent;
         quint64 records = 0;      // journal records written (the next one's number)
         quint64 journal_from = 0; // the first record not in the stored world
         qint64 compacted_ms = 0;
