@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_overlay.h"
 #include "../bbcoop/lobby_rows.h"
+#include "../bbcoop/roster_dedup.h"
 
 #include <algorithm>
 #include <array>
@@ -4279,15 +4280,14 @@ void DrawPlayersPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
     // intentionally transmits only a bounded audience to each game. We never
     // pretend that its visible rows are an exhaustive listing.
     std::vector<const bbcoop_lobby_entry*> listed;
+    // The hosted server can send a teammate in both arrays. Keep one row per
+    // authenticated account, preferring the team's richer state/level, while
+    // never conflating two characters merely because their names match.
     for (int i = 0; i < lobby.member_count; ++i) {
-        if (lobby.members[i].state != BBCOOP_LOBBY_OFFLINE) {
-            listed.push_back(&lobby.members[i]);
-        }
+        BbRoster::AppendUniqueOnline(listed, lobby.members[i], BBCOOP_LOBBY_OFFLINE);
     }
     for (int i = 0; i < lobby.player_count; ++i) {
-        if (lobby.players[i].state != BBCOOP_LOBBY_OFFLINE) {
-            listed.push_back(&lobby.players[i]);
-        }
+        BbRoster::AppendUniqueOnline(listed, lobby.players[i], BBCOOP_LOBBY_OFFLINE);
     }
     const auto folded = [](std::string value) {
         for (char& c : value) {
@@ -4320,10 +4320,12 @@ void DrawPlayersPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
         const bbcoop_lobby_entry& p = *shown[static_cast<std::size_t>(i)];
         MenuArt::Nine(draw, MenuArt::Row, ImVec2(left, y), ImVec2(left + width, y + row_h - S(4.0f)),
                       10.0f, S(6.0f), 0.7f);
-        const bool self = std::strcmp(p.id, lobby.me) == 0;
-        const bool in_my_team = p.in_my_team || std::any_of(
+        const bool self = p.id[0] && lobby.me[0] && std::strcmp(p.id, lobby.me) == 0;
+        const bool in_my_team = p.in_my_team || (p.id[0] && std::any_of(
             lobby.members, lobby.members + lobby.member_count,
-            [&](const bbcoop_lobby_entry& member) { return std::strcmp(member.id, p.id) == 0; });
+            [&](const bbcoop_lobby_entry& member) {
+                return member.id[0] && std::strcmp(member.id, p.id) == 0;
+            }));
         const std::string status = self ? T("You", "Вы")
                                    : in_my_team ? T("Your team", "Ваша команда")
                                                 : TeamStateText(p);
@@ -4349,7 +4351,7 @@ void DrawPlayersPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
         }
         draw->AddText(ImVec2(left + width * 0.56f, y + S(11.0f)), Plain(0.75f),
                       Fit(status.c_str(), width * 0.20f).c_str());
-        if (!self && !in_my_team) {
+        if (!self && !in_my_team && p.id[0]) {
             const std::string id = std::string("players_invite_") + p.id;
             if (Button(draw, id.c_str(), T("Invite", "Пригласить"),
                        ImVec2(left + width - button_w - S(12.0f), y + S(3.0f)),
