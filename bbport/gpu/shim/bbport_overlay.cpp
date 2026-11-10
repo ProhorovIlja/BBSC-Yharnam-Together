@@ -8611,6 +8611,7 @@ bool Visible() {
     }
     const bool was_team = Team::open;
     Team::open = initialized && bbcoop_team_screen() != 0 && bbcoop_lobby_view(&Team::lobby) != 0;
+    if (Team::open) Team::SyncChatAudience();
     if (!Team::open) {
         Team::friends.open = false; // the team screen opens on the team, not where it was left
         Team::players_page.open = false;
