@@ -81,32 +81,36 @@ int main() {
     p.invasion_searching = false;
     p.down = false;
 
-    p.level = 90;
-    p.build = "STR+ARC";
+    p.level = 25;
+    p.build = "STR/ARC";
     assert(Describe(p, {}).details == "In Central Yharnam");
     PresencePrivacy public_stats;
     public_stats.show_level = true;
     public_stats.show_build = true;
     shown = Describe(p, public_stats);
-    assert(shown.details == "In Central Yharnam | Lv 90 | STR+ARC");
+    assert(shown.details == "In Central Yharnam | BL 25 | STR/ARC");
     public_stats.show_location = false;
-    assert(Describe(p, public_stats).details == "Hunting | Lv 90 | STR+ARC");
+    assert(Describe(p, public_stats).details == "Hunting | BL 25 | STR/ARC");
     p.level = 9999;
-    assert(Describe(p, public_stats).details == "Hunting | STR+ARC");
+    assert(Describe(p, public_stats).details == "Hunting | STR/ARC");
+    public_stats.show_location = true; // restore independent area consent for boss fixture
     public_stats.show_level = false;
     public_stats.show_build = false;
     p.boss = "Cleric Beast";
     p.boss_fighting = true;
     p.boss_started_unix = 1600000123;
     shown = Describe(p, public_stats);
-    assert(shown.details == "Boss: Cleric Beast");
+    assert(shown.details == "Boss: Cleric Beast | Central Yharnam");
     assert(shown.start == 1600000123);
     public_stats.show_level = true;
     public_stats.show_build = true;
-    p.level = 90;
-    assert(Describe(p, public_stats).details == "Boss: Cleric Beast | Lv 90 | STR+ARC");
+    p.level = 25;
+    assert(Describe(p, public_stats).details ==
+           "Boss: Cleric Beast | Central Yharnam | BL 25 | STR/ARC");
+    public_stats.show_location = false;
+    assert(Describe(p, public_stats).details == "Boss: Cleric Beast | BL 25 | STR/ARC");
     public_stats.show_boss = false;
-    assert(Describe(p, public_stats).details == "Hunting | Lv 90 | STR+ARC");
+    assert(Describe(p, public_stats).details == "Hunting | BL 25 | STR/ARC");
     assert(Describe(p, public_stats).start == 1600000000); // privacy hides fight timer
     public_stats.show_boss = true;
     p.boss_started_unix = 0;
@@ -137,6 +141,52 @@ int main() {
     assert(BbHunterBuild::English(9) == "Strength/Arcane");
     assert(BbHunterBuild::English(10) == "Skill/Arcane");
     assert(BbHunterBuild::English(12) == "Blood/Arcane");
+
+    // B58: independent compact Discord labels for ALL valid 18+ masks,
+    // while the descriptive English/Russian names are unaffected.
+    constexpr std::string_view short_names[16] = {
+        "UNF", "STR", "SKL", "QLT", "BLT",
+        "STR/BLT", "SKL/BLT", "QLT/BLT",
+        "ARC", "STR/ARC", "SKL/ARC", "QLT/ARC",
+        "BLT/ARC", "STR/BLT/ARC", "SKL/BLT/ARC", "OMNI"
+    };
+    for (unsigned mask = 0; mask < 16; ++mask) {
+        const auto stats = BbHunterBuild::Attributes{
+            mask & 1 ? 18 : 17, mask & 2 ? 18 : 17,
+            mask & 4 ? 18 : 17, mask & 8 ? 18 : 17};
+        const auto actual = BbHunterBuild::Mask(stats);
+        assert(actual && BbHunterBuild::DiscordShort(*actual) == short_names[mask]);
+    }
+    assert(BbHunterBuild::DiscordShort(3) == "QLT");
+    assert(BbHunterBuild::English(3) == "Quality"); // existing HUD name stays
+    assert(BbHunterBuild::DiscordShort(9) == "STR/ARC");
+    assert(BbHunterBuild::DiscordShort(15) == "OMNI");
+    assert(BbHunterBuild::DiscordShort(16) == "Unknown");
+
+    // B58: visible location and BL remain present even with boss detail.
+    PresenceSnapshot small;
+    small.location = "Hunter's Dream";
+    small.level = 25;
+    small.build = "QLT";
+    small.boss_fighting = true;
+    small.boss = "Gehrman";
+    small.session_started_unix = 1600000000;
+    small.boss_started_unix = 1600000123;
+    PresencePrivacy opt_in;
+    opt_in.show_level = opt_in.show_build = true;
+    assert(Describe(small, opt_in).details == "Boss: Gehrman | Hunter's Dream | BL 25 | QLT");
+    assert(Describe(small, opt_in).start == 1600000123);
+    opt_in.show_boss = false;
+    assert(Describe(small, opt_in).details == "In Hunter's Dream | BL 25 | QLT");
+    assert(Describe(small, opt_in).start == 1600000000);
+    opt_in.show_location = false;
+    assert(Describe(small, opt_in).details == "Hunting | BL 25 | QLT");
+    opt_in.show_boss = true;
+    assert(Describe(small, opt_in).details == "Boss: Gehrman | BL 25 | QLT");
+    opt_in.show_level = opt_in.show_build = false;
+    opt_in.show_boss = false;
+    assert(Describe(small, opt_in).details == "Hunting");
+
 
     std::puts("discord activity: ok");
     return 0;

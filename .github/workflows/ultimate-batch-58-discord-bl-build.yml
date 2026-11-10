@@ -1,0 +1,71 @@
+name: Ultimate B58 Blood Level, location and compact Discord build labels
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/bbcoop/build_archetype.h'
+      - 'bbport/gpu/bbcoop/discord_status.cpp'
+      - 'bbport/gpu/bbcoop/discord_presence_policy.h'
+      - 'bbport/tests/test_discord_activity.cpp'
+      - 'docs/ULTIMATE_BATCH_58.md'
+      - '.github/workflows/ultimate-batch-58-discord-bl-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check live Discord source, full-vs-short classifier and privacy rules
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          read = lambda p: Path(p).read_text(encoding='utf-8')
+          archetype = read('bbport/gpu/bbcoop/build_archetype.h')
+          policy = read('bbport/gpu/bbcoop/discord_presence_policy.h')
+          ipc = read('bbport/gpu/bbcoop/discord_status.cpp')
+          tests = read('bbport/tests/test_discord_activity.cpp')
+          assert 'DiscordShort(std::uint8_t mask)' in archetype
+          assert 'English(std::uint8_t mask)' in archetype
+          assert 'Russian(std::uint8_t mask)' in archetype
+          assert 'snapshot.build = BbHunterBuild::DiscordShort(*mask)' in ipc
+          assert 'BbHunterBuild::English(*mask)' not in ipc
+          assert '" | BL "' in policy and '" | Lv "' not in policy
+          assert 'out.details += " | " + s.location;' in policy
+          assert 's.boss_fighting && privacy.show_boss' in policy
+          assert 'privacy.show_location && !s.location.empty()' in policy
+          assert 'Boss: Cleric Beast | Central Yharnam | BL 25 | STR/ARC' in tests
+          assert 'for (unsigned mask = 0; mask < 16; ++mask)' in tests
+          assert 'B58' in read('docs/ULTIMATE_BATCH_58.md')
+          PY
+
+  compiled-policies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile actual B58 formatter and classifier with GCC + Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -Wall -Wextra -Werror -pedantic -I bbport \
+              bbport/tests/test_discord_activity.cpp \
+              -o "/tmp/ultimate-b58-discord-${compiler}"
+            "/tmp/ultimate-b58-discord-${compiler}"
+          done
