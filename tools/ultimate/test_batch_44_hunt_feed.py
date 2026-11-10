@@ -79,6 +79,10 @@ class BossVictoryFeed(unittest.TestCase):
                       self.ui)
         self.assertIn("if (event.ack)", self.ui)
         self.assertIn("pending->refused = event.status != 0;", self.ui)
+        self.assertIn("void SyncChatAudience()", self.ui)
+        self.assertIn("Team::SyncChatAudience()", self.ui)
+        self.assertIn("chat_page.history.clear()", self.ui)
+        self.assertIn("chat_inbox.clear(); // a former team's messages", self.client)
 
 
 if __name__ == "__main__":
