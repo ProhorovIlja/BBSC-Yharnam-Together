@@ -1398,6 +1398,88 @@ TEST(TeamLobbyName, TheTitleLoadNamesTheSlotsCharacter) {
     EXPECT_EQ(TitleLoadCharacterName(false, std::string(17, 'x')), "") << "longer than a name";
 }
 
+// B64: home-world logic from merged upstream #554, isolated from live
+// save/flag mutation until the no-data-loss archiver and migrations are
+// separately proven. A host must never roll its home world back while solo.
+TEST(HomeWorlds, HostLeadsOnlyWhenItsSavePlayedAloneAndServerIsSameVersion) {
+    HomeWorlds home;
+    EXPECT_EQ(HowToTakeTeamWorld(home, "w-own", true, 7), TeamWorldTake::Aside);
+    EXPECT_TRUE(home.Add("w-own"));
+    EXPECT_TRUE(home.Has("w-own"));
+    EXPECT_FALSE(home.Has("w-stranger"));
+    EXPECT_EQ(home.Version("w-own"), 0u);
+    EXPECT_FALSE(home.Add("w-own"));
+    EXPECT_FALSE(home.Add("slash/not-an-id"));
+    EXPECT_FALSE(home.Add(std::string(65, 'x')));
+    EXPECT_TRUE(home.NoteVersion("w-own", 7));
+    EXPECT_FALSE(home.NoteVersion("w-own", 7));
+    EXPECT_FALSE(home.NoteVersion("w-stranger", 99));
+    home.alone = true;
+    EXPECT_EQ(HowToTakeTeamWorld(home, "w-own", true, 7), TeamWorldTake::SaveLeads);
+    EXPECT_EQ(HowToTakeTeamWorld(home, "w-own", false, 7), TeamWorldTake::Home);
+    EXPECT_EQ(HowToTakeTeamWorld(home, "w-own", true, 8), TeamWorldTake::Home);
+    EXPECT_EQ(HowToTakeTeamWorld(home, "w-own", true, 0), TeamWorldTake::Home);
+    EXPECT_EQ(HowToTakeTeamWorld(home, "w-stranger", true, 7), TeamWorldTake::Aside);
+    home.alone = false;
+    EXPECT_EQ(HowToTakeTeamWorld(home, "w-own", true, 7), TeamWorldTake::Home);
+}
+
+TEST(HomeWorlds, RoundTripsButRejectsCutCorruptOrDuplicateManifest) {
+    HomeWorlds home;
+    EXPECT_TRUE(home.Add("w1"));
+    EXPECT_TRUE(home.Add("w2"));
+    EXPECT_TRUE(home.NoteVersion("w1", 50));
+    home.alone = true;
+    const std::string text = FormatHomeWorlds(home);
+    EXPECT_EQ(ParseHomeWorlds(text), std::optional{home});
+    EXPECT_FALSE(ParseHomeWorlds("worlds\nw1 50\n")); // torn file
+    EXPECT_FALSE(ParseHomeWorlds("worlds\nw1 bad\nend\n"));
+    EXPECT_FALSE(ParseHomeWorlds("worlds\nw1 50\nw1 51\nend\n"));
+    EXPECT_FALSE(ParseHomeWorlds("worlds\nw/evil 50\nend\n"));
+    EXPECT_FALSE(ParseHomeWorlds("worlds\nw1 -1\nend\n"));
+    EXPECT_FALSE(ParseHomeWorlds("no-manifest\n"));
+    EXPECT_EQ(WorldIdOfParty("world:w1"), "w1");
+    EXPECT_EQ(WorldIdOfParty("team:w1"), "");
+}
+
+TEST(HomeWorlds, LimitsRememberedWorldsAndChecksLegacyLobbyOwner) {
+    HomeWorlds home;
+    for (int i = 0; i < 16; ++i) {
+        EXPECT_TRUE(home.Add("home-" + std::to_string(i)));
+    }
+    EXPECT_EQ(home.worlds.size(), MaxHomeWorlds);
+    // Do NOT evict the oldest home: that could let a prior host's world
+    // silently return to the guest path and overwrite its own old progress.
+    EXPECT_FALSE(home.Add("home-16"));
+    EXPECT_FALSE(home.Add("home-17"));
+    EXPECT_TRUE(home.Has("home-0"));
+    EXPECT_TRUE(home.Has("home-15"));
+    EXPECT_FALSE(home.Has("home-16"));
+    EXPECT_FALSE(ParseHomeWorlds(FormatHomeWorlds(home) + "home-16 0\n"));
+    // An overfull manifest does not become an apparently valid subset.
+    std::string excessive = "worlds\n";
+    for (int i = 0; i < 17; ++i) {
+        excessive += "home-" + std::to_string(i) + " 0\n";
+    }
+    excessive += "end\n";
+    EXPECT_FALSE(ParseHomeWorlds(excessive));
+
+    bbcoop::LobbyState lobby;
+    bbcoop::TeamWorldInfo* own = lobby.add_worlds();
+    own->set_id("w-own");
+    own->set_character("My Hunter");
+    bbcoop::TeamWorldInfo* other = lobby.add_worlds();
+    other->set_id("w-guest");
+    other->set_character("Other Hunter");
+    EXPECT_EQ(OldSavesWorld(&lobby, "w-own", "My Hunter"), OldSaveWorld::Made);
+    EXPECT_EQ(OldSavesWorld(&lobby, "w-guest", "My Hunter"), OldSaveWorld::Visited);
+    EXPECT_EQ(OldSavesWorld(&lobby, "w-missing", "My Hunter"), OldSaveWorld::Unknown);
+    EXPECT_EQ(OldSavesWorld(&lobby, "w-own", ""), OldSaveWorld::Unknown);
+    EXPECT_EQ(OldSavesWorld(nullptr, "w-own", "My Hunter"), OldSaveWorld::Unknown);
+    other->set_character("");
+    EXPECT_EQ(OldSavesWorld(&lobby, "w-guest", "My Hunter"), OldSaveWorld::Unknown);
+}
+
 // The game holds the last character's name until the title's load has read the new save: the
 // name is read again only a while after the save file opened, so the old one never names the new
 // character's slot.
