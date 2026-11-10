@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -42,6 +43,50 @@ struct PresenceSnapshot {
     // includes a valid party.size. Never echo a second "(2/5)" in state.
     bool discord_party_counter = false;
 };
+
+// B63: game-thread telemetry is a short-lived lease, NOT a forever-cached
+// record. Both sides measure steady_clock milliseconds in this same process.
+// The independent lobby state is still queried live on the Discord thread.
+inline constexpr std::int64_t GameSnapshotMaxAgeMs = 10'000;
+[[nodiscard]] inline constexpr bool GameSnapshotFresh(std::int64_t observed_ms,
+                                                     std::int64_t now_ms) {
+    return observed_ms > 0 && now_ms >= observed_ms &&
+           now_ms - observed_ms <= GameSnapshotMaxAgeMs;
+}
+
+// Keep the longest *valid* UTF-8 prefix without cutting halfway through a
+// code point. The old resize(120) + strip continuation bytes could leave an
+// orphan UTF-8 lead byte when truncation landed after the second byte of a
+// three-byte character. Malformed game-provided strings fail at first bad
+// character rather than being sent raw to Discord JSON.
+inline void BoundValidUtf8(std::string& text, std::size_t limit = 120) {
+    std::size_t n = 0;
+    while (n < text.size() && n < limit) {
+        const auto first = static_cast<unsigned char>(text[n]);
+        std::size_t width = 0;
+        if (first < 0x80) width = 1;
+        else if (first >= 0xC2 && first <= 0xDF) width = 2;
+        else if (first >= 0xE0 && first <= 0xEF) width = 3;
+        else if (first >= 0xF0 && first <= 0xF4) width = 4;
+        else break;
+        if (width > text.size() - n || width > limit - n) break;
+        bool good = true;
+        for (std::size_t k = 1; k < width; ++k) {
+            const auto b = static_cast<unsigned char>(text[n + k]);
+            if ((b & 0xC0u) != 0x80u) { good = false; break; }
+        }
+        if (!good) break;
+        if (width >= 3) {
+            const auto second = static_cast<unsigned char>(text[n + 1]);
+            if ((first == 0xE0 && second < 0xA0) ||
+                (first == 0xED && second >= 0xA0) ||
+                (first == 0xF0 && second < 0x90) ||
+                (first == 0xF4 && second >= 0x90)) break;
+        }
+        n += width;
+    }
+    text.resize(n);
+}
 
 inline constexpr bool ValidPartyCount(int members, int capacity) {
     return capacity > 0 && members > 0 && members <= capacity;
@@ -173,21 +218,11 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         out.state = stats.empty() ? role : stats + " · " + role;
     }
 
-    // Discord's two text fields are compact; use an honest truncated label.
-    if (out.details.size() > 120) {
-        out.details.resize(120);
-        while (!out.details.empty() &&
-               (static_cast<unsigned char>(out.details.back()) & 0xC0) == 0x80) {
-            out.details.pop_back();
-        }
-    }
-    if (out.state.size() > 120) {
-        out.state.resize(120);
-        while (!out.state.empty() &&
-               (static_cast<unsigned char>(out.state.back()) & 0xC0) == 0x80) {
-            out.state.pop_back();
-        }
-    }
+    // Discord's two text fields accept bounded UTF-8. Apply the same
+    // deterministic validated prefix to both, including short malformed
+    // input and code points straddling byte 120.
+    BoundValidUtf8(out.details);
+    BoundValidUtf8(out.state);
     return out;
 }
 
