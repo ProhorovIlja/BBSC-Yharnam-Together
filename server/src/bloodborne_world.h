@@ -30,6 +30,7 @@
 #include "bloodborne_party_boards.h"
 #include "coop.pb.h"
 #include "coop/cheat_watch.h"
+#include "coop/chat_policy.h"
 #include "coop/coop_stream.h"
 #include "coop/duel.h"
 #include "coop/invasions.h"
@@ -501,6 +502,7 @@ private:
     static std::optional<QString> Oversized(const bbcoop::Envelope& envelope);
     void Take(Member& member, const bbcoop::Envelope& envelope, qint64 now_ms, Result& result);
     void OnHello(Member& member, const bbcoop::Hello& hello, qint64 now_ms, Result& result);
+    void OnChat(Member& member, const bbcoop::ChatSend& said, qint64 now_ms);
     // Cheat watch: a member's character sheet, and what was found of it (logged, kept).
     void OnCharacterSheet(Member& member, const bbcoop::CharacterSheet& sheet, qint64 now_ms,
                           Result& result);
@@ -652,6 +654,7 @@ private:
     // Hosted: whether a name a game says is its own (its online id in hex).
     bool OwnName(const Member& member, const std::string& name) const;
 
+    BloodborneCoop::Comms::Gate chat_gate; // B42: sender-scoped, survives link reconnects
     BloodborneCoop::TeamLobby lobby;
     HostedRules hosted;
     Limits limits;
