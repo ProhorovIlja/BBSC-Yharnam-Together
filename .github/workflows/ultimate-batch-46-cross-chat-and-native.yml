@@ -1,0 +1,158 @@
+name: "Ultimate B46 roster dedup, cross-chat ledger and real Windows client build"
+
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/shim/bbport_overlay.cpp'
+      - 'bbport/gpu/bbcoop/roster_dedup.h'
+      - 'bbport/gpu/bbcoop/tests/test_roster_dedup.cpp'
+      - 'tools/ultimate/test_batch_46_cross_chat_and_roster.py'
+      - 'docs/ULTIMATE_CROSS_CHAT_SOURCE_MANIFEST.md'
+      - 'docs/ULTIMATE_CROSS_CHAT_REQUIREMENTS_MASTER.md'
+      - '.github/workflows/ultimate-batch-46-cross-chat-and-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b46-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Regression source contracts B45 and B46 plus cross-chat evidence
+        shell: bash
+        run: |
+          python -m unittest discover -s tools/ultimate -p 'test_batch_45_social_settings.py' -v
+          python -m unittest discover -s tools/ultimate -p 'test_batch_46_cross_chat_and_roster.py' -v
+
+  roster-native-unit:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and run real C++20 roster regression under GCC and Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+              -Ibbport/gpu bbport/gpu/bbcoop/tests/test_roster_dedup.cpp -o /tmp/b46_roster
+            /tmp/b46_roster
+          done
+
+  genuine-native-windows-build:
+    needs: roster-native-unit
+    runs-on: windows-2022
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANG64
+          update: true
+          cache: true
+          install: >-
+            git
+            patch
+            mingw-w64-clang-x86_64-toolchain
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-pkgconf
+            mingw-w64-clang-x86_64-python
+            mingw-w64-clang-x86_64-vulkan-headers
+            mingw-w64-clang-x86_64-vulkan-loader
+            mingw-w64-clang-x86_64-vulkan-memory-allocator
+            mingw-w64-clang-x86_64-glslang
+            mingw-w64-clang-x86_64-sdl3
+            mingw-w64-clang-x86_64-fmt
+            mingw-w64-clang-x86_64-boost
+            mingw-w64-clang-x86_64-robin-map
+            mingw-w64-clang-x86_64-xxhash
+            mingw-w64-clang-x86_64-ffmpeg
+            mingw-w64-clang-x86_64-zydis
+            mingw-w64-clang-x86_64-spirv-tools
+            mingw-w64-clang-x86_64-spirv-headers
+            mingw-w64-clang-x86_64-spirv-cross
+            mingw-w64-clang-x86_64-protobuf
+            mingw-w64-clang-x86_64-openssl
+            mingw-w64-clang-x86_64-zlib
+            mingw-w64-clang-x86_64-nlohmann-json
+      - name: Checkout only six game-free bbport source dependencies
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive --depth 1 -- \
+            bbport/gpu/third_party/fsr-vulkan \
+            bbport/gpu/third_party/imgui \
+            bbport/gpu/third_party/magic_enum \
+            bbport/gpu/third_party/miniz \
+            bbport/gpu/third_party/xbyak \
+            bbport/third_party/LibAtrac9
+          test -f bbport/gpu/third_party/imgui/imgui.h
+          test -f bbport/gpu/third_party/fsr-vulkan/CMakeLists.txt
+      - name: Actually compile B43-B46 ImGui and co-op client into Windows game-free PE
+        shell: msys2 {0}
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          export BB_PRODUCTION=1
+          export BB_LTO=OFF
+          export BB_BUILD_JOBS=2
+          export BB_WINDOWS_NO_DEBUG_SYMBOLS=1
+          export BB_WINDOWS_STAGED_LINK=1
+          export CMAKE_BUILD_PARALLEL_LEVEL=2
+          cd bbport
+          mkdir -p out
+          # Do not send full compiler logs into ChatGPT. Only bounded diagnostics
+          # are emitted on failure; no saves, game dumps or credentials involved.
+          if ! bash build.sh >out/b46-native-win-build.log 2>&1; then
+            echo B46_NATIVE_CLIENT_BUILD_FAILED
+            grep -nEm 8 'fatal error:|error:|undefined reference|FAILED:|CMake Error|ninja: build stopped' \
+              out/b46-native-win-build.log | cut -c 1-350 || true
+            if test -f out/gpu-build.log; then
+              grep -nEm 8 'fatal error:|error:|undefined reference|FAILED:|CMake Error|ninja: build stopped' \
+                out/gpu-build.log | cut -c 1-350 || true
+            fi
+            tail -n 18 out/b46-native-win-build.log | cut -c 1-350
+            exit 1
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          import struct
+          for exe in ("bb-probe.exe", "bb-gpu-capabilities.exe", "bb-play.exe"):
+              p=Path("out")/exe
+              assert p.is_file() and p.stat().st_size>1024, (exe,"missing or empty")
+              with p.open("rb") as f:
+                  assert f.read(2)==b"MZ"
+                  f.seek(0x3c)
+                  off=struct.unpack("<I",f.read(4))[0]
+                  f.seek(off)
+                  assert f.read(4)==b"PE\x00\x00",exe
+                  assert struct.unpack("<H",f.read(2))[0]==0x8664,exe
+              print("B46_WIN64_PE_VERIFIED",exe,p.stat().st_size)
+          assert Path("out/build-mode.txt").read_text(errors="replace").strip()=="production"
+          print("B46_CLIENT_PRODUCTION_SOURCE_BUILD_PASS_NO_GAME")
+          PY
+      - name: Never publish game client binaries from an experimental branch
+        run: echo B46_PRIVATE_GAME_FILES_AND_FORNEX_UNTOUCHED_NO_ARTIFACT_UPLOAD
