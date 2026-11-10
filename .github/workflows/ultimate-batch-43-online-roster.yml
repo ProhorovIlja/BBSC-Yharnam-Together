@@ -1,0 +1,67 @@
+name: "Ultimate B43 exact co-op lobby population and accessible Players browser"
+
+on:
+  pull_request:
+    paths:
+      - 'server/coop/coop.proto'
+      - 'server/coop/team_lobby.cpp'
+      - 'server/tests/test_team_lobby.cpp'
+      - 'bbport/gpu/bbcoop.h'
+      - 'bbport/gpu/bbcoop/coop.cpp'
+      - 'bbport/gpu/shim/bbport_overlay.cpp'
+      - 'tools/ultimate/test_batch_43_online_roster.py'
+      - '.github/workflows/ultimate-batch-43-online-roster.yml'
+      - 'docs/ULTIMATE_BATCH_43.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b43-online-roster-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test actual server population, C ABI and in-game UI source contracts
+        shell: bash
+        run: python -m unittest discover -s tools/ultimate -p 'test_batch_43_online_roster.py' -v
+      - name: No credentials, saves, remote server or game binaries
+        shell: bash
+        run: echo B43_SOURCE_CHECKS_OFFLINE_NO_PRODUCTION
+
+  real-server-ctest:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Checkout only required Protocol Buffers dependency
+        run: git submodule update --init --depth=1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Compile actual C++20 Qt6 server and protobuf and run 12 selected integration suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build --build-arg BUILD_JOBS=2 \
+            -f server/hosting/Dockerfile --target verification-tests \
+            -t bbsc-ultimate-b43-roster-disposable-tests .
+          echo B43_23_HUNTERS_REAL_SHADNET_SERVER_CT_TESTS_PASS
+      - name: Keep status draft until native overlay and boss events are verified
+        run: echo B43_NO_FORNEX_NO_SAVES_NO_RELEASE_NO_PRIVATE_GAME_ASSETS
