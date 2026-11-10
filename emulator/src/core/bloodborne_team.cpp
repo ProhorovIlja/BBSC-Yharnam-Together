@@ -452,6 +452,26 @@ std::vector<OwedKeyItem> ParseOwedKeyItems(std::string_view text) {
     return owed;
 }
 
+// A damaged on-disk debt journal is NOT an empty debt journal.
+// Re-encode to force exact canonical line/field count and reject any row
+// silently skipped by upstream's backward-compatible best-effort parser.
+// A zero-length file cannot safely imply "all debt repaid"; the debt file
+// must be retired only after a confirmed grant/save transaction.
+std::optional<std::vector<OwedKeyItem>> ParseOwedKeyItemsStrict(std::string_view text) {
+    constexpr std::size_t MaxBytes = 64 * 1024;
+    constexpr std::size_t MaxEntries = 256;
+    if (text.empty() || text.size() > MaxBytes) return std::nullopt;
+    std::vector<OwedKeyItem> entries = ParseOwedKeyItems(text);
+    if (entries.empty() || entries.size() > MaxEntries ||
+        std::ranges::any_of(entries, [](const OwedKeyItem& item) {
+            return item.goods == 0 || item.gained <= 0 || item.held < item.gained;
+        }) ||
+        EncodeOwedKeyItems(entries) != text) {
+        return std::nullopt;
+    }
+    return entries;
+}
+
 namespace {
 // Both lists as one: for a goods in both, the one that gained more (the newer one on a tie).
 std::vector<OwedKeyItem> MergeOwed(std::span<const OwedKeyItem> older,
