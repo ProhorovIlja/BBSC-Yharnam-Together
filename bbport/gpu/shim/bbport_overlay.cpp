@@ -4407,10 +4407,30 @@ struct ChatPage {
     char draft[513] = {};
     std::deque<ChatLine> history; // in-memory only, at most 64 messages
     std::string last_member, last_team; // never show another team's retained conversation
+    bool last_chat_enabled = true, last_boss_enabled = true;
 };
 ChatPage chat_page;
 
 void SyncChatAudience() {
+    const bool chat_enabled = BbSettings::Get().social_chat;
+    const bool boss_enabled = BbSettings::Get().social_boss_events;
+    // A local opt-out takes effect immediately, with no later backlog or
+    // "unread" surprise. Boss notices remain independent from text chat.
+    if (chat_page.last_chat_enabled != chat_enabled) {
+        if (!chat_enabled) {
+            std::erase_if(chat_page.history, [](const ChatLine& line) { return !line.system; });
+            chat_page.draft[0] = 0;
+            chat_page.unread = 0;
+        }
+        chat_page.last_chat_enabled = chat_enabled;
+    }
+    if (chat_page.last_boss_enabled != boss_enabled) {
+        if (!boss_enabled) {
+            std::erase_if(chat_page.history, [](const ChatLine& line) { return line.system; });
+            chat_page.unread = 0;
+        }
+        chat_page.last_boss_enabled = boss_enabled;
+    }
     if (!lobby.signed_in) return;
     const std::string member{lobby.me}, team{lobby.team};
     if (chat_page.last_member != member || chat_page.last_team != team) {
@@ -4434,6 +4454,11 @@ void PollChatEvents() {
         if (taken <= 0) break;
         for (int i = 0; i < taken; ++i) {
             const bbcoop_chat_event& event = batch[static_cast<std::size_t>(i)];
+            // Consume and discard disabled categories rather than accumulating
+            // hidden messages on the next settings change.
+            if (event.kind == BBCOOP_CHAT_TEXT && !BbSettings::Get().social_chat) continue;
+            if (event.kind == BBCOOP_CHAT_BOSS_VICTORY && !BbSettings::Get().social_boss_events) continue;
+            if (event.ack && !BbSettings::Get().social_chat) continue;
             if (event.ack) {
                 const auto pending = std::find_if(chat_page.history.begin(), chat_page.history.end(),
                                                   [](const ChatLine& line) { return line.pending; });
@@ -4476,7 +4501,9 @@ void DrawChatPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
                       (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
                        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false));
     ImGui::PushFont(MenuArt::Font(), 38.0f);
-    draw->AddText(ImVec2(left, win.y + S(28.0f)), Bright(), T("Team chat", "Чат команды"));
+    draw->AddText(ImVec2(left, win.y + S(28.0f)), Bright(),
+                  BbSettings::Get().social_chat ? T("Team chat", "Чат команды")
+                                                : T("Hunt feed", "Лента охоты"));
     ImGui::PopFont();
     ImGui::PushFont(MenuArt::Font(), 18.0f);
     draw->AddText(ImVec2(left, win.y + S(90.0f)), Dim(),
@@ -4515,15 +4542,20 @@ void DrawChatPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
     ImGui::SetCursorScreenPos(ImVec2(left, input_y));
     ImGui::SetNextItemWidth(width - S(180.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.06f, 0.055f, 0.05f, 0.9f));
-    const bool entered = ImGui::InputTextWithHint(
+    const bool chat_enabled = BbSettings::Get().social_chat;
+    const bool entered = chat_enabled && ImGui::InputTextWithHint(
         "##team_chat_input", T("Message your team (Enter to send)", "Сообщение команде (Enter)"),
         chat_page.draft, sizeof(chat_page.draft), ImGuiInputTextFlags_EnterReturnsTrue);
-    chat_page.typing = ImGui::IsItemActive();
+    if (!chat_enabled) {
+        ImGui::TextUnformatted(T("Text chat disabled in Display settings",
+                                "Текстовый чат выключен в настройках изображения"));
+    }
+    chat_page.typing = chat_enabled && ImGui::IsItemActive();
     ImGui::PopStyleColor();
     const bool send = Button(draw, "chat_send", T("Send", "Отправить"),
                              ImVec2(right - S(158.0f), input_y),
-                             ImVec2(S(158.0f), input_h), chat_page.draft[0] != 0);
-    if ((send || entered) && chat_page.draft[0] != 0) {
+                             ImVec2(S(158.0f), input_h), chat_enabled && chat_page.draft[0] != 0);
+    if (chat_enabled && (send || entered) && chat_page.draft[0] != 0) {
         const std::string draft{chat_page.draft};
         if (bbcoop_chat_send(draft.c_str())) {
             KeepChatLine({T("You", "Вы"), draft, false, true});
@@ -4705,13 +4737,16 @@ void Screen() {
     }
     ImGui::PopFont();
     // Read-only unread badge; opening the chat clears it, not the history.
+    const bool any_social = BbSettings::Get().social_chat || BbSettings::Get().social_boss_events;
+    const std::string chat_base = BbSettings::Get().social_chat
+        ? T("Chat", "Чат") : T("Hunt feed", "Лента охоты");
     const std::string chat_label = chat_page.unread > 0
-        ? std::string(T("Chat", "Чат")) + " (" + std::to_string(chat_page.unread) + ")"
-        : T("Chat", "Чат");
+        ? chat_base + " (" + std::to_string(chat_page.unread) + ")"
+        : chat_base;
     ImGui::PushFont(MenuArt::Font(), 18.0f);
     if (Button(draw, "chat_open", chat_label.c_str(),
                ImVec2(win.x + S(252.0f), win.y + S(35.0f)),
-               ImVec2(S(170.0f), S(46.0f)), lobby.signed_in != 0)) {
+               ImVec2(S(170.0f), S(46.0f)), lobby.signed_in != 0 && any_social)) {
         OpenChatPage();
     }
     ImGui::PopFont();
