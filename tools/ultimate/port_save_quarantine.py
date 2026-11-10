@@ -191,7 +191,8 @@ def verify_snapshot(snapshot: Path) -> dict:
     except (OSError, UnicodeError, ValueError) as exc:
         raise SnapshotError("missing or unreadable snapshot manifest") from exc
     if (not isinstance(manifest, dict) or manifest.get("format") != 1 or
-            manifest.get("source_kind") not in SOURCE_FOLDERS or
+            not isinstance(manifest.get("source_kind"), str) or
+            manifest["source_kind"] not in SOURCE_FOLDERS or
             manifest.get("source_folder") != SOURCE_FOLDERS[manifest["source_kind"]]):
         raise SnapshotError("unrecognized snapshot manifest")
     expected = manifest.get("files")
