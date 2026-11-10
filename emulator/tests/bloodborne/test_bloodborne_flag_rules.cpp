@@ -686,6 +686,33 @@ TEST(BloodborneFlagRules, TheDollsLevelUpFlagStaysWithoutABlessingOrOutOfCoop) {
     EXPECT_FALSE(solo.Tick(true, true, false, false)) << "blessing out of mode forgotten";
 }
 
+// An actual Doll hit during the local hunter's blessing can abort her
+// dialogue before she clears 72100100. Clear just that local blessing so
+// event 12100112 can finish the player's own stand-up animation.
+TEST(BloodborneFlagRules, AHitOnTheDollEndsHerBlessing) {
+    DollHitEndsBlessing hit;
+    EXPECT_FALSE(hit.Tick(true, true, 900)) << "initial HP sample";
+    EXPECT_FALSE(hit.Tick(true, true, 900));
+    EXPECT_TRUE(hit.Tick(true, true, 586)) << "real damage during blessing";
+    EXPECT_FALSE(hit.Tick(true, true, 586)) << "only once per HP decrease";
+    EXPECT_FALSE(hit.Tick(true, true, 900)) << "healed without damage";
+    EXPECT_TRUE(hit.Tick(true, true, 0)) << "killed during blessing";
+}
+
+TEST(BloodborneFlagRules, AHitOnTheDollOutsideHerBlessingChangesNothing) {
+    DollHitEndsBlessing hit;
+    EXPECT_FALSE(hit.Tick(true, false, 900));
+    EXPECT_FALSE(hit.Tick(true, false, 586)) << "damage outside Level Up";
+    EXPECT_FALSE(hit.Tick(true, true, 586)) << "initial blessing baseline";
+    EXPECT_FALSE(hit.Tick(true, true, std::nullopt)) << "Doll not loaded";
+    EXPECT_FALSE(hit.Tick(true, true, 300)) << "new Doll sample, no previous HP";
+    EXPECT_TRUE(hit.Tick(true, true, 200));
+    DollHitEndsBlessing solo;
+    EXPECT_FALSE(solo.Tick(false, true, 900));
+    EXPECT_FALSE(solo.Tick(false, true, 586)) << "not in co-op";
+    EXPECT_FALSE(solo.Tick(true, true, 400)) << "no stale HP across mode";
+}
+
 // The Doll's "Give" appears only for the hunter who holds Small Hair
 // Ornament 4300. This is a PERSONAL dialog flag; another hunter's event or
 // item inventory must never suppress or grant it for this save.

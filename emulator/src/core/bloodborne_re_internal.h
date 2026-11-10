@@ -405,6 +405,8 @@ std::optional<LampPosition> LocalPlayerPosition();
 std::optional<float> CameraHeadingNow();
 
 s32 CharacterHp(u64 character);
+// Current game's own Doll HP, absent while she is not loaded on this map.
+std::optional<s32> DollHp();
 
 // The other players' characters in this world (WorldChrMan +0x30 count, +0x38 entries of 0x38
 // bytes; the local player is one of them), with HP (+0x128 of their data) and position.

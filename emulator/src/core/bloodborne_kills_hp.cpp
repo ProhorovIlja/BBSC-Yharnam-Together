@@ -976,6 +976,13 @@ bool IsMe(const std::string& member) {
 
 namespace Coop {
 
+// No borrowed teammate HP. The local game's actual Doll actor is authoritative
+// for terminating only THIS player's interrupted blessing animation.
+std::optional<s32> DollHp() {
+    const u64 doll = DollCharacter();
+    return doll >= 0x10000 ? std::optional{s32(CharacterHp(doll))} : std::nullopt;
+}
+
 std::vector<u32> OwnBossClaims() {
     std::scoped_lock lock{boss_claims_mutex};
     return boss_claims.Current(SteadyMilliseconds());
