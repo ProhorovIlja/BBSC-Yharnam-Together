@@ -4757,6 +4757,8 @@ struct PartyPanel {
     std::array<s32, 4> local_offensive_stats{}; // STR, SKL, BLT, ARC
     bool local_stats_valid = false;
     bool local_boss_fight = false;
+    std::string local_boss_name; // only from validated active boss gauges
+    s64 local_boss_started_unix = 0; // 0 when no active encounter
     std::vector<PanelMember> members;
     s32 revive_target = -1;   // the member an attack would revive now (ReviveTarget), or -1
     Vital vital = Vital::Off; // the local player's, with its revive progress and give-up hold
