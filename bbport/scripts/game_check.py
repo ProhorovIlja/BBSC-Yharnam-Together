@@ -57,13 +57,63 @@ def dcx_broken(path):
         return True
 
 
+# Adapted from ProhorovIlja/bloodborne_pc_windows_port master, whose
+# readable-file fallback comes from Supermedo/bloodborne_pc PR #64.
+# The checker never modifies game assets or player saves.
+def readable_and_broken(path):
+    """dcx_broken, but a file that cannot be read now (locked by an antivirus or a sync tool)
+    counts as intact: the check must not keep a good game from starting (from Supermedo/bloodborne_pc
+    PR #64 by parsifal295)."""
+    try:
+        return dcx_broken(path)
+    except OSError as error:
+        print(f'Game check: {path} not checked ({error})', file=sys.stderr)
+        return False
+
+
 def broken_files(game, folder=CHECKED_FOLDER):
     """The .dcx files under the game's folder that do not unpack (paths relative to the game)."""
     root = Path(game)
-    return [f.relative_to(root).as_posix() for f in sorted((root / folder).rglob('*.dcx')) if dcx_broken(f)]
+    return [f.relative_to(root).as_posix() for f in sorted((root / folder).rglob('*.dcx'))
+            if readable_and_broken(f)]
 
 
-def problem(game, image_hash=None):
+def _pass_key(game):
+    """Sizes and modification times of what the check reads (eboot.bin, param.sfo, the shaders)."""
+    root = Path(game)
+    files = [root / 'eboot.bin', root / 'sce_sys/param.sfo'] + sorted((root / CHECKED_FOLDER).rglob('*.dcx'))
+    parts = [str(root.resolve())]
+    for f in files:
+        st = f.stat()
+        parts.append(f'{f.name}:{st.st_size}:{st.st_mtime_ns}')
+    return hashlib.sha256('|'.join(parts).encode()).hexdigest()
+
+
+def problem(game, image_hash=None, cache=None):
+    """problem() as below; with `cache` (a JSON file), a pass is remembered for the same files (the
+    launcher's check before every start: ~1 s of hashing and unpacking saved)."""
+    if cache is None or os.environ.get('BB_SKIP_GAME_CHECK') == '1':
+        return _problem(game, image_hash)
+    import json
+    try:
+        k = _pass_key(game)
+    except OSError:
+        k = None
+    try:
+        if k and json.loads(Path(cache).read_text(encoding='utf-8')).get('passed') == k:
+            return None
+    except (OSError, ValueError, AttributeError):
+        pass
+    found = _problem(game, image_hash)
+    if found is None and k:
+        try:
+            Path(cache).parent.mkdir(parents=True, exist_ok=True)
+            Path(cache).write_text(json.dumps({'passed': k}), encoding='utf-8')
+        except OSError:
+            pass
+    return found
+
+def _problem(game, image_hash=None):
     """None for the supported game, else (kind, title, version): kind is 'missing_update' (base
     game or an older update), 'wrong_eboot' (param.sfo says 1.09, eboot.bin is another version),
     'patched_eboot' (the 1.09 eboot.bin with a 60 fps patch baked in), 'other_title' (another
@@ -90,6 +140,22 @@ def problem(game, image_hash=None):
     if version != SUPPORTED_VERSION:
         return 'missing_update', title, version
     return 'wrong_eboot', title, version
+
+
+# What an unclean eboot.bin costs (from Supermedo/bloodborne_pc 155a270b): the port's patches
+# check the 1.09 bytes they replace and leave themselves out, and some scenes freeze.
+UNCLEAN_EBOOT_EFFECTS = ('the port cannot patch it: the game runs at 30 FPS, the Game & effects '
+                         'options do nothing, and some scenes (like the cutscene after Rom) can '
+                         'freeze')
+
+
+def eboot_clean(game):
+    """True when eboot.bin is the clean 1.09 executable, False when it is another one, None when
+    it cannot be read. Ignores BB_SKIP_GAME_CHECK: the launcher warns with it set."""
+    try:
+        return image_sha256(game) == SUPPORTED_IMAGE
+    except (OSError, ValueError, IndexError, StopIteration, KeyError):
+        return None
 
 
 def explain(kind, title, version):
