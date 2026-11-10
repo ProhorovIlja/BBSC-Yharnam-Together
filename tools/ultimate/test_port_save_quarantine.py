@@ -183,6 +183,10 @@ class QuarantineTests(unittest.TestCase):
         manifest.write_text(json.dumps(obj))
         with self.assertRaises(SnapshotError):
             verify_snapshot(ready)
+        obj["source_kind"] = ["not", "a", "valid", "kind"]
+        manifest.write_text(json.dumps(obj))
+        with self.assertRaises(SnapshotError):
+            verify_snapshot(ready)
 
 
 if __name__ == "__main__":
