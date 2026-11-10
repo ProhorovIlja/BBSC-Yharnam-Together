@@ -4759,6 +4759,10 @@ struct PartyPanel {
     bool local_boss_fight = false;
     std::string local_boss_name; // only from validated active boss gauges
     s64 local_boss_started_unix = 0; // 0 when no active encounter
+    // B63: steady-clock millis recorded on the game-thread panel publish.
+    // 0 for loading / missing game data; Discord must not reuse old stats,
+    // location or boss name when the game tick stalls or tears down.
+    s64 rpc_snapshot_steady_ms = 0;
     std::vector<PanelMember> members;
     s32 revive_target = -1;   // the member an attack would revive now (ReviveTarget), or -1
     Vital vital = Vital::Off; // the local player's, with its revive progress and give-up hold
