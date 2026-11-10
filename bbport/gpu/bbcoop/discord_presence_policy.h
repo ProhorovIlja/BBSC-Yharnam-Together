@@ -38,7 +38,14 @@ struct PresenceSnapshot {
     bool team_duel = false;
     int members = 0;
     int capacity = 0;
+    // Discord automatically appends "(2 of 5)" when an RPC activity
+    // includes a valid party.size. Never echo a second "(2/5)" in state.
+    bool discord_party_counter = false;
 };
+
+inline constexpr bool ValidPartyCount(int members, int capacity) {
+    return capacity > 0 && members > 0 && members <= capacity;
+}
 
 struct PresenceText {
     std::string details;
@@ -80,9 +87,10 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
     } else if (s.host) {
         out.state = "Hosting";
     } else if (s.guest) {
-        out.state = s.capacity > 0 && s.members > 0 && s.members <= s.capacity
-                        ? "In co-op session (" + std::to_string(s.members) + "/" +
-                          std::to_string(s.capacity) + ")" : "In co-op session";
+        out.state = s.discord_party_counter || !ValidPartyCount(s.members, s.capacity)
+                        ? "In co-op session"
+                        : "In co-op session (" + std::to_string(s.members) + "/" +
+                          std::to_string(s.capacity) + ")";
     } else {
         out.state = "Solo hunter";
     }
