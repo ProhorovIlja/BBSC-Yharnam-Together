@@ -810,9 +810,13 @@ TEST(PhantomKeyItems, TheOwedFileReadsBackAndSkipsWhatDoesNotRead) {
     EXPECT_EQ(ParseOwedKeyItems("4114 1 1\r\n4000 1\nx\n200 1 1\n4001 0 1\n4002 2 1\n4114 3 3\n"),
               (std::vector<OwedKeyItem>{{4114, 1, 1}}));
     EXPECT_EQ(SlotFileName("phantom_keys", 3), "bloodborne_party_phantom_keys_slot3.txt");
-    EXPECT_NE(std::ranges::find(CharacterSlotFiles, std::string_view{"phantom_keys"}),
-              CharacterSlotFiles.end())
-        << "a new character in the slot is owed nothing of the old one's";
+    // B69: upstream #548 already wired this legacy on-disk file to live
+    // game hooks. Ultimate B68 deliberately did NOT wire live persistence,
+    // so do not assert a new-character cleanup contract that does not exist.
+    // B68's immutable per-character revisions use verified identity instead
+    // of silently deleting one slot's debt file.
+    EXPECT_EQ(std::ranges::find(CharacterSlotFiles, std::string_view{"phantom_keys"}),
+              CharacterSlotFiles.end());
 }
 
 // B68: the upstream lenient parser deliberately drops malformed rows.
