@@ -124,6 +124,10 @@ class GameCheckTests(unittest.TestCase):
                 self.assertIsNone(game_check.problem(game, cache=cache))
                 with self.assertRaisesRegex(AssertionError, 'verified cache unused'):
                     game_check.problem(game)
+        # The optional shortcut must never override a caller's independently
+        # checked hash. A stale success cannot mask a different executable.
+        self.assertEqual(game_check.problem(game, image_hash='bad hash', cache=cache)[0],
+                         'wrong_eboot')
         # Overwrite with a corrupted binary (size also changes) and refuse
         # using the previously successful preflight result.
         (game / 'eboot.bin').write_bytes(b'broken')
