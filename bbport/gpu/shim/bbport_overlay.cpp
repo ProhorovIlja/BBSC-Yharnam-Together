@@ -21,6 +21,7 @@
 #include <span>
 #include <memory>
 #include <vector>
+#include <deque>
 
 #include <SDL3/SDL.h>
 #include "../bbcoop.h"
@@ -4342,6 +4343,155 @@ void DrawPlayersPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
     ImGui::PopFont();
 }
 
+// B44: in-game team chat and server-authored hunt activity. Only the team
+// channel is enabled until global/DM federation, preferences and block lists.
+struct ChatLine {
+    std::string author;
+    std::string text;
+    bool system = false;
+    bool pending = false;
+    bool refused = false;
+};
+struct ChatPage {
+    bool open = false;
+    bool typing = false;
+    bool show_bosses = true; // can hide spoilers without suppressing text chat
+    int unread = 0;
+    char draft[513] = {};
+    std::deque<ChatLine> history; // in-memory only, at most 64 messages
+};
+ChatPage chat_page;
+
+void KeepChatLine(ChatLine line) {
+    if (chat_page.history.size() >= 64) chat_page.history.pop_front();
+    chat_page.history.push_back(std::move(line));
+}
+
+void PollChatEvents() {
+    std::array<bbcoop_chat_event, 16> batch{};
+    for (int attempts = 0; attempts < 4; ++attempts) {
+        const int taken = bbcoop_chat_take(batch.data(), static_cast<int>(batch.size()));
+        if (taken <= 0) break;
+        for (int i = 0; i < taken; ++i) {
+            const bbcoop_chat_event& event = batch[static_cast<std::size_t>(i)];
+            if (event.ack) {
+                const auto pending = std::find_if(chat_page.history.begin(), chat_page.history.end(),
+                                                  [](const ChatLine& line) { return line.pending; });
+                if (pending != chat_page.history.end()) {
+                    pending->pending = false;
+                    pending->refused = event.status != 0;
+                } else if (event.status != 0) {
+                    KeepChatLine({T("System", "Система"),
+                                  T("Message rejected", "Сообщение отклонено"), true});
+                }
+                continue;
+            }
+            if (event.kind == BBCOOP_CHAT_BOSS_VICTORY) {
+                KeepChatLine({T("Hunt", "Охота"),
+                              T("Your team defeated a boss", "Ваша команда победила босса"),
+                              true});
+            } else if (event.kind == BBCOOP_CHAT_TEXT) {
+                KeepChatLine({event.name[0] ? event.name : T("Hunter", "Охотник"),
+                              event.text, false});
+            } else {
+                continue;
+            }
+            if (!chat_page.open && chat_page.unread < 99) ++chat_page.unread;
+        }
+    }
+}
+
+void OpenChatPage() {
+    chat_page.open = true;
+    chat_page.unread = 0;
+    chat_page.typing = false;
+    focus.fresh = true;
+    focus.activate = false;
+}
+
+void DrawChatPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
+    const float left = win.x + S(44.0f), right = win.x + size.x - S(44.0f);
+    const float width = right - left;
+    const bool back = !chat_page.typing &&
+                      (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                       ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false));
+    ImGui::PushFont(MenuArt::Font(), 38.0f);
+    draw->AddText(ImVec2(left, win.y + S(28.0f)), Bright(), T("Team chat", "Чат команды"));
+    ImGui::PopFont();
+    ImGui::PushFont(MenuArt::Font(), 18.0f);
+    draw->AddText(ImVec2(left, win.y + S(90.0f)), Dim(),
+                  T("Only members of your current team see these messages and hunt events.",
+                    "Сообщения и события видны только участникам вашей команды."));
+    const float y0 = win.y + S(137.0f), row_h = S(44.0f);
+    const int rows = std::clamp(static_cast<int>((size.y - S(350.0f)) / row_h), 4, 15);
+    std::vector<const ChatLine*> visible;
+    visible.reserve(chat_page.history.size());
+    for (const ChatLine& line : chat_page.history) {
+        if (!chat_page.show_bosses && line.system &&
+            (line.text == "Your team defeated a boss" ||
+             line.text == "Ваша команда победила босса")) continue;
+        visible.push_back(&line);
+    }
+    const int start = std::max(0, static_cast<int>(visible.size()) - rows);
+    float y = y0;
+    for (int i = start; i < static_cast<int>(visible.size()); ++i, y += row_h) {
+        const ChatLine& line = *visible[static_cast<std::size_t>(i)];
+        MenuArt::Nine(draw, MenuArt::Row, ImVec2(left, y), ImVec2(right, y + row_h - S(4.0f)),
+                      10.0f, S(6.0f), 0.65f);
+        std::string label = line.author + ": " + line.text;
+        if (line.pending) label += T(" (sending)", " (отправка)");
+        if (line.refused) label += T(" (rejected)", " (отклонено)");
+        draw->AddText(ImVec2(left + S(12.0f), y + S(9.0f)),
+                      line.refused ? IM_COL32(223, 142, 130, 255)
+                                   : line.system ? Gold() : Plain(),
+                      Fit(label.c_str(), width - S(25.0f)).c_str());
+    }
+    if (visible.empty()) {
+        draw->AddText(ImVec2(left + S(10.0f), y + S(10.0f)), Dim(),
+                      T("No messages yet", "Сообщений пока нет"));
+    }
+
+    const float input_y = win.y + size.y - S(176.0f), input_h = S(43.0f);
+    ImGui::SetCursorScreenPos(ImVec2(left, input_y));
+    ImGui::SetNextItemWidth(width - S(180.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.06f, 0.055f, 0.05f, 0.9f));
+    const bool entered = ImGui::InputTextWithHint(
+        "##team_chat_input", T("Message your team (Enter to send)", "Сообщение команде (Enter)"),
+        chat_page.draft, sizeof(chat_page.draft), ImGuiInputTextFlags_EnterReturnsTrue);
+    chat_page.typing = ImGui::IsItemActive();
+    ImGui::PopStyleColor();
+    const bool send = Button(draw, "chat_send", T("Send", "Отправить"),
+                             ImVec2(right - S(158.0f), input_y),
+                             ImVec2(S(158.0f), input_h), chat_page.draft[0] != 0);
+    if ((send || entered) && chat_page.draft[0] != 0) {
+        const std::string draft{chat_page.draft};
+        if (bbcoop_chat_send(draft.c_str())) {
+            KeepChatLine({T("You", "Вы"), draft, false, true});
+            chat_page.draft[0] = 0;
+        }
+    }
+    const float bottom = win.y + size.y - S(105.0f);
+    const char* toggle = chat_page.show_bosses
+        ? T("Hide boss events", "Скрыть события боссов")
+        : T("Show boss events", "Показывать победы над боссами");
+    if (Button(draw, "chat_boss_filter", toggle,
+               ImVec2(left, bottom), ImVec2(S(245.0f), S(45.0f)))) {
+        chat_page.show_bosses = !chat_page.show_bosses;
+    }
+    if (Button(draw, "chat_players", T("Players", "Игроки"),
+               ImVec2(right - S(375.0f), bottom), ImVec2(S(170.0f), S(45.0f)))) {
+        chat_page.open = false;
+        OpenPlayersPage();
+    }
+    if (Button(draw, "chat_close", T("Close", "Закрыть"),
+               ImVec2(right - S(180.0f), bottom), ImVec2(S(180.0f), S(45.0f))) || back) {
+        chat_page.open = false;
+        chat_page.typing = false;
+        focus.fresh = true;
+    }
+    ImGui::PopFont();
+}
+
 void Screen() {
     const GreyAccent grey; // Kaniel 2026-10-18: the souls counter's grey, not gold
     const auto pressed_any = [](std::initializer_list<ImGuiKey> keys) {
@@ -4370,14 +4520,14 @@ void Screen() {
     focus.pointed = -1;
     PollAsk();
     // Amanises 2026-10-25: while the friends page's search box has the keyboard, the keys type.
-    const bool typing = asking != Ask::None || players_page.typing || (friends.open ? friends.typing : friends.online_typing);
+    const bool typing = asking != Ask::None || players_page.typing || chat_page.typing || (friends.open ? friends.typing : friends.online_typing);
     if (typing) {
         focus.move = Dir::None; // the pad's other buttons stay with the text entry
         focus.activate = false;
     }
     // Kaniel 2026-10-16: opened from the game's System menu (lobby.menu), Circle or Escape closes
     // it, as the game's own pages close (the friends page takes them first: back to the team).
-    if (lobby.menu && !friends.open && !players_page.open && !settings.open && !friends.online_typing && !duel_setup.open &&
+    if (lobby.menu && !friends.open && !players_page.open && !chat_page.open && !settings.open && !friends.online_typing && !duel_setup.open &&
         (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))) {
         bbcoop_team_menu(0);
     }
@@ -4441,6 +4591,14 @@ void Screen() {
         ImGui::PopStyleColor();
         return;
     }
+    if (chat_page.open) {
+        DrawChatPage(draw, win, size);
+        SettleFocus();
+        ImGui::End();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+        return;
+    }
     if (players_page.open) {
         DrawPlayersPage(draw, win, size);
         SettleFocus();
@@ -4484,6 +4642,17 @@ void Screen() {
                ImVec2(win.x + S(38.0f), win.y + S(35.0f)),
                ImVec2(S(200.0f), S(46.0f)), lobby.signed_in != 0)) {
         OpenPlayersPage();
+    }
+    ImGui::PopFont();
+    // Read-only unread badge; opening the chat clears it, not the history.
+    const std::string chat_label = chat_page.unread > 0
+        ? std::string(T("Chat", "Чат")) + " (" + std::to_string(chat_page.unread) + ")"
+        : T("Chat", "Чат");
+    ImGui::PushFont(MenuArt::Font(), 18.0f);
+    if (Button(draw, "chat_open", chat_label.c_str(),
+               ImVec2(win.x + S(252.0f), win.y + S(35.0f)),
+               ImVec2(S(170.0f), S(46.0f)), lobby.signed_in != 0)) {
+        OpenChatPage();
     }
     ImGui::PopFont();
     // Title and the team's state.
@@ -8431,9 +8600,11 @@ bool Visible() {
     if (!Team::open) {
         Team::friends.open = false; // the team screen opens on the team, not where it was left
         Team::players_page.open = false;
+        Team::chat_page.open = false;
         Team::friends.online_typing = false;
         Team::settings.open = false;
     }
+    if (initialized) Team::PollChatEvents();
     Joining::open = initialized && bbcoop_team_load_view(&Joining::load) != 0;
     loading_cover = Joining::open;
     Map::was_open = Map::open;
