@@ -27,6 +27,17 @@
 
 This is a bounded source review of specific current PRs and docs; **not a claim that every GitHub repo, fork or commit was searched**.
 
+## P0 progression audit after comparing currently merged upstream work
+
+The latest status check of upstream **[#554](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/554)** (home-world rollback) and **[#548](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/548)** (phantom key item persistence) now shows **MERGED**. The Ultimate B63 branch still lacks both `HomeWorlds` and `PhantomKeyItemLedger` classes in `bloodborne_team.h/.cpp`; `GiveBackPhantomKeyItems` in `bloodborne_travel.cpp` predates the durable ledger. These are **real unresolved P0 gameplay/data-loss problems**, not new Discord polish.
+
+**Mandatory safety review before transplanting**:
+- Upstream #554's `RetireOwnWorld` removes any previous backup file **before** attempting to rename `PersonalWorldFile`, then calls `remove(PersonalWorldFile)` on rename error. Even if meant to avoid stale backups, this fallback could delete a player's only remaining personal-world snapshot when the rename fails (permissions, AV lock, full disk, cross-volume issues). Our adaptation must be **non-destructive**, use unique backup names/atomic verified promotion, never delete either sole known-good copy, and demonstrate failure injection on every filesystem transition.
+- Upstream #548's live ledger writes an owed-items file with `std::ofstream{file, std::ios::binary | std::ios::trunc}`. That is not crash-atomic by itself; partial disk writes could lose the recovery list. Our adaptation must use a safe temp+fsync/rename protocol or a tested equivalent with rollback, validated per-character/slot identity, deduplication and restart tests.
+- Both upstream fixes were verified by their author on specific rigs and tests but **not yet carried over to our game fork**; source layout and handoff flags have diverged. Do not blindly cherry-pick and do not overwrite current player saves as part of review.
+
+Track in existing P0 issues **[#22](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/22)** and **[#35](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/35)**. Any integration shall be a separate Draft with rigorous protected save transactions, real 1.09 CUSA and two-client rollback tests, and fail-closed migration; B63 itself only changes Discord telemetry.
+
 ## Real acceptance gates
 
 - Gameplay test fresh/stale transitions with at least 2s and 10s stopped game ticks, no last map/BL/boss leak; validate legitimate background/main-menu downtime doesn't incorrectly hide current *live lobby* state.
