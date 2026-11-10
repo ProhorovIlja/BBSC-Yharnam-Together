@@ -63,6 +63,18 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 70
     steps:
+      # Match the proven B19 native-Windows workflow: git's default on
+      # windows-2022 can turn FSR-Vulkan submodule source into CRLF, causing
+      # git apply to reject the audited context of ffx_vk_fsr4_v07.c.
+      # Configure BEFORE checkout and submodule materialization.
+      - name: Preserve LF source bytes for the FSR4 upstream patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config --global core.autocrlf input
+          if ((git config --global --get core.autocrlf) -ne 'input') {
+            throw 'Git must preserve repository source LF'
+          }
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
