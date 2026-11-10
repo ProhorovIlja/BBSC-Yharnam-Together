@@ -57,6 +57,31 @@ struct Attributes {
     };
     return mask < names.size() ? names[mask] : "Unknown";
 }
+// B58: concise *Discord-only* presentation. Keep English/Russian as-is for
+// in-game HUD and accessibility; a common authoritative Mask decides both.
+// Bloodborne abbreviations: QLT = STR+SKL (Quality), OMNI = all four.
+// 0 = no offensive stat at or above the inclusive 18 threshold.
+[[nodiscard]] constexpr std::string_view DiscordShort(std::uint8_t mask) {
+    constexpr std::array<std::string_view, 16> names{
+        "UNF",              // 0000: no 18+ offense
+        "STR",              // 0001
+        "SKL",              // 0010
+        "QLT",              // 0011 STR+SKL
+        "BLT",              // 0100
+        "STR/BLT",          // 0101
+        "SKL/BLT",          // 0110
+        "QLT/BLT",          // 0111
+        "ARC",              // 1000
+        "STR/ARC",          // 1001
+        "SKL/ARC",          // 1010
+        "QLT/ARC",          // 1011
+        "BLT/ARC",          // 1100
+        "STR/BLT/ARC",      // 1101
+        "SKL/BLT/ARC",      // 1110
+        "OMNI"              // 1111
+    };
+    return mask < names.size() ? names[mask] : "Unknown";
+}
 [[nodiscard]] constexpr std::string_view Russian(std::uint8_t mask) {
     constexpr std::array<std::string_view, 16> names{
         "Без специализации", "Сила", "Ловкость", "Качество",
