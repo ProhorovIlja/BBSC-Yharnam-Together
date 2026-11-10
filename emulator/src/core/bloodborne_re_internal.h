@@ -15,6 +15,7 @@
 #include "core/bloodborne_host_rules.h"
 #include "core/bloodborne_invasion.h"
 #include "core/bloodborne_party.h"
+#include "core/ultimate_boss_presence.h"
 #include "core/bloodborne_re.h"
 #include "core/bloodborne_spectate.h"
 #include "core/bloodborne_team.h"
@@ -1246,6 +1247,8 @@ struct PartyDeathRun {
     // (SpectateFollow); a spectator out of a boss fight never follows into its arena.
     SpectateFollow follow;
     bool spectating_boss_fight = false;
+    // B60: per-game-tick boss encounter start, never begun by Discord polling.
+    BossPresence::EncounterClock rpc_boss_clock;
     bool follow_held_by_boss = false;
     u32 follow_moves = 0;
 };
