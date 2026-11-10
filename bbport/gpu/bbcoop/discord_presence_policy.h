@@ -38,7 +38,14 @@ struct PresenceSnapshot {
     bool team_duel = false;
     int members = 0;
     int capacity = 0;
+    // Discord automatically appends "(2 of 5)" when an RPC activity
+    // includes a valid party.size. Never echo a second "(2/5)" in state.
+    bool discord_party_counter = false;
 };
+
+inline constexpr bool ValidPartyCount(int members, int capacity) {
+    return capacity > 0 && members > 0 && members <= capacity;
+}
 
 struct PresenceText {
     std::string details;
@@ -48,8 +55,13 @@ struct PresenceText {
 
 inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& privacy) {
     PresenceText out;
-    out.details = privacy.show_location && !s.location.empty()
-                      ? "In " + s.location : "Hunting";
+    // In a boss encounter the fight takes the scarce Discord details row;
+    // build/level still append below, so they do not disappear mid-fight.
+    // Hidden boss information must not reveal a fight-only timer.
+    out.details = s.boss_fighting && privacy.show_boss
+                      ? (s.boss.empty() ? "Boss fight" : "Boss: " + s.boss)
+                      : privacy.show_location && !s.location.empty()
+                            ? "In " + s.location : "Hunting";
     if (privacy.show_level && s.level && *s.level >= 4 && *s.level <= 544) {
         out.details += " | Lv " + std::to_string(*s.level);
     }
@@ -62,10 +74,12 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         out.state = "Invading";
     } else if (s.invasion_searching) {
         out.state = "Searching for invasion";
+    } else if (s.spectating) {
+        // A hunter watching the boss is spectating even if an earlier duel
+        // flag has not yet been cleared by the network.
+        out.state = "Spectating";
     } else if (s.duel) {
         out.state = s.team_duel ? "In Team Duel" : "In-duel";
-    } else if (s.spectating) {
-        out.state = "Spectating";
     } else if (s.down) {
         out.state = "Downed";
     } else if (s.dead) {
@@ -73,23 +87,17 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
     } else if (s.host) {
         out.state = "Hosting";
     } else if (s.guest) {
-        out.state = s.capacity > 0 && s.members > 0 && s.members <= s.capacity
-                        ? "In co-op (" + std::to_string(s.members) + " out of " +
-                          std::to_string(s.capacity) + ")" : "In co-op";
+        out.state = s.discord_party_counter || !ValidPartyCount(s.members, s.capacity)
+                        ? "In co-op session"
+                        : "In co-op session (" + std::to_string(s.members) + "/" +
+                          std::to_string(s.capacity) + ")";
     } else {
         out.state = "Solo hunter";
     }
     // Discord has two short text fields and a single visible timer. Use the
     // fight start while the encounter runs, then restore play-session uptime.
-    if (s.boss_fighting) {
-        if (privacy.show_boss) {
-            const auto label = s.boss.empty() ? std::string{"Boss fight"}
-                                              : std::string{"Boss: "} + s.boss;
-            out.details = label; // avoid accidentally leaking hidden area
-        }
-        if (s.boss_started_unix > 0) {
-            out.start = s.boss_started_unix;
-        }
+    if (s.boss_fighting && privacy.show_boss && s.boss_started_unix > 0) {
+        out.start = s.boss_started_unix;
     }
     if (out.start == 0) {
         out.start = std::max<std::int64_t>(0, s.session_started_unix);

@@ -857,7 +857,9 @@ class DiscordStatusTests(unittest.TestCase):
     """Kaniel 2026-11-01: the Discord status is off by default, and no join secrets on a home server."""
 
     def env(self, **settings):
-        return coop.discord_environment({'BB_DISCORD_STATUS': 'old', 'BB_DISCORD_JOIN': 'old'}, settings)
+        return coop.discord_environment({
+            'BB_DISCORD_STATUS': 'old', 'BB_DISCORD_JOIN': 'old',
+            'BB_DISCORD_SHOW_BUILD': 'old', 'BB_DISCORD_SHOW_LEVEL': 'old'}, settings)
 
     def test_off_by_default(self):
         self.assertEqual(coop.DEFAULTS['discord_status'], '')
@@ -871,12 +873,41 @@ class DiscordStatusTests(unittest.TestCase):
 
     def test_on_a_home_server_it_shows_but_offers_no_join(self):
         with mock.patch.object(coop, 'DISCORD_APP_ID', '123'):
-            self.assertEqual(self.env(discord_status='1', server_type='local'),
-                             {'BB_DISCORD_STATUS': '1', 'BB_DISCORD_APP_ID': '123'})
+            self.assertEqual(
+                self.env(discord_status='1', server_type='local'),
+                {'BB_DISCORD_STATUS': '1', 'BB_DISCORD_APP_ID': '123',
+                 'BB_DISCORD_SHOW_AREA': '1', 'BB_DISCORD_SHOW_BOSS': '1',
+                 'BB_DISCORD_SHOW_LEVEL': '0', 'BB_DISCORD_SHOW_BUILD': '0'})
 
     def test_on_a_public_server_friends_join_from_discord(self):
         with mock.patch.object(coop, 'DISCORD_APP_ID', '123'):
             self.assertEqual(self.env(discord_status='1', server_type='global')['BB_DISCORD_JOIN'], '1')
+
+    def test_level_build_and_boss_are_independent_opt_ins(self):
+        with mock.patch.object(coop, 'DISCORD_APP_ID', '123'):
+            env = self.env(discord_status='1', server_type='local',
+                           discord_show_area='', discord_show_level='1',
+                           discord_show_build='1', discord_show_boss='')
+            self.assertEqual({k: v for k, v in env.items() if k.startswith('BB_DISCORD_SHOW_')},
+                             {'BB_DISCORD_SHOW_AREA': '0',
+                              'BB_DISCORD_SHOW_LEVEL': '1',
+                              'BB_DISCORD_SHOW_BUILD': '1',
+                              'BB_DISCORD_SHOW_BOSS': '0'})
+            self.assertNotIn('BB_DISCORD_JOIN', env)
+            self.assertNotIn('BB_DISCORD_SHOW_BUILD', self.env(discord_status=''))
+
+    def test_privacy_defaults_follow_saved_config(self):
+        self.assertEqual(coop.DEFAULTS['discord_show_level'], '')
+        self.assertEqual(coop.DEFAULTS['discord_show_build'], '')
+        self.assertEqual(coop.DEFAULTS['discord_show_area'], '1')
+        self.assertEqual(coop.DEFAULTS['discord_show_boss'], '1')
+        with tempfile.TemporaryDirectory() as directory:
+            stored = dict(coop.DEFAULTS, discord_status='1', discord_show_build='1')
+            coop.save_settings(directory, stored)
+            loaded = coop.read_settings(directory)
+            self.assertEqual(loaded['discord_show_build'], '1')
+            self.assertEqual(loaded['discord_show_level'], '')
+            self.assertEqual(loaded['discord_status'], '1')
 
 
 class UpdateTests(unittest.TestCase):

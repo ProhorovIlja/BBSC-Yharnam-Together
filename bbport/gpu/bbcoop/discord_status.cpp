@@ -278,6 +278,14 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
     snapshot.invasion_searching = invasion.role == BBCOOP_INVASION_INVADER &&
                                    invasion.phase == BBCOOP_INVASION_SEARCHING;
 
+    const bool has_discord_party = lobby.in_team && lobby.team[0] != '\0' &&
+                                   !snapshot.invading && !snapshot.invasion_searching;
+    const bool accurate_party_size = DiscordActivity::ValidPartyCount(
+        snapshot.members, snapshot.capacity);
+    // Discord renders "(2 of 5)" by itself from party.size. When it does,
+    // omit the custom "(2/5)" suffix so the state is not duplicated.
+    snapshot.discord_party_counter = has_discord_party && accurate_party_size;
+
     DiscordActivity::PresencePrivacy privacy;
     // Current launcher already owns BB_DISCORD_STATUS. Additional per-field
     // switches are opt-in: no unvalidated character data is sent at all.
@@ -298,18 +306,23 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
     }
     activity += ",\"assets\":{\"large_image\":\"yharnam\",\"large_text\":" +
                 Json("Yharnam Together") + "}";
-    if (lobby.in_team && lobby.team[0] != '\0' && !snapshot.invading &&
-        !snapshot.invasion_searching) {
-        const int capacity = snapshot.capacity;
-        // Party counts on Discord must never exceed actual room capacity.
-        const int members = std::clamp(lobby.member_count, 1, capacity);
-        activity += fmt::format(",\"party\":{{\"id\":{},\"size\":[{},{}]}}",
-                                Json(std::string{"yt-"} + lobby.team), members, capacity);
+    if (has_discord_party) {
+        // Keep grouping by team ID even when an old/unknown board has no
+        // trustworthy count; never fabricate (1/5) from a zero-member board.
+        activity += ",\"party\":{\"id\":" + Json(std::string{"yt-"} + lobby.team);
+        if (accurate_party_size) {
+            activity += fmt::format(",\"size\":[{},{}]", snapshot.members,
+                                    snapshot.capacity);
+        }
+        activity += "}";
+        // Game invites require a real party size. Unknown counts must not
+        // advertise spare seats or a join secret.
         const std::string secret =
-            JoinOffered() ? DiscordActivity::JoinSecret(lobby.code, lobby.team, lobby.join,
-                                                        BBCOOP_JOIN_INVITE_ONLY, members,
-                                                        capacity)
-                          : std::string{};
+            accurate_party_size && JoinOffered()
+                ? DiscordActivity::JoinSecret(lobby.code, lobby.team, lobby.join,
+                                               BBCOOP_JOIN_INVITE_ONLY, snapshot.members,
+                                               snapshot.capacity)
+                : std::string{};
         if (!secret.empty()) {
             activity += ",\"secrets\":{\"join\":" + Json(secret) + "}";
         }

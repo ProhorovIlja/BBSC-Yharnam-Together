@@ -42,10 +42,22 @@ int main() {
     p.host = false;
     p.guest = true;
     shown = Describe(p, {});
-    assert(shown.state == "In co-op (3 out of 5)");
+    assert(shown.state == "In co-op session (3/5)");
+    p.members = 2;
+    assert(Describe(p, {}).state == "In co-op session (2/5)");
+    assert(ValidPartyCount(2, 5));
+    assert(!ValidPartyCount(0, 5));
+    assert(!ValidPartyCount(6, 5));
+    assert(!ValidPartyCount(2, 0));
+    // With party.size in Discord's payload, Discord itself adds "(2 of 5)".
+    // State must not repeat the count, or friends see both formats together.
+    p.discord_party_counter = true;
+    assert(Describe(p, {}).state == "In co-op session");
+    p.discord_party_counter = false;
+    p.members = 3;
     p.members = 7; // unsupported/lying network count: do not invent ratio
     shown = Describe(p, {});
-    assert(shown.state == "In co-op");
+    assert(shown.state == "In co-op session");
     p.members = 3;
 
     p.duel = true;
@@ -54,8 +66,8 @@ int main() {
     p.team_duel = true;
     shown = Describe(p, {});
     assert(shown.state == "In Team Duel");
-    p.spectating = true; // priority: an active duel remains an active duel
-    assert(Describe(p, {}).state == "In Team Duel");
+    p.spectating = true; // dead boss observer outranks stale duel
+    assert(Describe(p, {}).state == "Spectating");
     p.duel = false;
     assert(Describe(p, {}).state == "Spectating");
     p.spectating = false;
@@ -89,8 +101,14 @@ int main() {
     shown = Describe(p, public_stats);
     assert(shown.details == "Boss: Cleric Beast");
     assert(shown.start == 1600000123);
+    public_stats.show_level = true;
+    public_stats.show_build = true;
+    p.level = 90;
+    assert(Describe(p, public_stats).details == "Boss: Cleric Beast | Lv 90 | STR+ARC");
     public_stats.show_boss = false;
-    assert(Describe(p, public_stats).details == "Hunting");
+    assert(Describe(p, public_stats).details == "Hunting | Lv 90 | STR+ARC");
+    assert(Describe(p, public_stats).start == 1600000000); // privacy hides fight timer
+    public_stats.show_boss = true;
     p.boss_started_unix = 0;
     assert(Describe(p, public_stats).start == 1600000000);
     p.boss_fighting = false;
@@ -104,6 +122,21 @@ int main() {
     assert(BbHunterBuild::Mask({18, 18, 18, 18}) == 15);
     assert(BbHunterBuild::English(15) == "Omnibuild");
     assert(!BbHunterBuild::Mask({18, 0, 18, 18}));
+    // Every valid mask is independently named. Threshold 18 is inclusive;
+    // below 18 is not included in the current hunter's archetype.
+    for (unsigned mask = 0; mask < 16; ++mask) {
+        const auto stats = BbHunterBuild::Attributes{
+            mask & 1 ? 18 : 17, mask & 2 ? 18 : 17,
+            mask & 4 ? 18 : 17, mask & 8 ? 18 : 17};
+        const auto actual = BbHunterBuild::Mask(stats);
+        assert(actual.has_value() && *actual == mask);
+        assert(!BbHunterBuild::English(*actual).empty());
+    }
+    assert(BbHunterBuild::English(0) == "Unfocused");
+    assert(BbHunterBuild::English(5) == "Strength/Blood");
+    assert(BbHunterBuild::English(9) == "Strength/Arcane");
+    assert(BbHunterBuild::English(10) == "Skill/Arcane");
+    assert(BbHunterBuild::English(12) == "Blood/Arcane");
 
     std::puts("discord activity: ok");
     return 0;

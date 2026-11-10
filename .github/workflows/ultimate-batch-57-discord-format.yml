@@ -1,0 +1,75 @@
+name: Ultimate B57 short co-op session, build and Discord privacy
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/bbcoop/discord_presence_policy.h'
+      - 'bbport/gpu/bbcoop/build_archetype.h'
+      - 'bbport/tests/test_discord_activity.cpp'
+      - 'bbport/launcher/bbport_coop.py'
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/tests/test_coop_launcher.py'
+      - 'docs/ULTIMATE_BATCH_57.md'
+      - '.github/workflows/ultimate-batch-57-discord-format.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  launcher-python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile real launcher Python and run existing Discord configuration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile bbport/launcher/bbport_coop.py bbport/launcher/bbport_launcher_win.py
+          (cd bbport/tests && python -m unittest test_coop_launcher.DiscordStatusTests)
+      - name: Assert user-facing formatting and UI provenance
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h = Path('bbport/gpu/bbcoop/discord_presence_policy.h').read_text(encoding='utf-8')
+          t = Path('bbport/tests/test_discord_activity.cpp').read_text(encoding='utf-8')
+          c = Path('bbport/launcher/bbport_coop.py').read_text(encoding='utf-8')
+          ui = Path('bbport/launcher/bbport_launcher_win.py').read_text(encoding='utf-8')
+          assert 'In co-op session (' in h and 'In co-op (' not in h
+          assert 'discord_party_counter' in h
+          assert 'snapshot.discord_party_counter' in Path('bbport/gpu/bbcoop/discord_status.cpp').read_text(encoding='utf-8')
+          assert 'accurate_party_size' in Path('bbport/gpu/bbcoop/discord_status.cpp').read_text(encoding='utf-8')
+          assert 'In co-op session (2/5)' in t and 'In co-op session' in t
+          assert 'for (unsigned mask = 0; mask < 16; ++mask)' in t
+          for key in ('discord_show_area', 'discord_show_level', 'discord_show_build', 'discord_show_boss'):
+              assert key in c and key in ui, key
+          assert 'DISCORD_APP_ID' in c
+          assert 'B57' in Path('docs/ULTIMATE_BATCH_57.md').read_text(encoding='utf-8')
+          PY
+  compiled-cpp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile production Discord policy/classifier and execute regression checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -Wall -Wextra -Werror -pedantic -I bbport \
+              bbport/tests/test_discord_activity.cpp \
+              -o "/tmp/ultimate-b57-rpc-${compiler}"
+            "/tmp/ultimate-b57-rpc-${compiler}"
+          done
