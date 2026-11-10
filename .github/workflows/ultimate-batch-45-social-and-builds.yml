@@ -1,0 +1,69 @@
+name: "Ultimate B45 social opt-out, hunter map visibility and 18+ build labels"
+
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/shim/bbport_settings.h'
+      - 'bbport/gpu/shim/bbport_settings.cpp'
+      - 'bbport/gpu/shim/bbport_overlay.cpp'
+      - 'bbport/gpu/bbcoop.h'
+      - 'bbport/gpu/bbcoop/coop.cpp'
+      - 'bbport/gpu/bbcoop/build_archetype.h'
+      - 'bbport/gpu/bbcoop/tests/test_build_archetype.cpp'
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_party.cpp'
+      - 'tools/ultimate/test_batch_45_social_settings.py'
+      - '.github/workflows/ultimate-batch-45-social-and-builds.yml'
+      - 'docs/ULTIMATE_BATCH_45.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b45-social-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  social-source-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact production preferences, chat opt-out and map/roster controls
+        shell: bash
+        run: python -m unittest discover -s tools/ultimate -p 'test_batch_45_social_settings.py' -v
+      - name: No production changes
+        shell: bash
+        run: echo B45_WIN_AND_LINUX_SOURCE_TESTS_PASS
+
+  clang-gcc-build-labels:
+    needs: social-source-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build pure C++20 stat archetype catalog on GCC and Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+              -Ibbport/gpu bbport/gpu/bbcoop/tests/test_build_archetype.cpp \
+              -o /tmp/b45_build_types
+            /tmp/b45_build_types
+          done
+          echo B45_16_ARCHETYPE_ALL_BOUNDARIES_ON_GCC_AND_CLANG_PASS
+      - name: No game files, saves or server deployment
+        run: echo B45_DRAFT_NO_FORNEX_NO_GAME_ASSETS
