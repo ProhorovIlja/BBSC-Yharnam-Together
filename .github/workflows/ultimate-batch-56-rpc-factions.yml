@@ -6,6 +6,9 @@ on:
       - 'bbport/gpu/bbcoop/discord_status.cpp'
       - 'bbport/tests/test_discord_activity.cpp'
       - 'emulator/src/core/ultimate_pvp_faction_rules.h'
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_party_death.cpp'
+      - 'bbport/gpu/bbcoop/build_archetype.h'
       - 'emulator/tests/bloodborne/test_ultimate_pvp_faction_rules.cpp'
       - 'docs/ULTIMATE_BATCH_56.md'
       - '.github/workflows/ultimate-batch-56-rpc-factions.yml'
@@ -45,6 +48,14 @@ jobs:
           for name in ('MaySeePrivateHud', 'MayReviveByHit', 'DisconnectAll', 'DisconnectOne', 'host_allowed', 'global_enabled'):
               assert name in pvp, name
               assert name in tests, name
+          game = Path('emulator/src/core/bloodborne_party_death.cpp').read_text()
+          panel = Path('emulator/src/core/bloodborne_party.h').read_text()
+          for name in ('OwnCharacterLevel()', 'panel.local_boss_fight', 'panel.local_stats_valid', 'HasMemoryAccess(own_data + 0x58'):
+              assert name in game, name
+          for name in ('local_offensive_stats', 'local_stats_valid', 'local_boss_fight'):
+              assert name in panel, name
+          assert 'BbHunterBuild::Mask' in p
+          assert 'boss_started' in p
           assert 'multi-invader' in Path('docs/ULTIMATE_BATCH_56.md').read_text().lower()
           PY
   compiled-policies:
