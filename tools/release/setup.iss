@@ -158,9 +158,11 @@ Name: "norwegiannynorsk"; MessagesFile: "languages\NorwegianNynorsk.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-; The player's own files are never installed over (check_release.py keeps them out of a release as well):
-; an update leaves the settings, key and pad remaps (bbport.ini), mods and patch choices as they are.
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "bbport.ini,mods.json,patches.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Never overwrite player-owned state even if a broken packager accidentally
+; stages a user/ or savedata/ folder. check_release.py also rejects them, but
+; the installer must enforce this independently and fail closed.
+; Based on official Yharnam Together upstream PR #554 (review pending).
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "bbport.ini,mods.json,patches.json,\user\*,\savedata\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
 ; The Start menu entries of the old name (before Yharnam Together); a desktop shortcut stays where it is.

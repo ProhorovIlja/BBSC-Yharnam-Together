@@ -1,0 +1,58 @@
+name: "Ultimate B50 installer never overwrites or deletes player saves"
+
+on:
+  pull_request:
+    paths:
+      - 'tools/release/setup.iss'
+      - 'tools/release/check_release.py'
+      - 'tools/release/tests/test_setup_saves.py'
+      - 'docs/ULTIMATE_BATCH_50.md'
+      - '.github/workflows/ultimate-batch-50-save-safe-installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b50-saves-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  invariant-check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate installer excludes user/savedata, no destructive code
+        shell: bash
+        run: |
+          python -m unittest discover -s tools/release/tests -p 'test_setup_saves.py' -v
+          python -m unittest discover -s tools/ultimate -p 'test_batch_49_cusa_titles.py' -v
+      - name: No actual user game files are ever read
+        shell: bash
+        run: echo B50_SOURCE_ONLY_NO_FORNEX_NO_GAME_SAVES
+
+  compiler-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: invariant-check
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Explicit Inno Setup manifest source consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'Excludes: "bbport.ini,mods.json,patches.json,\user\*,\savedata\*"' tools/release/setup.iss
+          python -m unittest discover -s tools/release/tests -p 'test_setup_saves.py' -v
+          echo B50_SAVE_DIRS_ALWAYS_EXCLUDED_BY_SETUP
