@@ -47,7 +47,7 @@ jobs:
           assert 'out.details += " | " + s.location;' in policy
           assert 's.boss_fighting && privacy.show_boss' in policy
           assert 'privacy.show_location && !s.location.empty()' in policy
-          assert 'Boss: Cleric Beast | Central Yharnam | BL 25 | STR/ARC' in tests
+          assert 'Fighting Cleric Beast | Central Yharnam | BL 25 | STR/ARC Build' in tests
           assert 'for (unsigned mask = 0; mask < 16; ++mask)' in tests
           assert 'B58' in read('docs/ULTIMATE_BATCH_58.md')
           PY

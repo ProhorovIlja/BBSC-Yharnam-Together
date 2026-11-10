@@ -61,7 +61,11 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
     const bool location_visible = privacy.show_location && !s.location.empty();
     const bool boss_visible = s.boss_fighting && privacy.show_boss;
     if (boss_visible) {
-        out.details = s.boss.empty() ? "Boss fight" : "Boss: " + s.boss;
+        // In a real encounter show the name only if the game adapter knows
+        // it. A fallen spectator is watching, not claiming to be fighting.
+        out.details = s.boss.empty() ? "Boss fight"
+                      : s.spectating ? "Watching " + s.boss
+                                    : "Fighting " + s.boss;
         if (location_visible) {
             out.details += " | " + s.location;
         }
@@ -72,7 +76,9 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         out.details += " | BL " + std::to_string(*s.level);
     }
     if (privacy.show_build && !s.build.empty() && s.build.size() <= 48) {
-        out.details += " | " + s.build;
+        // Keep the classifier itself compact (STR, QLT, STR/ARC...). Add
+        // "Build" only for Discord, independently of in-game HUD labels.
+        out.details += " | " + s.build + " Build";
     }
     // Priority is explicit and mutually exclusive: an invader must never be
     // advertised as a guest in the target's party, or leak its join secret.
@@ -94,8 +100,8 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         out.state = "Hosting";
     } else if (s.guest) {
         out.state = s.discord_party_counter || !ValidPartyCount(s.members, s.capacity)
-                        ? "In co-op session"
-                        : "In co-op session (" + std::to_string(s.members) + "/" +
+                        ? "In co-op"
+                        : "In co-op (" + std::to_string(s.members) + "/" +
                           std::to_string(s.capacity) + ")";
     } else {
         out.state = "Solo hunter";
