@@ -1771,6 +1771,22 @@ void KeepHeadstoneFlagsOwn() {
     }
 }
 
+// When another hunter strikes the Doll during this game's Level Up, her
+// dialog may abort before it sends the blessing's OFF event. End only the
+// local blessing when the local Doll actor's HP genuinely fell, leaving her
+// normal own-animation events to stand the player up.
+void EndDollBlessingWhenSheIsHit() {
+    static DollHitEndsBlessing hit;
+    const bool playing = party_controller && GetLocalPlayer() >= 0x10000;
+    const bool blessing_on = playing && EventFlagOn(DollBlessingFlag);
+    if (!hit.Tick(playing, blessing_on, blessing_on ? DollHp() : std::nullopt)) {
+        return;
+    }
+    reinterpret_cast<bool PS4_SYSV_ABI (*)(u64, s32, bool)>(
+        image_base + PartyGhostSetEventFlagOffset)(0, DollBlessingFlag, false);
+    LOG_INFO(Debug, "Bloodborne party: Doll hit interrupted this player's blessing {}", DollBlessingFlag);
+}
+
 // Keep the level-up animation guard until both of the Doll's own kneel,
 // stand-up and turn-back event steps have finished, not merely until her
 // blessing turns off (quick Circle cancel may happen mid animation).
@@ -2067,6 +2083,7 @@ void TickPlayersOnThisMap() {
     KeepGiftTalkFlagsOwn();
     KeepOwnedWeaponFlagsOwn();
     KeepHeadstoneFlagsOwn();
+    EndDollBlessingWhenSheIsHit();
     ClearDollLevelUpFlagAfterHerBlessing();
     static RecreateAfterJoin recreate_after_join;
     if (recreate_after_join.Tick(IsPartyGuestRole(), in_session,
