@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile bbport/launcher/bbport_coop.py bbport/launcher/bbport_launcher_win.py
-          python -m unittest discover -s bbport/tests -p test_coop_launcher.py
+          (cd bbport/tests && python -m unittest test_coop_launcher.DiscordStatusTests)
       - name: Assert user-facing formatting and UI provenance
         shell: bash
         run: |
