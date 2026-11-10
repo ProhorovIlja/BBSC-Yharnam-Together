@@ -93,6 +93,7 @@ int main() {
     assert(Describe(p, public_stats).details == "Hunting | BL 25 | STR/ARC");
     p.level = 9999;
     assert(Describe(p, public_stats).details == "Hunting | STR/ARC");
+    public_stats.show_location = true; // restore independent area consent for boss fixture
     public_stats.show_level = false;
     public_stats.show_build = false;
     p.boss = "Cleric Beast";
