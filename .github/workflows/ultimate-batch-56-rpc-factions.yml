@@ -1,0 +1,80 @@
+name: Ultimate B56 RPC factions and DBNO source policies
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/bbcoop/discord_presence_policy.h'
+      - 'bbport/gpu/bbcoop/discord_status.cpp'
+      - 'bbport/tests/test_discord_activity.cpp'
+      - 'emulator/src/core/ultimate_pvp_faction_rules.h'
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'emulator/src/core/bloodborne_party_death.cpp'
+      - 'bbport/gpu/bbcoop/build_archetype.h'
+      - 'emulator/tests/bloodborne/test_ultimate_pvp_faction_rules.cpp'
+      - 'docs/ULTIMATE_BATCH_56.md'
+      - '.github/workflows/ultimate-batch-56-rpc-factions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate production Discord status integration and PvP safety gates
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('bbport/gpu/bbcoop/discord_status.cpp').read_text()
+          rpc = Path('bbport/gpu/bbcoop/discord_presence_policy.h').read_text()
+          pvp = Path('emulator/src/core/ultimate_pvp_faction_rules.h').read_text()
+          tests = Path('emulator/tests/bloodborne/test_ultimate_pvp_faction_rules.cpp').read_text()
+          for name in ('discord_presence_policy.h', 'DiscordActivity::Describe', 'bbcoop_invasion_view', 'bbcoop_duel_view', 'JoinOffered'):
+              assert name in p, name
+          for name in ('Invading', 'In Team Duel', 'Spectating', 'Hosting', 'In co-op (', 'boss_started_unix', 'show_level = false'):
+              assert name in rpc, name
+          for name in ('MaySeePrivateHud', 'MayReviveByHit', 'DisconnectAll', 'DisconnectOne', 'host_allowed', 'global_enabled'):
+              assert name in pvp, name
+              assert name in tests, name
+          game = Path('emulator/src/core/bloodborne_party_death.cpp').read_text()
+          panel = Path('emulator/src/core/bloodborne_party.h').read_text()
+          for name in ('OwnCharacterLevel()', 'panel.local_boss_fight', 'panel.local_stats_valid', 'HasMemoryAccess(own_data + 0x58'):
+              assert name in game, name
+          for name in ('local_offensive_stats', 'local_stats_valid', 'local_boss_fight'):
+              assert name in panel, name
+          assert 'BbHunterBuild::Mask' in p
+          assert 'boss_started' in p
+          assert 'multi-invader' in Path('docs/ULTIMATE_BATCH_56.md').read_text().lower()
+          PY
+  compiled-policies:
+    needs: contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build real C++20 production headers and run both regression executables with GCC and Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -Wall -Wextra -Werror -pedantic -I bbport \
+              bbport/tests/test_discord_activity.cpp -o "/tmp/ultimate-b56-discord-${compiler}"
+            "/tmp/ultimate-b56-discord-${compiler}"
+            "$compiler" -std=c++20 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_ultimate_pvp_faction_rules.cpp -o "/tmp/ultimate-b56-pvp-${compiler}"
+            "/tmp/ultimate-b56-pvp-${compiler}"
+          done

@@ -4751,6 +4751,12 @@ struct PanelMember {
     bool operator==(const PanelMember&) const = default;
 };
 struct PartyPanel {
+    // B56: verified local game-thread observations for optional Discord RPC.
+    // Unknown/invalid snapshots must never be advertised as a guessed build.
+    u32 local_level = 0;
+    std::array<s32, 4> local_offensive_stats{}; // STR, SKL, BLT, ARC
+    bool local_stats_valid = false;
+    bool local_boss_fight = false;
     std::vector<PanelMember> members;
     s32 revive_target = -1;   // the member an attack would revive now (ReviveTarget), or -1
     Vital vital = Vital::Off; // the local player's, with its revive progress and give-up hold
