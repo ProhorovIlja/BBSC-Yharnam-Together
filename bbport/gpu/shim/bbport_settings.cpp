@@ -110,6 +110,22 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.bloodstains = i != 0;
     } else if (key == "team_pings") {
         v.team_pings = i != 0;
+    } else if (key == "social_chat") {
+        v.social_chat = i != 0;
+    } else if (key == "social_boss_events") {
+        v.social_boss_events = i != 0;
+    } else if (key == "map_teammates") {
+        v.map_teammates = i != 0;
+    } else if (key == "map_teammate_names") {
+        v.map_teammate_names = i != 0;
+    } else if (key == "roster_levels") {
+        v.roster_levels = i != 0;
+    } else if (key == "roster_latency") {
+        v.roster_latency = i != 0;
+    } else if (key == "roster_builds") {
+        v.roster_builds = i != 0;
+    } else if (key == "share_build_stats") {
+        v.share_build_stats = i != 0;
     } else if (key == "free_camera") {
         v.free_camera = i != 0;
     } else if (key == "ping_key") {
@@ -685,6 +701,14 @@ void Save() {
     put("compass", flag(v.compass));
     put("bloodstains", flag(v.bloodstains));
     put("team_pings", flag(v.team_pings));
+    put("social_chat", flag(v.social_chat));
+    put("social_boss_events", flag(v.social_boss_events));
+    put("map_teammates", flag(v.map_teammates));
+    put("map_teammate_names", flag(v.map_teammate_names));
+    put("roster_levels", flag(v.roster_levels));
+    put("roster_latency", flag(v.roster_latency));
+    put("roster_builds", flag(v.roster_builds));
+    put("share_build_stats", flag(v.share_build_stats));
     put("free_camera", flag(v.free_camera));
     put("ping_key", PingKeyNames[std::clamp(v.ping_key.load(), 0, PingKeyCount - 1)]);
     put("compass_position",
