@@ -41,7 +41,7 @@ class HuntersOnlineRosterSourceTests(unittest.TestCase):
         for code in ("struct PlayersPage", "void DrawPlayersPage(",
                      "OpenPlayersPage()", '"players_open"',
                      '"players_next"', '"players_prev"',
-                     '"players_filter"', '"players_close"',
+                     '"##players_filter"', '"players_close"',
                      '"players_find"', "LobbyRows::MayInvite(",
                      "players_page.typing", "Team::players_page.open = false;"):
             self.assertIn(code, self.overlay)
