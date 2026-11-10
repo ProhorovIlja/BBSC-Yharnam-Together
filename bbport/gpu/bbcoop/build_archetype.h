@@ -5,6 +5,7 @@
 // inclusive. Never fabricate a build from level, weapon, guessed network data
 // or the server's private anti-cheat CharacterSheet.
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -29,7 +30,7 @@ struct Attributes {
 [[nodiscard]] constexpr std::optional<std::uint8_t> Mask(Attributes v) {
     const std::array<int, 4> stats{v.strength, v.skill, v.bloodtinge, v.arcane};
     std::uint8_t mask = 0;
-    for (std::uint8_t i = 0; i < stats.size(); ++i) {
+    for (std::size_t i = 0; i < stats.size(); ++i) {
         if (stats[i] < 1 || stats[i] > MaxAttribute) return std::nullopt;
         if (stats[i] >= Threshold) mask |= static_cast<std::uint8_t>(1u << i);
     }
