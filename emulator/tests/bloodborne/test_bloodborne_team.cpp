@@ -815,6 +815,50 @@ TEST(PhantomKeyItems, TheOwedFileReadsBackAndSkipsWhatDoesNotRead) {
         << "a new character in the slot is owed nothing of the old one's";
 }
 
+// B68: the upstream lenient parser deliberately drops malformed rows.
+// For an actual persisted debt this would erase items: never accept a file
+// until ALL rows round-trip without loss and the whole record is bounded.
+TEST(PhantomKeyItems, StrictDebtRecordRejectsSilentLossAndCorruption) {
+    const auto valid = ParseOwedKeyItemsStrict("4114 1 1\n4000 1 2\n");
+    ASSERT_TRUE(valid);
+    EXPECT_EQ(*valid, (std::vector<OwedKeyItem>{{4114, 1, 1}, {4000, 1, 2}}));
+    for (std::string bad : {
+             "", "garbage", "4114 1", "4114 1 1", // missing LF => torn
+             "4114 1 1\nnope\n", "4114 1 1\n4114 2 2\n",
+             "4114 1 1\r\n", "200 1 1\n", "4114 0 1\n",
+             "4114 2 1\n", "4114 -1 1\n", "0 1 1\n",
+             "4114 1 1\n\n", "4114 1 1\nZ", " 4114 1 1\n",
+             "4114 1 1 \n", "99999999999999999999 1 1\n"}) {
+        EXPECT_FALSE(ParseOwedKeyItemsStrict(bad)) << "accepted broken ledger: " << bad;
+    }
+    EXPECT_FALSE(ParseOwedKeyItemsStrict(std::string(65537, 'x')));
+    std::string too_many;
+    for (int i = 0; i < 257; ++i) {
+        too_many += std::to_string(5000 + i) + " 1 1\n";
+    }
+    EXPECT_FALSE(ParseOwedKeyItemsStrict(too_many));
+}
+
+TEST(PhantomKeyItems, DebtIsStillNotGrantedTwiceAfterConsecutiveRestarts) {
+    PhantomKeyItemLedger run1;
+    EXPECT_EQ(run1.LookAtOwn(0x1111, {}), std::vector<HeldGoods>{});
+    EXPECT_TRUE(run1.LookAtPhantom(0x2222, {}).empty());
+    EXPECT_TRUE(run1.LookAtPhantom(0x2222, {{4114, 1}}).empty());
+    const auto debt = run1.Owed();
+    const std::string bytes = EncodeOwedKeyItems(debt);
+    const auto recovered = ParseOwedKeyItemsStrict(bytes);
+    ASSERT_TRUE(recovered);
+    PhantomKeyItemLedger run2;
+    run2.Load(*recovered);
+    EXPECT_EQ(run2.LookAtOwn(0x3333, {}),
+              (std::vector<HeldGoods>{{4114, 1}}));
+    // After the actual item grant / save acknowledgement the ledger can
+    // clear; a later own list with the item yields no further give.
+    run2.GaveBack();
+    EXPECT_TRUE(run2.Owed().empty());
+    EXPECT_EQ(run2.LookAtOwn(0x3333, {{4114, 1}}), std::vector<HeldGoods>{});
+}
+
 // Kaniel 2026-10-23: a joining guest's own key items went into the phantom's list each with the
 // game's "item received" popup ("Oedon Tomb Key 1 / OK"), one after another. Those grants show
 // none: the popup's queue push is skipped while a SilentItemGets lives on this thread.
