@@ -67,10 +67,12 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         out.state = "Invading";
     } else if (s.invasion_searching) {
         out.state = "Searching for invasion";
+    } else if (s.spectating) {
+        // A hunter watching the boss is spectating even if an earlier duel
+        // flag has not yet been cleared by the network.
+        out.state = "Spectating";
     } else if (s.duel) {
         out.state = s.team_duel ? "In Team Duel" : "In-duel";
-    } else if (s.spectating) {
-        out.state = "Spectating";
     } else if (s.down) {
         out.state = "Downed";
     } else if (s.dead) {
