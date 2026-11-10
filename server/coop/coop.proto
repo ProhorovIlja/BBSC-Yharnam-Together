@@ -954,6 +954,11 @@ message LobbyState {
     uint32 team_size = 14;
     // Kaniel 2026-11-01: this server is a public one: the team screen offers quick match.
     bool quick_match = 15;
+    // B43: selected co-op shard's complete signed-in lobby population, including self.
+    // The players repeated list above is deliberately bounded on hosted servers.
+    // A server predating B43 leaves online_count_known false: never display a fake zero.
+    uint32 online_count = 16;
+    bool online_count_known = 17;
 }
 
 // server -> game: load your save and play the team's world. To every ready member at Start, and
