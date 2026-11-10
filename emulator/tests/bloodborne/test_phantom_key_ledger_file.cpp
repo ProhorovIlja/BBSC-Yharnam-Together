@@ -16,6 +16,8 @@ using BloodborneCoop::PhantomKeyLedgerFile::Encode;
 using BloodborneCoop::PhantomKeyLedgerFile::Name;
 using BloodborneCoop::PhantomKeyLedgerFile::ReadReady;
 using BloodborneCoop::PhantomKeyLedgerFile::Revision;
+using BloodborneCoop::PhantomKeyLedgerFile::ScanLatest;
+using BloodborneCoop::PhantomKeyLedgerFile::ScanStatus;
 using BloodborneCoop::PhantomKeyLedgerFile::Valid;
 
 int main() {
@@ -32,6 +34,9 @@ int main() {
     assert(CreateNewRevision(root, first));
     const fs::path ready1 = root / (Name(first) + ".ready");
     assert(ReadReady(ready1) == std::optional{first});
+    assert(ScanLatest(root, 3, identity).status == ScanStatus::Ready);
+    assert(ScanLatest(root, 3, identity).latest == std::optional{first});
+    assert(ScanLatest(root, 4, identity).status == ScanStatus::Empty);
     assert(!CreateNewRevision(root, first));
     assert(ReadReady(ready1) == std::optional{first});
     assert(!fs::exists(root / ".writer.lock"));
@@ -40,18 +45,21 @@ int main() {
     Revision second{3, identity, 2, "4114 1 1\n4000 1 2\n4110 1 1\n"};
     assert(CreateNewRevision(root, second));
     assert(ReadReady(root / (Name(second) + ".ready")) == std::optional{second});
+    assert(ScanLatest(root, 3, identity).latest == std::optional{second});
     assert(ReadReady(ready1) == std::optional{first});
 
     // An explicit tombstone is a committed entry, not "file went missing".
     Revision cleared{3, identity, 3, ""};
     assert(CreateNewRevision(root, cleared));
     assert(ReadReady(root / (Name(cleared) + ".ready")) == std::optional{cleared});
+    assert(ScanLatest(root, 3, identity).latest == std::optional{cleared});
     assert(ReadReady(ready1) == std::optional{first});
 
     // Crash / previous writer still active: do not steal a stale lock.
     assert(fs::create_directory(root / ".writer.lock"));
     Revision later{3, identity, 4, "4110 1 1\n"};
     assert(!CreateNewRevision(root, later));
+    assert(ScanLatest(root, 3, identity).status == ScanStatus::Blocked);
     assert(!fs::exists(root / (Name(later) + ".ready")));
     assert(fs::remove(root / ".writer.lock"));
     assert(CreateNewRevision(root, later));
@@ -61,6 +69,10 @@ int main() {
     assert(fs::create_directory(root / (Name(interrupted) + ".pending")));
     assert(!CreateNewRevision(root, interrupted));
     assert(!fs::exists(root / (Name(interrupted) + ".ready")));
+    assert(ScanLatest(root, 3, identity).status == ScanStatus::Blocked);
+    // A prior valid revision is NOT silently replayed when newer debt
+    // may be stranded in an interrupted pending transaction.
+    assert(ScanLatest(root, 4, identity).status == ScanStatus::Empty);
 
     // Corrupt bytes, wrong checksum and a renamed other character all fail.
     Revision damaged{3, identity, 6, "4114 1 1\n"};
@@ -71,10 +83,13 @@ int main() {
         out << "broken version";
     }
     assert(!ReadReady(ready6));
+    assert(ScanLatest(root, 3, identity).status == ScanStatus::Blocked);
     assert(ReadReady(ready1) == std::optional{first});
     Revision other{4, "abcdef0123456789abcdef0123456789", 1, "4114 1 1\n"};
     assert(CreateNewRevision(root, other));
     assert(ReadReady(root / (Name(other) + ".ready")) == std::optional{other});
+    assert(ScanLatest(root, 4, other.character_fingerprint).status == ScanStatus::Ready);
+    assert(ScanLatest(root, 4, other.character_fingerprint).latest == std::optional{other});
     assert(ReadReady(root / (Name(first) + ".ready")) != std::optional{other});
 
     // Refuse invalid item / bell, junk, overlarge, overflow and identity.
