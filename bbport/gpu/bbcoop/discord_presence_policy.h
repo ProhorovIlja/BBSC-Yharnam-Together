@@ -63,11 +63,17 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
     // and state alone changes when the boss fight starts or ends.
     const bool location_visible = privacy.show_location && !s.location.empty();
     out.details = location_visible ? s.location : "Hunting";
-    if (privacy.show_level && s.level && *s.level >= 4 && *s.level <= 544) {
+    // Blood Level and Build belong to one compact, adjacent group.
+    // Three spaces are a small visual gap, NOT two opposite edges of a row,
+    // and NOT a pipe divider between BL and the archetype.
+    const bool has_bl = privacy.show_level && s.level &&
+                        *s.level >= 4 && *s.level <= 544;
+    if (has_bl) {
         out.details += " | BL " + std::to_string(*s.level);
     }
     if (privacy.show_build && !s.build.empty() && s.build.size() <= 48) {
-        out.details += " | " + s.build + " Build";
+        out.details += has_bl ? "   " : " | ";
+        out.details += s.build + " Build";
     }
 
     // The final co-op count is an explicit manual (2/5) only when no
