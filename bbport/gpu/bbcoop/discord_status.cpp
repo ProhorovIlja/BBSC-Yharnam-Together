@@ -283,9 +283,18 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
                                    !snapshot.invading && !snapshot.invasion_searching;
     const bool accurate_party_size = DiscordActivity::ValidPartyCount(
         snapshot.members, snapshot.capacity);
-    // Discord renders "(2 of 5)" by itself from party.size. When it does,
-    // omit the custom "(2/5)" suffix so the state is not duplicated.
-    snapshot.discord_party_counter = has_discord_party && accurate_party_size;
+    // B61: the requested visual contract uses exact "(2/5)", including
+    // during a boss fight. Native party.size makes Discord add "(2 of 5)"
+    // instead, so compact is the default and we omit that size field.
+    // For users relying on native party metadata / invitation rendering,
+    // BB_DISCORD_NATIVE_PARTY_SIZE=1 keeps the old Discord-managed option.
+    // Do not send BOTH suffixes or pretend compact mode has verified
+    // Discord desktop Join behavior: that still needs a real client test.
+    const char* party_mode = std::getenv("BB_DISCORD_NATIVE_PARTY_SIZE");
+    const bool native_party_size = party_mode != nullptr &&
+                                   std::string_view{party_mode} == "1";
+    snapshot.discord_party_counter =
+        has_discord_party && accurate_party_size && native_party_size;
 
     DiscordActivity::PresencePrivacy privacy;
     // Current launcher already owns BB_DISCORD_STATUS. Additional per-field
@@ -311,7 +320,7 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
         // Keep grouping by team ID even when an old/unknown board has no
         // trustworthy count; never fabricate (1/5) from a zero-member board.
         activity += ",\"party\":{\"id\":" + Json(std::string{"yt-"} + lobby.team);
-        if (accurate_party_size) {
+        if (snapshot.discord_party_counter) {
             activity += fmt::format(",\"size\":[{},{}]", snapshot.members,
                                     snapshot.capacity);
         }
