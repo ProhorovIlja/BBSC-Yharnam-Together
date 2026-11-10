@@ -2488,12 +2488,16 @@ std::optional<bbcoop::LobbyState> TeamLobbyState() {
     return team_gate.Lobby();
 }
 
-std::vector<bbcoop::ChatEvent> TakeTeamChatEvents() {
+std::vector<bbcoop::ChatEvent> TakeTeamChatEvents(int most) {
     std::scoped_lock lock{team_mutex};
     std::vector<bbcoop::ChatEvent> out;
-    out.reserve(chat_inbox.size());
-    for (bbcoop::ChatEvent& event : chat_inbox) out.push_back(std::move(event));
-    chat_inbox.clear();
+    const std::size_t count = most > 0 ? std::min(chat_inbox.size(), static_cast<std::size_t>(most))
+                                      : 0;
+    out.reserve(count);
+    while (out.size() < count) {
+        out.push_back(std::move(chat_inbox.front()));
+        chat_inbox.pop_front();
+    }
     return out;
 }
 
