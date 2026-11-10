@@ -1310,6 +1310,9 @@ bbcoop::LobbyState TeamLobby::StateFor(const std::string& member) const {
         Index();
     }
     bbcoop::LobbyState state;
+    // Server-owned roster size: not the length of its bounded per-client list.
+    state.set_online_count(static_cast<u32>(players.size()));
+    state.set_online_count_known(true);
     const bbcoop::Team* mine = TeamOf(member);
     if (mine) {
         bbcoop::Team& out = *state.mutable_team();

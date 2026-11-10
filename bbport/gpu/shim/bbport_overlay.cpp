@@ -4193,6 +4193,155 @@ void DrawFriends(ImDrawList* draw, ImVec2 win, ImVec2 size) {
     }
 }
 
+// B43: a separate, keyboard/controller-accessible roster page. The server's
+// online_count is a different fact from the small list it chose to send us.
+struct PlayersPage {
+    bool open = false;
+    bool typing = false;
+    char filter[40] = {};
+    int page = 0;
+};
+PlayersPage players_page;
+
+void OpenPlayersPage() {
+    players_page.open = true;
+    players_page.page = 0;
+    players_page.filter[0] = 0;
+    players_page.typing = false;
+    focus.fresh = true;
+    focus.activate = false;
+}
+
+void DrawPlayersPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
+    const bool back = !players_page.typing &&
+                      (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                       ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false));
+    const float left = win.x + S(45.0f), width = size.x - S(90.0f);
+    const std::string heading = T("Players on this server", "Игроки этого сервера");
+    ImGui::PushFont(MenuArt::Font(), 38.0f);
+    draw->AddText(ImVec2(left, win.y + S(35.0f)), Bright(), heading.c_str());
+    ImGui::PopFont();
+    ImGui::PushFont(MenuArt::Font(), 20.0f);
+    const std::string count = lobby.online_count_known
+        ? std::to_string(lobby.online_count)
+        : T("unknown", "нет данных");
+    std::string description = std::string(T("Online in this co-op lobby: ", "В сети в этом кооп-лобби: ")) +
+                              count;
+    draw->AddText(ImVec2(left, win.y + S(90.0f)), Gold(), description.c_str());
+    ImGui::SetCursorScreenPos(ImVec2(left, win.y + S(132.0f)));
+    ImGui::SetNextItemWidth(width - S(300.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.06f, 0.055f, 0.05f, 0.9f));
+    const bool entered = ImGui::InputTextWithHint(
+        "##players_filter", T("Filter listed hunters", "Фильтр показанных игроков"),
+        players_page.filter, sizeof(players_page.filter), ImGuiInputTextFlags_EnterReturnsTrue);
+    players_page.typing = ImGui::IsItemActive();
+    ImGui::PopStyleColor();
+    if (Button(draw, "players_find", T("Search server", "Поиск на сервере"),
+               ImVec2(left + width - S(270.0f), win.y + S(128.0f)),
+               ImVec2(S(255.0f), S(42.0f))) || entered) {
+        OpenFriends();
+        std::snprintf(friends.query, sizeof(friends.query), "%s", players_page.filter);
+        bbcoop_lobby_request(BBCOOP_TEAM_SEARCH, friends.query);
+        players_page.open = false;
+    }
+    // The selected server may have hundreds of accounts, but a hosted LobbyState
+    // intentionally transmits only a bounded audience to each game. We never
+    // pretend that its visible rows are an exhaustive listing.
+    std::vector<const bbcoop_lobby_entry*> listed;
+    for (int i = 0; i < lobby.member_count; ++i) {
+        if (lobby.members[i].state != BBCOOP_LOBBY_OFFLINE) {
+            listed.push_back(&lobby.members[i]);
+        }
+    }
+    for (int i = 0; i < lobby.player_count; ++i) {
+        if (lobby.players[i].state != BBCOOP_LOBBY_OFFLINE) {
+            listed.push_back(&lobby.players[i]);
+        }
+    }
+    const auto folded = [](std::string value) {
+        for (char& c : value) {
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        return value;
+    };
+    const std::string query = folded(players_page.filter);
+    std::vector<const bbcoop_lobby_entry*> shown;
+    for (const bbcoop_lobby_entry* player : listed) {
+        if (query.empty() || folded(player->name).find(query) != std::string::npos) {
+            shown.push_back(player);
+        }
+    }
+    const int rows = std::clamp(static_cast<int>((size.y - S(350.0f)) / S(47.0f)), 3, 12);
+    const int pages = std::max(1, (static_cast<int>(shown.size()) + rows - 1) / rows);
+    players_page.page = std::clamp(players_page.page, 0, pages - 1);
+    const std::string summary = std::string(T("Visible from server snapshot: ", "Показано из списка сервера: ")) +
+                                std::to_string(listed.size()) +
+                                (lobby.online_count_known && static_cast<int>(listed.size()) < lobby.online_count
+                                   ? " / " + std::to_string(lobby.online_count)
+                                   : "");
+    draw->AddText(ImVec2(left, win.y + S(183.0f)), Plain(0.7f), summary.c_str());
+    float y = win.y + S(220.0f);
+    const bool can_invite = lobby.in_team && lobby.member_count < BBCOOP_LOBBY_TEAM;
+    const float row_h = S(47.0f), button_w = S(128.0f);
+    for (int i = players_page.page * rows;
+         i < static_cast<int>(shown.size()) && i < (players_page.page + 1) * rows;
+         ++i, y += row_h) {
+        const bbcoop_lobby_entry& p = *shown[static_cast<std::size_t>(i)];
+        MenuArt::Nine(draw, MenuArt::Row, ImVec2(left, y), ImVec2(left + width, y + row_h - S(4.0f)),
+                      10.0f, S(6.0f), 0.7f);
+        const bool self = std::strcmp(p.id, lobby.me) == 0;
+        const bool in_my_team = p.in_my_team || std::any_of(
+            lobby.members, lobby.members + lobby.member_count,
+            [&](const bbcoop_lobby_entry& member) { return std::strcmp(member.id, p.id) == 0; });
+        const std::string status = self ? T("You", "Вы")
+                                   : in_my_team ? T("Your team", "Ваша команда")
+                                                : TeamStateText(p);
+        draw->AddText(ImVec2(left + S(13.0f), y + S(11.0f)),
+                      self ? Gold() : Plain(),
+                      Fit(p.name, width * 0.52f).c_str());
+        draw->AddText(ImVec2(left + width * 0.56f, y + S(11.0f)), Plain(0.75f),
+                      Fit(status.c_str(), width * 0.20f).c_str());
+        if (!self && !in_my_team) {
+            const std::string id = std::string("players_invite_") + p.id;
+            if (Button(draw, id.c_str(), T("Invite", "Пригласить"),
+                       ImVec2(left + width - button_w - S(12.0f), y + S(3.0f)),
+                       ImVec2(button_w, row_h - S(9.0f)),
+                       LobbyRows::MayInvite(can_invite, false, p.team_leader))) {
+                bbcoop_lobby_request(BBCOOP_TEAM_INVITE, p.id);
+            }
+        }
+    }
+    if (shown.empty()) {
+        draw->AddText(ImVec2(left + S(12.0f), y + S(10.0f)), Dim(),
+                      T("No listed hunter matches the filter", "Нет совпадений в полученном списке"));
+    }
+    const float bottom = win.y + size.y - S(128.0f);
+    if (Button(draw, "players_prev", T("Previous", "Назад"),
+               ImVec2(left, bottom), ImVec2(S(165.0f), S(44.0f)),
+               players_page.page > 0)) {
+        --players_page.page;
+    }
+    const std::string position = std::to_string(players_page.page + 1) + " / " + std::to_string(pages);
+    draw->AddText(ImVec2(left + S(185.0f), bottom + S(12.0f)), Plain(), position.c_str());
+    if (Button(draw, "players_next", T("Next", "Далее"),
+               ImVec2(left + S(265.0f), bottom), ImVec2(S(165.0f), S(44.0f)),
+               players_page.page + 1 < pages)) {
+        ++players_page.page;
+    }
+    if (Button(draw, "players_friends", T("Friends", "Друзья"),
+               ImVec2(left + width - S(390.0f), bottom), ImVec2(S(170.0f), S(44.0f)))) {
+        players_page.open = false;
+        OpenFriends();
+    }
+    if (Button(draw, "players_close", T("Close", "Закрыть"),
+               ImVec2(left + width - S(195.0f), bottom), ImVec2(S(180.0f), S(44.0f))) || back) {
+        players_page.open = false;
+        players_page.typing = false;
+        focus.fresh = true;
+    }
+    ImGui::PopFont();
+}
+
 void Screen() {
     const GreyAccent grey; // Kaniel 2026-10-18: the souls counter's grey, not gold
     const auto pressed_any = [](std::initializer_list<ImGuiKey> keys) {
@@ -4221,14 +4370,14 @@ void Screen() {
     focus.pointed = -1;
     PollAsk();
     // Amanises 2026-10-25: while the friends page's search box has the keyboard, the keys type.
-    const bool typing = asking != Ask::None || (friends.open ? friends.typing : friends.online_typing);
+    const bool typing = asking != Ask::None || players_page.typing || (friends.open ? friends.typing : friends.online_typing);
     if (typing) {
         focus.move = Dir::None; // the pad's other buttons stay with the text entry
         focus.activate = false;
     }
     // Kaniel 2026-10-16: opened from the game's System menu (lobby.menu), Circle or Escape closes
     // it, as the game's own pages close (the friends page takes them first: back to the team).
-    if (lobby.menu && !friends.open && !settings.open && !friends.online_typing && !duel_setup.open &&
+    if (lobby.menu && !friends.open && !players_page.open && !settings.open && !friends.online_typing && !duel_setup.open &&
         (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))) {
         bbcoop_team_menu(0);
     }
@@ -4292,6 +4441,14 @@ void Screen() {
         ImGui::PopStyleColor();
         return;
     }
+    if (players_page.open) {
+        DrawPlayersPage(draw, win, size);
+        SettleFocus();
+        ImGui::End();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+        return;
+    }
     if (friends.open) {
         settings.open = false;
         DrawFriends(draw, win, size);
@@ -4318,6 +4475,17 @@ void Screen() {
             OpenSettings();
         }
     }
+    // B43: always one click or controller action from the team's screen.
+    // This selected-shard count is server-owned; absent support means unknown.
+    const std::string players_label = std::string(T("Players", "Игроки")) + " (" +
+        (lobby.online_count_known ? std::to_string(lobby.online_count) : "—") + ")";
+    ImGui::PushFont(MenuArt::Font(), 18.0f);
+    if (Button(draw, "players_open", players_label.c_str(),
+               ImVec2(win.x + S(38.0f), win.y + S(35.0f)),
+               ImVec2(S(200.0f), S(46.0f)), lobby.signed_in != 0)) {
+        OpenPlayersPage();
+    }
+    ImGui::PopFont();
     // Title and the team's state.
     ImGui::PushFont(MenuArt::Font(), 40.0f);
     const char* title = T("The Hunt Together", "Совместная охота");
@@ -8262,6 +8430,7 @@ bool Visible() {
     Team::open = initialized && bbcoop_team_screen() != 0 && bbcoop_lobby_view(&Team::lobby) != 0;
     if (!Team::open) {
         Team::friends.open = false; // the team screen opens on the team, not where it was left
+        Team::players_page.open = false;
         Team::friends.online_typing = false;
         Team::settings.open = false;
     }

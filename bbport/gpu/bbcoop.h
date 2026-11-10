@@ -366,6 +366,10 @@ typedef struct bbcoop_lobby {
     bbcoop_lobby_open open_teams[BBCOOP_LOBBY_OPEN];
     bbcoop_lobby_entry asks[BBCOOP_LOBBY_ASKS];
     char team[40]; /* Amanises 2026-10-25: the team's id ("" in no team), its Discord party */
+    // B43: authoritative selected-shard co-op lobby count; independent of the
+    // capped players[] list. Old servers leave known=false (unknown, never 0).
+    int online_count;
+    int online_count_known;
 } bbcoop_lobby;
 enum { BBCOOP_DEATH_DOWN = 0, BBCOOP_DEATH_SPECTATE = 1 };
 /* Fills `lobby`; 0 when the team lobby is off. */
