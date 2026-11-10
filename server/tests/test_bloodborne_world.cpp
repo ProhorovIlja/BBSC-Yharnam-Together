@@ -163,6 +163,14 @@ struct Game {
     request.set_character(character);
     Send(envelope, now_ms);
   }
+  void Chat(std::uint32_t scope, const std::string& text, qint64 now_ms,
+            const std::string& target = {}) {
+    bbcoop::Envelope envelope;
+    envelope.mutable_chat_send()->set_scope(scope);
+    envelope.mutable_chat_send()->set_target(target);
+    envelope.mutable_chat_send()->set_text(text);
+    Send(envelope, now_ms);
+  }
   void Invade(u32 level, qint64 now_ms, bool cancel = false) {
     bbcoop::Envelope envelope;
     envelope.mutable_invade_request()->set_level(level);
@@ -211,6 +219,8 @@ struct Game {
       places.push_back(envelope.enemy_places());
     } else if (envelope.has_altar_record()) {
       altar_records.push_back(envelope.altar_record());
+    } else if (envelope.has_chat_event()) {
+      chats.push_back(envelope.chat_event());
     } else if (envelope.has_ping()) {
       pings.push_back(envelope.ping());
     } else if (envelope.has_team_travel()) {
@@ -287,6 +297,7 @@ struct Game {
   std::vector<bbcoop::EnemyHit> hits;
   std::vector<bbcoop::EnemyPlaces> places;
   std::vector<bbcoop::AltarRecord> altar_records;
+  std::vector<bbcoop::ChatEvent> chats;
   std::vector<bbcoop::Ping> pings;
   std::vector<bbcoop::TeamTravel> travels;
   std::vector<bbcoop::DuelState> duels;
@@ -2223,6 +2234,79 @@ int ATradeGoesThroughTheServerAndOutlivesItsRestart() {
 // Phase 5: the lobby on the service. Players sign in before any party, form a
 // team, ready up and start. Kaniel 2026-10-17: the team is only a session (a
 // new server has none); its world outlives the server.
+int AuthenticatedTeamChatDoesNotCrossGroupsOrOldMembership() {
+  Service service{{}};
+  service.RequireAuthenticatedIdentity();
+  const qint64 now = 1'000'000;
+  Game a{1000, "61", 11, "a"};
+  Game b{1001, "62", 12, "b"};
+  Game c{1002, "63", 13, "c"};
+  Game spoof{1003, "61", 14, "x"};
+  const std::vector<Game*> games{&a, &b, &c, &spoof};
+
+  // No chat before an authenticated lobby hello.
+  a.Chat(2, "before-login", now);
+  Pump(service, games, now);
+  CHECK(a.chats.empty());
+  for (Game* g : games) g->LobbyHello(false, now);
+  Pump(service, games, now);
+  CHECK(!spoof.lobby.notice().empty());
+  a.Team(bbcoop::TeamRequest::CREATE, now);
+  Pump(service, games, now);
+  CHECK(a.lobby.has_team());
+  const std::string team = a.lobby.team().id();
+  a.Team(bbcoop::TeamRequest::INVITE, now, b.name);
+  Pump(service, games, now);
+  b.Team(bbcoop::TeamRequest::ACCEPT, now, {}, team);
+  Pump(service, games, now);
+  CHECK(b.lobby.has_team() && b.lobby.team().id() == team);
+
+  a.Chat(2, "Hello team", now);
+  Pump(service, games, now);
+  CHECK(a.chats.size() == 1 && a.chats.back().ack() && a.chats.back().status() == 0);
+  CHECK(b.chats.size() == 1 && !b.chats.back().ack() &&
+        b.chats.back().from() == "61" && b.chats.back().text() == "Hello team");
+  CHECK(c.chats.empty() && spoof.chats.empty());
+
+  // Sender id cannot be spoofed merely by putting someone else's name in LobbyHello.
+  spoof.Chat(2, "fake", now);
+  Pump(service, games, now);
+  CHECK(b.chats.size() == 1 && spoof.chats.empty());
+
+  // Not in the team: rejected without leaking to the other team's members.
+  c.Chat(2, "outsider", now);
+  Pump(service, games, now);
+  CHECK(c.chats.size() == 1 && c.chats.back().ack() && c.chats.back().status() != 0);
+  CHECK(a.chats.size() == 1 && b.chats.size() == 1);
+
+  // Global and direct are intentionally disabled, even with valid targets.
+  a.Chat(1, "not global yet", now);
+  a.Chat(3, "not DM yet", now, b.name);
+  Pump(service, games, now);
+  CHECK(a.chats.size() == 3 && a.chats.back().status() != 0);
+  CHECK(b.chats.size() == 1 && c.chats.size() == 1);
+
+  // Leaving a group revokes messages immediately, even while the link is still alive.
+  b.Team(bbcoop::TeamRequest::LEAVE, now);
+  Pump(service, games, now);
+  const size_t previous = b.chats.size();
+  a.Chat(2, "after leave", now);
+  Pump(service, games, now);
+  CHECK(b.chats.size() == previous);
+
+  // A sender's messages are bounded over a rolling window. No text is logged.
+  const qint64 later = now + 12000;
+  for (int i = 0; i < 6; ++i) {
+    a.Chat(2, "burst", later + i);
+    Pump(service, games, later + i);
+  }
+  a.Chat(2, "blocked 7th", later + 7);
+  Pump(service, games, later + 7);
+  CHECK(a.chats.back().status() ==
+        static_cast<std::uint32_t>(Comms::Status::RateLimited));
+  return 0;
+}
+
 int ATeamFormsAndStartsThroughTheService() {
   QTemporaryDir dir;
   CHECK(dir.isValid());
@@ -4777,6 +4861,8 @@ int main() {
       {"ACutMembersGoodbyeIsForTheHostOnly",
        ACutMembersGoodbyeIsForTheHostOnly},
       {"OnlyTheOwnersKillsAndHpCount", OnlyTheOwnersKillsAndHpCount},
+      {"AuthenticatedTeamChatDoesNotCrossGroupsOrOldMembership",
+       AuthenticatedTeamChatDoesNotCrossGroupsOrOldMembership},
       {"ATeamFormsAndStartsThroughTheService",
        ATeamFormsAndStartsThroughTheService},
       {"ATradeGoesThroughTheServerAndOutlivesItsRestart",
