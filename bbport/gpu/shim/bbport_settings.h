@@ -175,6 +175,18 @@ struct Values {
     /// places one where the camera aims (ping_key, an index into PingKeyNames, kept by name).
     std::atomic<bool> team_pings{true};
     std::atomic<int> ping_key{0};
+    // Ultimate B45: independent LOCAL presentation/privacy choices. These
+    // never change whether teammates can actually connect or invade.
+    std::atomic<bool> social_chat{true};
+    std::atomic<bool> social_boss_events{true};
+    std::atomic<bool> map_teammates{true};
+    std::atomic<bool> map_teammate_names{true};
+    // Optional player info. Keep disabled unless there is a trustworthy
+    // fresh profile / RTT sample; never fabricate missing values.
+    std::atomic<bool> roster_levels{false};
+    std::atomic<bool> roster_latency{false};
+    std::atomic<bool> roster_builds{false};
+    std::atomic<bool> share_build_stats{false};
     /// Kaniel 2026-10-25: the free camera (bbport.ini free_camera, off by default): its hotkey
     /// (F7, or {Square} with {L3} held) flies the view apart from the player.
     std::atomic<bool> free_camera{false};

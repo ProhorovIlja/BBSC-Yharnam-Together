@@ -1808,6 +1808,35 @@ void DisplayTab() {
     Toggle("map_fog", T("Map fog of war", "Туман на карте"), s.map_fog,
            T("The map hides what your hunter has not walked near yet. Off shows the whole map.",
              "Карта скрывает то, рядом с чем ваш охотник ещё не проходил. Выкл. показывает всю карту."));
+    // Ultimate B45: independent LOCAL visual and social preferences.
+    // None of these changes the server's team, invasion or map authority.
+    Toggle("social_chat", T("Text chat", "Текстовый чат"), s.social_chat,
+           T("Show and send team text messages. Off discards incoming chat text; boss notices remain separate.",
+             "Показывать и отправлять сообщения команды. Выкл. отбрасывает текст, события боссов отдельно."));
+    Toggle("social_boss_events", T("Boss victory notifications", "Сообщения о победах над боссами"),
+           s.social_boss_events,
+           T("Show server-originated team victory notices in the hunt feed independently of chat.",
+             "Показывать сообщения о победах команды независимо от текстового чата."));
+    Toggle("map_teammates", T("Teammates on the map", "Союзники на карте"), s.map_teammates,
+           T("Hide or show other hunters' markers on the map; your own marker and lamps always remain.",
+             "Скрыть или показать метки союзников на карте. Ваша метка и фонари остаются."));
+    Toggle("map_teammate_names", T("Names beside map markers", "Имена у меток на карте"),
+           s.map_teammate_names,
+           T("Show character names beside the party's map markers; independent of markers themselves.",
+             "Показывать имена у меток союзников независимо от самих меток."),
+           s.map_teammates);
+    Toggle("roster_levels", T("Show hunter levels", "Показывать уровни охотников"), s.roster_levels,
+           T("Show authoritative character levels when received from the party vitals; unknown otherwise.",
+             "Показывать уровень из данных группы, если получен; иначе прочерк."));
+    Toggle("roster_latency", T("Show hunter ping", "Показывать пинг охотников"), s.roster_latency,
+           T("Display only a measured, fresh transport RTT; unavailable ping is shown as unknown.",
+             "Пинг показывается лишь при достоверном измерении; иначе прочерк."));
+    Toggle("roster_builds", T("Show hunter builds", "Показывать билды охотников"), s.roster_builds,
+           T("Build labels use STR/SKL/BLT/ARC attributes at 18+, only if players share profile stats.",
+             "Билды по Силе, Ловкости, Крови и Тайне от 18 включительно, если игрок делится статами."));
+    Toggle("share_build_stats", T("Share my build stats", "Делиться своим билдом"), s.share_build_stats,
+           T("Prepare opt-in for a future verified profile channel; does NOT broadcast stats yet.",
+             "Согласие для будущего защищённого обмена билдом. Сейчас статы НЕ передаются."));
     Choice("fps_limit", T("FPS limit", "Лимит FPS"), BbSettings::FpsLimitIndex(s.fps_limit),
            BbSettings::FpsLimitCount,
            [&](int i) {
@@ -4298,9 +4327,26 @@ void DrawPlayersPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
         const std::string status = self ? T("You", "Вы")
                                    : in_my_team ? T("Your team", "Ваша команда")
                                                 : TeamStateText(p);
-        draw->AddText(ImVec2(left + S(13.0f), y + S(11.0f)),
+        const auto& privacy = BbSettings::Get();
+        std::string details;
+        if (privacy.roster_levels) {
+            details = std::string("Lv. ") + (p.level > 0 ? std::to_string(p.level) : "—");
+        }
+        // No real per-account RTT or consented 4-stat profile in LobbyState:
+        // never invent numbers or use the server's private anti-cheat sheet.
+        if (privacy.roster_latency) details += (details.empty() ? "" : "  |  ") +
+            std::string("Ping: —");
+        if (privacy.roster_builds) details += (details.empty() ? "" : "  |  ") +
+            std::string("Build: —");
+        draw->AddText(ImVec2(left + S(13.0f), y + S(details.empty() ? 11.0f : 3.0f)),
                       self ? Gold() : Plain(),
                       Fit(p.name, width * 0.52f).c_str());
+        if (!details.empty()) {
+            ImGui::PushFont(MenuArt::Font(), 14.0f);
+            draw->AddText(ImVec2(left + S(13.0f), y + S(26.0f)), Dim(),
+                          Fit(details.c_str(), width * 0.52f).c_str());
+            ImGui::PopFont();
+        }
         draw->AddText(ImVec2(left + width * 0.56f, y + S(11.0f)), Plain(0.75f),
                       Fit(status.c_str(), width * 0.20f).c_str());
         if (!self && !in_my_team) {
@@ -4361,10 +4407,30 @@ struct ChatPage {
     char draft[513] = {};
     std::deque<ChatLine> history; // in-memory only, at most 64 messages
     std::string last_member, last_team; // never show another team's retained conversation
+    bool last_chat_enabled = true, last_boss_enabled = true;
 };
 ChatPage chat_page;
 
 void SyncChatAudience() {
+    const bool chat_enabled = BbSettings::Get().social_chat;
+    const bool boss_enabled = BbSettings::Get().social_boss_events;
+    // A local opt-out takes effect immediately, with no later backlog or
+    // "unread" surprise. Boss notices remain independent from text chat.
+    if (chat_page.last_chat_enabled != chat_enabled) {
+        if (!chat_enabled) {
+            std::erase_if(chat_page.history, [](const ChatLine& line) { return !line.system; });
+            chat_page.draft[0] = 0;
+            chat_page.unread = 0;
+        }
+        chat_page.last_chat_enabled = chat_enabled;
+    }
+    if (chat_page.last_boss_enabled != boss_enabled) {
+        if (!boss_enabled) {
+            std::erase_if(chat_page.history, [](const ChatLine& line) { return line.system; });
+            chat_page.unread = 0;
+        }
+        chat_page.last_boss_enabled = boss_enabled;
+    }
     if (!lobby.signed_in) return;
     const std::string member{lobby.me}, team{lobby.team};
     if (chat_page.last_member != member || chat_page.last_team != team) {
@@ -4388,6 +4454,11 @@ void PollChatEvents() {
         if (taken <= 0) break;
         for (int i = 0; i < taken; ++i) {
             const bbcoop_chat_event& event = batch[static_cast<std::size_t>(i)];
+            // Consume and discard disabled categories rather than accumulating
+            // hidden messages on the next settings change.
+            if (event.kind == BBCOOP_CHAT_TEXT && !BbSettings::Get().social_chat) continue;
+            if (event.kind == BBCOOP_CHAT_BOSS_VICTORY && !BbSettings::Get().social_boss_events) continue;
+            if (event.ack && !BbSettings::Get().social_chat) continue;
             if (event.ack) {
                 const auto pending = std::find_if(chat_page.history.begin(), chat_page.history.end(),
                                                   [](const ChatLine& line) { return line.pending; });
@@ -4430,7 +4501,9 @@ void DrawChatPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
                       (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
                        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false));
     ImGui::PushFont(MenuArt::Font(), 38.0f);
-    draw->AddText(ImVec2(left, win.y + S(28.0f)), Bright(), T("Team chat", "Чат команды"));
+    draw->AddText(ImVec2(left, win.y + S(28.0f)), Bright(),
+                  BbSettings::Get().social_chat ? T("Team chat", "Чат команды")
+                                                : T("Hunt feed", "Лента охоты"));
     ImGui::PopFont();
     ImGui::PushFont(MenuArt::Font(), 18.0f);
     draw->AddText(ImVec2(left, win.y + S(90.0f)), Dim(),
@@ -4469,15 +4542,20 @@ void DrawChatPage(ImDrawList* draw, ImVec2 win, ImVec2 size) {
     ImGui::SetCursorScreenPos(ImVec2(left, input_y));
     ImGui::SetNextItemWidth(width - S(180.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.06f, 0.055f, 0.05f, 0.9f));
-    const bool entered = ImGui::InputTextWithHint(
+    const bool chat_enabled = BbSettings::Get().social_chat;
+    const bool entered = chat_enabled && ImGui::InputTextWithHint(
         "##team_chat_input", T("Message your team (Enter to send)", "Сообщение команде (Enter)"),
         chat_page.draft, sizeof(chat_page.draft), ImGuiInputTextFlags_EnterReturnsTrue);
-    chat_page.typing = ImGui::IsItemActive();
+    if (!chat_enabled) {
+        ImGui::TextUnformatted(T("Text chat disabled in Display settings",
+                                "Текстовый чат выключен в настройках изображения"));
+    }
+    chat_page.typing = chat_enabled && ImGui::IsItemActive();
     ImGui::PopStyleColor();
     const bool send = Button(draw, "chat_send", T("Send", "Отправить"),
                              ImVec2(right - S(158.0f), input_y),
-                             ImVec2(S(158.0f), input_h), chat_page.draft[0] != 0);
-    if ((send || entered) && chat_page.draft[0] != 0) {
+                             ImVec2(S(158.0f), input_h), chat_enabled && chat_page.draft[0] != 0);
+    if (chat_enabled && (send || entered) && chat_page.draft[0] != 0) {
         const std::string draft{chat_page.draft};
         if (bbcoop_chat_send(draft.c_str())) {
             KeepChatLine({T("You", "Вы"), draft, false, true});
@@ -4659,13 +4737,16 @@ void Screen() {
     }
     ImGui::PopFont();
     // Read-only unread badge; opening the chat clears it, not the history.
+    const bool any_social = BbSettings::Get().social_chat || BbSettings::Get().social_boss_events;
+    const std::string chat_base = BbSettings::Get().social_chat
+        ? T("Chat", "Чат") : T("Hunt feed", "Лента охоты");
     const std::string chat_label = chat_page.unread > 0
-        ? std::string(T("Chat", "Чат")) + " (" + std::to_string(chat_page.unread) + ")"
-        : T("Chat", "Чат");
+        ? chat_base + " (" + std::to_string(chat_page.unread) + ")"
+        : chat_base;
     ImGui::PushFont(MenuArt::Font(), 18.0f);
     if (Button(draw, "chat_open", chat_label.c_str(),
                ImVec2(win.x + S(252.0f), win.y + S(35.0f)),
-               ImVec2(S(170.0f), S(46.0f)), lobby.signed_in != 0)) {
+               ImVec2(S(170.0f), S(46.0f)), lobby.signed_in != 0 && any_social)) {
         OpenChatPage();
     }
     ImGui::PopFont();
@@ -5031,8 +5112,14 @@ void Screen() {
         const bool invading = bbcoop_invasion_view(&invasion) != 0 && invasion.role == BBCOOP_INVASION_INVADER &&
                               invasion.phase != BBCOOP_INVASION_ENDED;
         if (!lobby.in_team && lobby.playing) {
+            // Existing server InvadeRequest already runs automatic random
+            // matching with level bands, consent and timeouts. Distinguish this
+            // PvP search from the PvE team Quick Match and manual-target future.
             const char* invade =
-                invading ? T("Leave the invasion", "Покинуть вторжение") : T("Invade a hunt", "Вторгнуться в охоту");
+                invading ? (invasion.phase == BBCOOP_INVASION_SEARCHING
+                                ? T("Cancel PvP search", "Отменить поиск PvP")
+                                : T("Leave the invasion", "Покинуть вторжение"))
+                         : T("Quick PvP invasion", "Быстрое вторжение PvP");
             if (Button(draw, "invade", invade, ImVec2(bx, by), ImVec2(bw, bh), lobby.signed_in != 0)) {
                 bbcoop_invade(invading ? 0 : 1);
             }
@@ -7240,8 +7327,18 @@ void MemberMark(ImDrawList* draw, ImVec2 at, int index, bool label = true) {
     }
     draw->AddCircle(at, r, down ? Party::Blood(0.95f) : Gray(dead ? 0.5f : 1.0f), 32, S(2.0f));
     if (label) {
-        Party::Text(draw, sans_font, S(14.0f), ImVec2(at.x, at.y + r + S(3.0f)), Gray(0.95f), name, 0.5f);
-        NoteName(sans_font, S(14.0f), ImVec2(at.x, at.y + r + S(3.0f)), name, 0.5f);
+        std::string caption;
+        if (BbSettings::Get().map_teammate_names) caption = name;
+        if (BbSettings::Get().roster_levels && m.level > 0) {
+            if (!caption.empty()) caption += "  ";
+            caption += "Lv." + std::to_string(m.level);
+        }
+        if (!caption.empty()) {
+            Party::Text(draw, sans_font, S(14.0f), ImVec2(at.x, at.y + r + S(3.0f)),
+                        Gray(0.95f), caption.c_str(), 0.5f);
+            NoteName(sans_font, S(14.0f), ImVec2(at.x, at.y + r + S(3.0f)),
+                     caption.c_str(), 0.5f);
+        }
     }
 }
 
@@ -7369,10 +7466,14 @@ void DrawPicture(ImDrawList* draw, const Frame& frame, const std::vector<const b
         if (BbSettings::Get().bloodstains && view.has_stain && charts.contains(view.stain.map)) {
             StainMark(draw, view.stain, frame.At(view.stain.map, view.stain.x, view.stain.z, view.stain.y));
         }
-        for (int i = 0; i < view.member_count; ++i) {
-            const bbcoop_map_member& m = view.members[i];
-            if (m.has_at && m.map != 0) {
-                MemberMark(draw, frame.At(m.map, m.x, m.z, m.y), i);
+        if (BbSettings::Get().map_teammates) {
+            for (int i = 0; i < view.member_count; ++i) {
+                const bbcoop_map_member& m = view.members[i];
+                if (m.has_at && m.map != 0) {
+                    MemberMark(draw, frame.At(m.map, m.x, m.z, m.y), i,
+                               BbSettings::Get().map_teammate_names ||
+                               (BbSettings::Get().roster_levels && m.level > 0));
+                }
             }
         }
         if (view.has_me && view.map != 0) {

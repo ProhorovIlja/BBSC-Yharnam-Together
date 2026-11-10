@@ -7152,6 +7152,7 @@ PartyPanel BuildPartyPanel(std::span<const MemberVitals> board, std::string_view
                       ? std::optional{entry.at}
                       : std::nullopt,
             .map = entry.map,
+            .level = entry.level,
             .vials = entry.vials,
             .bullets = entry.bullets,
         });

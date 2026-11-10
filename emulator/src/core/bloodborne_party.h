@@ -4700,6 +4700,8 @@ struct PanelMember {
     std::optional<LampPosition> at;
     // Kaniel 2026-10-17 (the map screen): the map it is on (0 when the board has none).
     u32 map = 0;
+    // B45: fresh team-vitals level, 0 unknown, never infer from player count.
+    u32 level = 0;
     // Kaniel 2026-10-18: its vials and bullets, shown beside its name.
     u32 vials = 0;
     u32 bullets = 0;
