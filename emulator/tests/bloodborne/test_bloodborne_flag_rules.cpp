@@ -647,26 +647,43 @@ TEST(BloodborneFlagRules, TheLevellersOwnBlessingStepsGoThrough) {
 // blessing is over: this game's own 72100100 back off after it was on, 6700 still on.
 TEST(BloodborneFlagRules, TheDollsLevelUpFlagGoesOffOnceHerBlessingIsOver) {
     DollLevelUpClear clear;
-    EXPECT_FALSE(clear.Tick(true, true, false)) << "her menu open";
-    EXPECT_FALSE(clear.Tick(true, true, true)) << "her blessing";
-    EXPECT_FALSE(clear.Tick(true, true, true));
-    EXPECT_TRUE(clear.Tick(true, true, false)) << "her blessing over";
-    EXPECT_FALSE(clear.Tick(true, false, false)) << "once";
+    EXPECT_FALSE(clear.Tick(true, true, false, false)) << "her menu open";
+    EXPECT_FALSE(clear.Tick(true, true, true, false)) << "her blessing";
+    EXPECT_FALSE(clear.Tick(true, true, true, true));
+    EXPECT_TRUE(clear.Tick(true, true, false, false)) << "her blessing over and animations done";
+    EXPECT_FALSE(clear.Tick(true, false, false, false)) << "once";
     // The menu again: the same once more.
-    EXPECT_FALSE(clear.Tick(true, true, false));
-    EXPECT_FALSE(clear.Tick(true, true, true));
-    EXPECT_TRUE(clear.Tick(true, true, false));
+    EXPECT_FALSE(clear.Tick(true, true, false, false));
+    EXPECT_FALSE(clear.Tick(true, true, true, true));
+    EXPECT_TRUE(clear.Tick(true, true, false, false));
+}
+
+// User can close Level Up with Circle during the first 54 animation frames.
+// Clearing 6700 at the moment 72100100 goes off would skip the stand-up.
+// Both 72100101 and 72100102 are allowed to finish before unlocking.
+TEST(BloodborneFlagRules, TheDollsLevelUpFlagStaysOnUntilThePlayerStoodUp) {
+    DollLevelUpClear clear;
+    EXPECT_FALSE(clear.Tick(true, true, true, false)) << "blessing begun";
+    EXPECT_FALSE(clear.Tick(true, true, true, true)) << "kneeling";
+    EXPECT_FALSE(clear.Tick(true, true, false, true)) << "menu closed, still kneeling";
+    EXPECT_FALSE(clear.Tick(true, true, false, true)) << "wait for 12100112";
+    EXPECT_TRUE(clear.Tick(true, true, false, false)) << "stood up and turn finished";
+    EXPECT_FALSE(clear.Tick(true, true, false, false)) << "only once";
 }
 
 TEST(BloodborneFlagRules, TheDollsLevelUpFlagStaysWithoutABlessingOrOutOfCoop) {
     DollLevelUpClear clear;
-    EXPECT_FALSE(clear.Tick(true, true, false));
-    EXPECT_FALSE(clear.Tick(true, true, false)) << "no blessing yet";
-    EXPECT_FALSE(clear.Tick(true, false, true));
-    EXPECT_FALSE(clear.Tick(true, false, false)) << "6700 already off";
+    EXPECT_FALSE(clear.Tick(true, true, false, false));
+    EXPECT_FALSE(clear.Tick(true, true, false, false)) << "no blessing yet";
+    EXPECT_FALSE(clear.Tick(true, true, false, true)) << "a step alone is no blessing";
+    EXPECT_FALSE(clear.Tick(true, true, false, false));
+    EXPECT_FALSE(clear.Tick(true, false, true, false));
+    EXPECT_FALSE(clear.Tick(true, false, false, false)) << "6700 already off";
+    EXPECT_FALSE(clear.Tick(true, true, false, false)) << "no stale blessing kept";
     DollLevelUpClear solo;
-    EXPECT_FALSE(solo.Tick(false, true, true));
-    EXPECT_FALSE(solo.Tick(false, true, false)) << "the co-op mode only";
+    EXPECT_FALSE(solo.Tick(false, true, true, false));
+    EXPECT_FALSE(solo.Tick(false, true, false, false)) << "the co-op mode only";
+    EXPECT_FALSE(solo.Tick(true, true, false, false)) << "blessing out of mode forgotten";
 }
 
 // m21_00 12105020-12105024 (01.09): on while any of the headstone's lamps is lit.

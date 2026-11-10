@@ -1140,20 +1140,31 @@ bool ClearsDollLevelUpFlag(bool party_configured, bool flag_on);
 // off does not (it made every player kneel, Kaniel 2026-11-03).
 constexpr s32 DollBlessingFlag = 72100100;
 bool TakesDollBlessingStep(s32 flag, bool sent_on, bool own_blessing_on);
-// Kaniel 2026-11-03: a second "Level Up" in the same Dream visit opened no menu: her talk sets
-// 6700 as her level-up menu opens and skips the menu while it is on, and in the co-op mode nothing
-// cleared it before the next map load (rig: a lone player too). Tick (each frame) says when to
-// clear it: her blessing over, this game's own 72100100 off again after it was on, 6700 still on.
+// YT upstream PR #555, 2026-11-10: when a hunter quickly cancels the Doll's
+// level-up menu, blessing 72100100 can end before her kneel/stand event finishes.
+// The event guards its own player's animations behind 6700, so clearing 6700
+// before step 72100101 and her turn step 72100102 finish permanently strands
+// the hunter kneeling. Clear 6700 only after BOTH step flags have ended.
 class DollLevelUpClear {
 public:
-    bool Tick(bool coop_mode, bool level_up_on, bool blessing_on) {
-        const bool was_on = blessing_was_on;
-        blessing_was_on = coop_mode && blessing_on;
-        return coop_mode && level_up_on && was_on && !blessing_on;
+    bool Tick(bool coop_mode, bool level_up_on, bool blessing_on, bool steps_on) {
+        if (!coop_mode) {
+            blessing_seen = false;
+            return false;
+        }
+        if (blessing_on) {
+            blessing_seen = true;
+            return false;
+        }
+        if (!blessing_seen || steps_on) {
+            return false;
+        }
+        blessing_seen = false;
+        return level_up_on;
     }
 
 private:
-    bool blessing_was_on = false;
+    bool blessing_seen = false;
 };
 // The other player's "set this event flag" (0x017C0570) and "event ended" (0x017C0901) messages
 // leave these flags and events alone in a party: what one player received is not given to the
