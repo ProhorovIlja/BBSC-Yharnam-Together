@@ -1,0 +1,84 @@
+name: "Ultimate B42 authenticated team chat server wire, no deployment"
+
+on:
+  pull_request:
+    paths:
+      - 'server/coop/coop.proto'
+      - 'server/coop/chat_policy.h'
+      - 'server/src/bloodborne_world.h'
+      - 'server/src/bloodborne_world.cpp'
+      - 'server/tests/test_bloodborne_world.cpp'
+      - 'server/tests/test_chat_policy.cpp'
+      - '.github/workflows/ultimate-batch-42-team-chat-wire.yml'
+      - 'docs/ULTIMATE_BATCH_42.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-b42-chat-wire-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chat-source-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate strict chat gates are in the actual server handler
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          proto=Path('server/coop/coop.proto').read_text()
+          cpp=Path('server/src/bloodborne_world.cpp').read_text()
+          header=Path('server/src/bloodborne_world.h').read_text()
+          test=Path('server/tests/test_bloodborne_world.cpp').read_text()
+          assert 'ChatSend chat_send = 53;' in proto
+          assert 'ChatEvent chat_event = 54;' in proto
+          handler=cpp.split('void Service::OnChat(', 1)[1].split('void Service::OnTeamRequest(',1)[0]
+          assert 'member.lobby != AuthenticatedMember(member.online_id)' in handler
+          assert 'recipient.lobby != AuthenticatedMember(recipient.online_id)' in handler
+          assert 'lobby.TeamOf(online.lobby)' in handler
+          assert 'chat_gate.Route(' in handler and 'SendTo(recipient, delivered, now_ms)' in handler
+          assert 'said.scope() ==' in handler
+          assert 'remaining.erase(recipient.lobby)' in handler
+          assert 'member.lobby != AuthenticatedMember' not in proto
+          assert 'chat_gate' in header
+          assert 'AuthenticatedTeamChatDoesNotCrossGroupsOrOldMembership' in test
+          assert 'ChatSend' in cpp and 'too long' in cpp
+          assert 'PROTOCOL_CURRENT = 8' in proto
+          print('B42_AUTHENTICATED_TEAM_DELIVERY_NO_GLOBAL_DM_PROTO_ADDITIVE_PASS')
+          PY
+      - name: Regress standalone C++20 admission policy
+        shell: bash
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -Iserver             server/tests/test_chat_policy.cpp -o /tmp/test_chat_policy
+          /tmp/test_chat_policy
+
+  chat-server-docker-regressions:
+    needs: chat-source-validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+      - name: Fetch only required protobuf submodule
+        shell: bash
+        run: git submodule update --init --depth=1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Compile actual Protobuf and ShadNet C++ sources and run isolated CTest
+        shell: bash
+        run: |
+          set -euo pipefail
+          DOCKER_BUILDKIT=1 docker build --build-arg BUILD_JOBS=2             -f server/hosting/Dockerfile --target verification-tests             -t bbsc-ultimate-b42-teamchat-disposable-tests .
+          echo B42_CPP_QT_PROTO_TEAM_CHAT_AND_SERVER_TESTS_PASS
+      - name: No production operations or private game assets
+        run: echo B42_NO_FORNEX_NO_PUBLIC_RELEASE_NO_PRIVATE_SAVES_NO_GAME_BINARIES
