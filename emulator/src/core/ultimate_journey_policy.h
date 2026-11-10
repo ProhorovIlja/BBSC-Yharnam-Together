@@ -17,6 +17,9 @@ enum class Decision {
     Disabled,
     UnsupportedGame,
     UnknownCharacter,
+    UnknownWorld,
+    UnknownBoss,
+    StaleSaveBackup,
     OnlineSessionBusy,
     WorldBusy,
     WrongPlace,
@@ -36,11 +39,21 @@ struct Snapshot {
     bool supported_game_version = false;
     std::uint64_t character_key = 0;
     std::uint64_t save_revision = 0;
+    // The game adapter must increment this on each map/world load or reload,
+    // even when a save operation has not taken place.
+    std::uint64_t world_epoch = 0;
+    // A known NG+0 is valid; unknown is never equivalent to NG+0.
+    std::optional<std::uint32_t> cycle_index;
+    // Specific boss and arena; 0 means no verified selection.
+    std::uint32_t boss_id = 0;
+    std::uint64_t arena_key = 0;
     Place place = Place::Other;
     bool ending_eligible = false;
     bool this_char_defeated_boss = false;
     bool rematch_arena_available = false;
     bool verified_backup = false;
+    // A backup from an earlier save generation must not authorize a later one.
+    std::uint64_t verified_backup_save_revision = 0;
 
     bool party_active = false;
     bool matchmaking = false;
@@ -65,6 +78,9 @@ constexpr Decision Check(Action action, Options options, const Snapshot& s) {
     if (s.character_key == 0 || s.save_revision == 0) {
         return Decision::UnknownCharacter;
     }
+    if (s.world_epoch == 0 || !s.cycle_index) {
+        return Decision::UnknownWorld;
+    }
     if (s.party_active || s.matchmaking || s.invasion || s.reconnecting) {
         return Decision::OnlineSessionBusy;
     }
@@ -81,9 +97,18 @@ constexpr Decision Check(Action action, Options options, const Snapshot& s) {
         if (!s.verified_backup) {
             return Decision::NoSafeSaveBackup;
         }
+        if (s.verified_backup_save_revision != s.save_revision) {
+            return Decision::StaleSaveBackup;
+        }
     } else {
         if (s.place != Place::BossLamp && s.place != Place::BrokenLamp) {
             return Decision::WrongPlace;
+        }
+        if (s.boss_id == 0) {
+            return Decision::UnknownBoss;
+        }
+        if (s.arena_key == 0) {
+            return Decision::ArenaUnavailable;
         }
         if (!s.this_char_defeated_boss) {
             return Decision::NotEligible;
@@ -104,7 +129,8 @@ public:
         pending.reset();
         const Decision decision = Check(action, options, s);
         if (decision == Decision::Allowed) {
-            pending = Intent{action, s.character_key, s.save_revision, s.place};
+            pending = Intent{action, s.character_key, s.save_revision, s.world_epoch,
+                             *s.cycle_index, s.place, s.boss_id, s.arena_key};
         }
         return decision;
     }
@@ -116,7 +142,11 @@ public:
         const Intent intent = *pending;
         pending.reset();
         if (intent.action != action || intent.character_key != current.character_key ||
-            intent.save_revision != current.save_revision || intent.place != current.place) {
+            intent.save_revision != current.save_revision ||
+            intent.world_epoch != current.world_epoch ||
+            !current.cycle_index || intent.cycle_index != *current.cycle_index ||
+            intent.place != current.place || intent.boss_id != current.boss_id ||
+            intent.arena_key != current.arena_key) {
             return Decision::ConfirmationStale;
         }
         return Check(action, options, current);
@@ -129,7 +159,11 @@ private:
         Action action;
         std::uint64_t character_key;
         std::uint64_t save_revision;
+        std::uint64_t world_epoch;
+        std::uint32_t cycle_index;
         Place place;
+        std::uint32_t boss_id;
+        std::uint64_t arena_key;
     };
     std::optional<Intent> pending;
 };
