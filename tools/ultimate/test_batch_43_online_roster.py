@@ -12,12 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 class HuntersOnlineRosterSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.proto = (ROOT / "server/coop/coop.proto").read_text()
-        cls.lobby = (ROOT / "server/coop/team_lobby.cpp").read_text()
-        cls.client = (ROOT / "bbport/gpu/bbcoop/coop.cpp").read_text()
-        cls.header = (ROOT / "bbport/gpu/bbcoop.h").read_text()
-        cls.overlay = (ROOT / "bbport/gpu/shim/bbport_overlay.cpp").read_text()
-        cls.tests = (ROOT / "server/tests/test_team_lobby.cpp").read_text()
+        cls.proto = (ROOT / "server/coop/coop.proto").read_text(encoding="utf-8")
+        cls.lobby = (ROOT / "server/coop/team_lobby.cpp").read_text(encoding="utf-8")
+        cls.client = (ROOT / "bbport/gpu/bbcoop/coop.cpp").read_text(encoding="utf-8")
+        cls.header = (ROOT / "bbport/gpu/bbcoop.h").read_text(encoding="utf-8")
+        cls.overlay = (ROOT / "bbport/gpu/shim/bbport_overlay.cpp").read_text(encoding="utf-8")
+        cls.tests = (ROOT / "server/tests/test_team_lobby.cpp").read_text(encoding="utf-8")
 
     def test_authoritative_count_cannot_be_capped_list_size(self):
         self.assertIn("uint32 online_count = 16;", self.proto)
