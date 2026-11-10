@@ -57,8 +57,8 @@ int main() {
     p.team_duel = true;
     shown = Describe(p, {});
     assert(shown.state == "In Team Duel");
-    p.spectating = true; // priority: an active duel remains an active duel
-    assert(Describe(p, {}).state == "In Team Duel");
+    p.spectating = true; // dead boss observer outranks stale duel
+    assert(Describe(p, {}).state == "Spectating");
     p.duel = false;
     assert(Describe(p, {}).state == "Spectating");
     p.spectating = false;
