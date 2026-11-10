@@ -172,8 +172,12 @@ inline ScanResult ScanLatest(const std::filesystem::path& root, unsigned slot,
     if (!Valid(who)) return {};
     std::error_code err;
     if (!fs::is_directory(fs::symlink_status(root, err)) || err) return {};
+    // fs::exists follows symlinks: a dangling writer-lock symlink must
+    // still block rather than be mistaken for an absent lock.
     err.clear();
-    if (fs::exists(root / ".writer.lock", err) || err) return {};
+    const auto lock_status = fs::symlink_status(root / ".writer.lock", err);
+    if ((err && err != std::errc::no_such_file_or_directory) ||
+        lock_status.type() != fs::file_type::not_found) return {};
     const std::string prefix = "slot" + std::to_string(slot) + "-" +
                                std::string(fingerprint) + "-r";
     std::optional<Revision> newest;
@@ -218,8 +222,13 @@ inline bool CreateNewRevision(const std::filesystem::path& root, const Revision&
     const auto pending = root / (name + ".pending");
     const auto ready = root / (name + ".ready");
     err.clear();
-    const bool ready_exists = fs::exists(ready, err);
-    if (err || ready_exists) { release(); return false; }
+    const auto ready_status = fs::symlink_status(ready, err);
+    // Do not overwrite a dangling symlink or non-regular existing path.
+    if ((err && err != std::errc::no_such_file_or_directory) ||
+        ready_status.type() != fs::file_type::not_found) {
+        release();
+        return false;
+    }
     err.clear();
     if (!fs::create_directory(pending, err) || err) { release(); return false; }
     bool success = false;
