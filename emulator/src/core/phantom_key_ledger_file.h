@@ -156,6 +156,50 @@ inline std::optional<Revision> ReadReady(const std::filesystem::path& dir) {
     return parsed;
 }
 
+// Never silently use an older debt if the newest committed or pending
+// revision is corrupt. The game must pause ledger operations until the
+// incomplete record is inspected/restored, rather than re-grant an old debt.
+enum class ScanStatus { Empty, Ready, Blocked };
+struct ScanResult {
+    ScanStatus status = ScanStatus::Blocked;
+    std::optional<Revision> latest;
+};
+
+inline ScanResult ScanLatest(const std::filesystem::path& root, unsigned slot,
+                             std::string_view fingerprint) {
+    namespace fs = std::filesystem;
+    Revision who{slot, std::string{fingerprint}, 1, ""};
+    if (!Valid(who)) return {};
+    std::error_code err;
+    if (!fs::is_directory(fs::symlink_status(root, err)) || err) return {};
+    err.clear();
+    if (fs::exists(root / ".writer.lock", err) || err) return {};
+    const std::string prefix = "slot" + std::to_string(slot) + "-" +
+                               std::string(fingerprint) + "-r";
+    std::optional<Revision> newest;
+    bool blocked = false;
+    for (fs::directory_iterator it{root, err}, end; !err && it != end;
+         it.increment(err)) {
+        const std::string name = it->path().filename().string();
+        if (!name.starts_with(prefix)) continue;
+        if (it->path().extension() != ".ready") {
+            // Includes a crashed .pending directory or an unexpected name
+            // matching this character; never ignore a potentially newer debt.
+            blocked = true;
+            break;
+        }
+        const auto item = ReadReady(it->path());
+        if (!item || item->slot != slot || item->character_fingerprint != fingerprint) {
+            blocked = true;
+            break;
+        }
+        if (!newest || item->sequence > newest->sequence) newest = item;
+    }
+    if (err || blocked) return {};
+    if (!newest) return {ScanStatus::Empty, std::nullopt};
+    return {ScanStatus::Ready, std::move(newest)};
+}
+
 inline bool CreateNewRevision(const std::filesystem::path& root, const Revision& r) {
     namespace fs = std::filesystem;
     if (!Valid(r)) return false;
