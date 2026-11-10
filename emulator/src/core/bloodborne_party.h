@@ -1166,6 +1166,24 @@ public:
 private:
     bool blessing_seen = false;
 };
+// Official YT #555: if a teammate hits the Doll during another hunter's
+// Level Up, her dialogue can abort without setting blessing 72100100 off,
+// leaving that hunter kneeling. An actual HP DROP on THIS game's Doll while
+// the blessing is active lets the original animation event finish normally.
+class DollHitEndsBlessing {
+public:
+    bool Tick(bool coop_mode, bool blessing_on, std::optional<s32> doll_hp) {
+        const std::optional<s32> before = last_hp;
+        const bool was_on = blessing_was_on;
+        last_hp = coop_mode ? doll_hp : std::nullopt;
+        blessing_was_on = coop_mode && blessing_on;
+        return was_on && blessing_was_on && before && last_hp && *last_hp < *before;
+    }
+
+private:
+    std::optional<s32> last_hp;
+    bool blessing_was_on = false;
+};
 // Official YT #555: event m21_00 12100121 sets 12100122 when the local
 // hunter holds the Small Hair Ornament. In co-op another player's event-flag
 // broadcast can keep this character's personal "Give" dialog flag wrong.
