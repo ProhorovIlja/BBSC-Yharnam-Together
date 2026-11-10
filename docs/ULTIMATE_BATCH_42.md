@@ -11,6 +11,10 @@
 - `test_bloodborne_world.cpp` uses the existing real server CoopStream loopback protocol rig: two teammates, separate third user and spoofing fourth user; validates exactly routed team text, group leave, globally disabled, direct disabled, pre-login denied, invalid identity denied and flood cap. No real game files.
 - CI checks strict source constraints then compiles actual Qt6/protobuf C++ service in isolated Docker and runs all registered CTests; no production deployment or user saves.
 
+## CI regression found and repaired
+
+The initial full Docker build successfully compiled the actual C++/Qt6/Protobuf server and ran 12 selected CTest suites, but `bloodborne_world` failed on its **old** `CheatsAndEditedSavesAreNoted` expectation that a first-sheet `level-mismatch` was `Suspicion::Certain`. This contradicted the **already implemented B34** policy in `coop/cheat_watch.h` and `test_cheat_watch.cpp`: offline-edited saves are explicitly allowed online, so a baseline mismatch is **Info**, not proof of live cheating. No production cheat detector was changed. The world integration test now expects `Info` and still requires an active `"no death"` patch to report `Certain`. Added lightweight source + real CheatWatch unit tests ahead of the full Docker integration gate. This corrects a stale cross-batch regression test without weakening the runtime restriction or accepting bogus claims of online cheat abuse.
+
 ## Still to develop
 1. Client-side `ChatEvent` view, text input, keyboard/controller bindings and localized UX. The server can route a synthetic authenticated `ChatSend`; current launcher cannot show or send it.
 2. Server-side privacy/block preferences wired into `Gate::Peer`, exact name-to-account resolution for DM, and cross-shard global delivery with authenticated dedupe and bounded backpressure. Do not enable until tests and moderation/opt-outs.
