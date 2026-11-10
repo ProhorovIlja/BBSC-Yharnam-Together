@@ -134,9 +134,10 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         // the area normally, or the boss activity during an encounter.
         // The second carries Blood Level, build and co-op/role together.
         // These are supported native fields, never injected line breaks.
+        const bool in_pvp = s.invading || s.invasion_searching || s.duel;
         if (s.spectating) {
             out.details = location_visible ? "Spectating in " + s.location : "Spectating";
-        } else if (s.boss_fighting && privacy.show_boss) {
+        } else if (s.boss_fighting && privacy.show_boss && !in_pvp) {
             out.details = s.boss.empty() ? "Boss fight" : "Fighting " + s.boss;
         } else {
             out.details = location_visible ? "In " + s.location : "Hunting";
@@ -155,7 +156,7 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         // During a boss or spectate the activity goes on the FIRST field.
         // The second describes character identity + actual session mode,
         // without repeating "Fighting ..." twice in the same card.
-        if ((s.boss_fighting && privacy.show_boss) || s.spectating) {
+        if (((s.boss_fighting && privacy.show_boss) && !in_pvp) || s.spectating) {
             if (s.host || s.guest) {
                 role = "Co-op" + party_suffix();
             } else {
@@ -177,6 +178,13 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         while (!out.details.empty() &&
                (static_cast<unsigned char>(out.details.back()) & 0xC0) == 0x80) {
             out.details.pop_back();
+        }
+    }
+    if (out.state.size() > 120) {
+        out.state.resize(120);
+        while (!out.state.empty() &&
+               (static_cast<unsigned char>(out.state.back()) & 0xC0) == 0x80) {
+            out.state.pop_back();
         }
     }
     return out;
