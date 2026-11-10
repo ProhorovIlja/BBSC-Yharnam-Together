@@ -57,6 +57,19 @@
 - Existing code checks in earlier [B01–B45 history](ULTIMATE_PLAYABLE_EDITION.md) and individual `docs/ULTIMATE_BATCH_*.md` must not be overwritten by newer speculative work. Draft branches #91 / #92 are parallel and need deliberate reconciliation with B44/B45 rather than accidental false claims of inclusion.
 - Store all new user requests in GitHub Issues and dated private Drive handoffs; add corresponding PR only when source actually changes. Maintain exact source URL, commit SHA, CI links and honest runtime limits in the central index.
 
+## 8. Latest official upstream gameplay and performance candidates (2026-11-10)
+
+- MERGED official YT [#564](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/564): guest killed enemy brought back by false host-alive logic; adapted into B48 Draft #107, real C++ unit green; actual co-op rig outstanding.
+- MERGED official YT [#546](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/546): support all nine 1.09 CUSA editions, avoid flashing placeholder party HUD outside EU GOTY; adapted to B49 Draft #108 with source parity; real game region tests outstanding.
+- OPEN official YT [#554](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/554): host's home-world progression rolled back on return to solo. P0 #22. Do not import until per-slot migration/recovery verified.
+- DRAFT official YT [#548](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/548): phantom guest gained key items disappear after game close. P0 #35. Audit correct character slot, atomic durability and tool migration.
+- DRAFT official YT [#561](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/561): chalice wipe goes to origin (0,0,0) because lamp unresolved, and door flags don't replicate between current altar members; tests vs user #75, #72 needed.
+- DRAFT official YT [#549](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/549): co-op's 60FPS frame pacing can fall to hard 30 under ~17ms draw times; measure game speed/VRR latency.
+- OPEN official YT [#563](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/563): null shader resource table roots trigger heavy GPU-access faults and missing geometry; avoids fault costs, not root-cause fix. Candidate for #25.
+- OPEN official YT [#560](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/560): incorrect PlayStation Network login warning when co-op server is unreachable. Candidate #24, keep private config and credentials out of public logs.
+
+Source provenance, corresponding comments, current CI SHA and exact unresolved gates in docs/ULTIMATE_BATCH_47.md, docs/ULTIMATE_BATCH_48.md and docs/ULTIMATE_BATCH_49.md. None of these DRAFT/OPEN upstream PRs is claimed merged or playable.
+
 ### Current verified checkpoint
 
 | Item | Actual status (2026-11-10) |
@@ -65,5 +78,8 @@
 | B43 #101 online count, Players browser | Source tests Win/Linux + full server CTest passed; native overlay game build unverified |
 | B44 #102 chat UI, 16 server progression victory flags | Source Win/Linux, C++ catalog, real server CTest passed; native game/encounter validation unverified |
 | B45 #104 personal UI prefs, 18+ classifier, PvP quick UI | Linux/Windows source tests plus GCC/Clang portable C++20 classifier passed; no verified native UI game execution or RTT/build network profile |
-| B46 roster dedup + cross-chat ledger | New Draft candidate; only report test results after CI finishes |
+| B46 #105 roster dedup + cross-chat ledger | Windows/Linux source + GCC/Clang native unit SUCCESS; actual 64-bit Windows PE client/graphics compile SUCCESS [CI](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42781828685). Does not prove in-game interaction |
+| B47 #106 Cyrillic/Latin/Greek Players filter | Windows/Linux source + GCC/Clang actual Unicode-casefold unit SUCCESS [CI](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42782510754); full Unicode collation and server search separate |
+| B48 #107 guest enemy kill mistaken for host generator revive | Port of MERGED official YT #564; Windows/Linux source + GCC/Clang extracted **real C++ production function** tests SUCCESS [CI](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42783630142). Still requires actual 2–5 client game and duplicate-echo regression |
+| B49 #108 nine Bloodborne CUSA 1.09 co-op startup | Port of MERGED official YT #546. Windows/Linux source parity + GCC/Clang portable C++ header SUCCESS [CI](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42785056369). Original executable site-byte guard stays active; multi-CUSA real gameplay not yet verified |
 | Whole playable Ultimate / EBOOT-free native port | **Not finished**; do not distribute an Ultimate setup or assert all bugs fixed |
