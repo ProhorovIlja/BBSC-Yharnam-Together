@@ -1,0 +1,69 @@
+name: Ultimate B61 correct Discord row order and BL-build spacing
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/bbcoop/discord_presence_policy.h'
+      - 'bbport/gpu/bbcoop/discord_status.cpp'
+      - 'bbport/tests/test_discord_activity.cpp'
+      - 'docs/ULTIMATE_BATCH_61.md'
+      - '.github/workflows/ultimate-batch-61-discord-layout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert actual production payload and exact adjacent spacing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          rd = lambda p: Path(p).read_text(encoding='utf-8')
+          p = rd('bbport/gpu/bbcoop/discord_presence_policy.h')
+          rpc = rd('bbport/gpu/bbcoop/discord_status.cpp')
+          t = rd('bbport/tests/test_discord_activity.cpp')
+          doc = rd('docs/ULTIMATE_BATCH_61.md')
+          assert 'out.details += has_bl ? "   " : " | ";' in p
+          assert 'out.details += s.build + " Build";' in p
+          assert 'out.details = location_visible ? s.location : "Hunting";' in p
+          assert 'out.state = s.boss.empty() ? "Boss fight" : "Fighting " + s.boss;' in p
+          assert 'out.state += party_suffix();' in p
+          assert 'Fighting Father Gascoigne (2/5)' in t
+          assert 'Central Yharnam | BL 25   STR Build' in t
+          assert 'BL 25 | STR Build' in t  # negative regression assertion
+          assert 'BB_DISCORD_NATIVE_PARTY_SIZE' in rpc
+          assert 'snapshot.discord_party_counter' in rpc
+          assert 'Three spaces' not in doc or 'three spaces' in doc
+          assert 'cannot' in doc.lower() and 'two independently supplied lines' in doc
+          PY
+  compile-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang compile/run actual Discord production policy + source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I bbport \
+              bbport/tests/test_discord_activity.cpp \
+              -o "/tmp/ultimate-b61-${cxx}"
+            "/tmp/ultimate-b61-${cxx}"
+          done

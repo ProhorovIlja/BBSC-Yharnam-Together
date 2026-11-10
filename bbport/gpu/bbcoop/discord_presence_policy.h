@@ -55,40 +55,47 @@ struct PresenceText {
 
 inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& privacy) {
     PresenceText out;
-    // B58: prefer Bloodborne's own BL term and never lose the currently
-    // permitted location during a boss encounter. Keep the role in state,
-    // all character details in details, and the fight/session start in timer.
+    // B61: user's visual contract is location, then BL / build, then
+    // activity status, then a live elapsed timer. Discord RPC itself has
+    // only TWO custom text fields; the separate BL/build row requested by
+    // the user cannot be provided as an independent native Discord row.
+    // Therefore details always carry location + optional local stats,
+    // and state alone changes when the boss fight starts or ends.
     const bool location_visible = privacy.show_location && !s.location.empty();
-    const bool boss_visible = s.boss_fighting && privacy.show_boss;
-    if (boss_visible) {
-        // In a real encounter show the name only if the game adapter knows
-        // it. A fallen spectator is watching, not claiming to be fighting.
-        out.details = s.boss.empty() ? "Boss fight"
-                      : s.spectating ? "Watching " + s.boss
-                                    : "Fighting " + s.boss;
-        if (location_visible) {
-            out.details += " | " + s.location;
-        }
-    } else {
-        out.details = location_visible ? "In " + s.location : "Hunting";
-    }
-    if (privacy.show_level && s.level && *s.level >= 4 && *s.level <= 544) {
+    out.details = location_visible ? s.location : "Hunting";
+    // Blood Level and Build belong to one compact, adjacent group.
+    // Three spaces are a small visual gap, NOT two opposite edges of a row,
+    // and NOT a pipe divider between BL and the archetype.
+    const bool has_bl = privacy.show_level && s.level &&
+                        *s.level >= 4 && *s.level <= 544;
+    if (has_bl) {
         out.details += " | BL " + std::to_string(*s.level);
     }
     if (privacy.show_build && !s.build.empty() && s.build.size() <= 48) {
-        // Keep the classifier itself compact (STR, QLT, STR/ARC...). Add
-        // "Build" only for Discord, independently of in-game HUD labels.
-        out.details += " | " + s.build + " Build";
+        out.details += has_bl ? "   " : " | ";
+        out.details += s.build + " Build";
     }
-    // Priority is explicit and mutually exclusive: an invader must never be
-    // advertised as a guest in the target's party, or leak its join secret.
+
+    // The final co-op count is an explicit manual (2/5) only when no
+    // Discord party.size is in the RPC payload. Discord appends (2 of 5)
+    // automatically when native party.size is transmitted instead.
+    const auto party_suffix = [&]() -> std::string {
+        if (!s.discord_party_counter && ValidPartyCount(s.members, s.capacity) &&
+            (s.host || s.guest)) {
+            return " (" + std::to_string(s.members) + "/" +
+                   std::to_string(s.capacity) + ")";
+        }
+        return {};
+    };
+
+    // Priority: roles with different privacy/authority boundaries win
+    // over combat snapshots from stale world ticks. Boss combat applies
+    // to solo/host/co-op but NEVER changes details (map/BL/build).
     if (s.invading) {
         out.state = "Invading";
     } else if (s.invasion_searching) {
         out.state = "Searching for invasion";
     } else if (s.spectating) {
-        // A hunter watching the boss is spectating even if an earlier duel
-        // flag has not yet been cleared by the network.
         out.state = "Spectating";
     } else if (s.duel) {
         out.state = s.team_duel ? "In Team Duel" : "In-duel";
@@ -96,13 +103,13 @@ inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& p
         out.state = "Downed";
     } else if (s.dead) {
         out.state = "Fallen";
+    } else if (s.boss_fighting && privacy.show_boss) {
+        out.state = s.boss.empty() ? "Boss fight" : "Fighting " + s.boss;
+        out.state += party_suffix();
     } else if (s.host) {
         out.state = "Hosting";
     } else if (s.guest) {
-        out.state = s.discord_party_counter || !ValidPartyCount(s.members, s.capacity)
-                        ? "In co-op"
-                        : "In co-op (" + std::to_string(s.members) + "/" +
-                          std::to_string(s.capacity) + ")";
+        out.state = "In co-op" + party_suffix();
     } else {
         out.state = "Solo hunter";
     }

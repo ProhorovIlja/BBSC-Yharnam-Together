@@ -44,10 +44,10 @@ jobs:
           assert 'snapshot.build = BbHunterBuild::DiscordShort(*mask)' in ipc
           assert 'BbHunterBuild::English(*mask)' not in ipc
           assert '" | BL "' in policy and '" | Lv "' not in policy
-          assert 'out.details += " | " + s.location;' in policy
+          assert 'out.details = location_visible ? s.location : "Hunting";' in policy
           assert 's.boss_fighting && privacy.show_boss' in policy
           assert 'privacy.show_location && !s.location.empty()' in policy
-          assert 'Fighting Cleric Beast | Central Yharnam | BL 25 | STR/ARC Build' in tests
+          assert 'Fighting Father Gascoigne (2/5)' in tests and 'Central Yharnam | BL 25   STR/ARC Build' in tests
           assert 'for (unsigned mask = 0; mask < 16; ++mask)' in tests
           assert 'B58' in read('docs/ULTIMATE_BATCH_58.md')
           PY

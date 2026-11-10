@@ -45,7 +45,7 @@ jobs:
           t = Path('bbport/tests/test_discord_activity.cpp').read_text(encoding='utf-8')
           c = Path('bbport/launcher/bbport_coop.py').read_text(encoding='utf-8')
           ui = Path('bbport/launcher/bbport_launcher_win.py').read_text(encoding='utf-8')
-          assert 'In co-op (' in h and 'In co-op session' not in h
+          assert 'out.state = "In co-op" + party_suffix();' in h and 'In co-op session' not in h
           assert 'discord_party_counter' in h
           assert 'snapshot.discord_party_counter' in Path('bbport/gpu/bbcoop/discord_status.cpp').read_text(encoding='utf-8')
           assert 'accurate_party_size' in Path('bbport/gpu/bbcoop/discord_status.cpp').read_text(encoding='utf-8')
