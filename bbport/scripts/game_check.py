@@ -85,14 +85,16 @@ def _pass_key(game):
     parts = [str(root.resolve())]
     for f in files:
         st = f.stat()
-        parts.append(f'{f.name}:{st.st_size}:{st.st_mtime_ns}')
+        parts.append(f'{f.relative_to(root).as_posix()}:{st.st_size}:{st.st_mtime_ns}')
     return hashlib.sha256('|'.join(parts).encode()).hexdigest()
 
 
 def problem(game, image_hash=None, cache=None):
     """problem() as below; with `cache` (a JSON file), a pass is remembered for the same files (the
     launcher's check before every start: ~1 s of hashing and unpacking saved)."""
-    if cache is None or os.environ.get('BB_SKIP_GAME_CHECK') == '1':
+    # Explicit image hashes from an independent verifier must NEVER be
+    # bypassed by a previous positive metadata cache.
+    if cache is None or image_hash is not None or os.environ.get('BB_SKIP_GAME_CHECK') == '1':
         return _problem(game, image_hash)
     import json
     try:
