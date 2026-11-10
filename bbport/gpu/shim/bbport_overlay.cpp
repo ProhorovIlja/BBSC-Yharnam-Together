@@ -3,6 +3,7 @@
 #include "../bbcoop/lobby_rows.h"
 
 #include <algorithm>
+#include <array>
 #include <random>
 #include <atomic>
 #include <cfloat>
