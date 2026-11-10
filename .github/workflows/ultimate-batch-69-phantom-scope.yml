@@ -1,0 +1,90 @@
+name: Ultimate B69 live phantom inventory slot and generation guard
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/phantom_inventory_scope.h'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/tests/bloodborne/test_phantom_inventory_scope.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
+      - 'docs/ULTIMATE_BATCH_69.md'
+      - '.github/workflows/ultimate-batch-69-phantom-scope.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify LIVE game snapshot reset happens before inventory access
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          rd=lambda p:Path(p).read_text(encoding='utf8')
+          game=rd('emulator/src/core/bloodborne_travel.cpp')
+          scope=rd('emulator/src/core/phantom_inventory_scope.h')
+          tests=rd('emulator/tests/bloodborne/test_bloodborne_team.cpp')
+          fs=rd('emulator/src/core/phantom_key_ledger_file.h')
+          assert '#include "core/phantom_inventory_scope.h"' in game
+          part=game.split('void GiveBackPhantomKeyItems() {',1)[1].split('void ForgetRelitLamps',1)[0]
+          for token in ('inventory_scope.Observe(current_slot, current_generation)',
+                        'phantom_list = 0;', 'first_look.clear();', 'last_look.clear();',
+                        'own_look.clear();', 'looked_ms = 0;', '!inventory_scope.Usable()'):
+              assert token in part,token
+          assert part.index('inventory_scope.Observe(') < part.index('KeyItemList()')
+          assert part.index('!inventory_scope.Usable()') < part.index('GetLocalPlayer()')
+          assert 'deferred_reward_character_generation.load(' in part
+          assert 'character_slot.load(' in part
+          assert 'slot_ >= 0 && slot_ < 10 && generation_ != 0' in scope
+          assert 'EXPECT_EQ(std::ranges::find(CharacterSlotFiles' in tests
+          assert 'static PhantomKeyItemLedger ledger;' not in part
+          assert 'ScanLatest(' in fs and 'CreateNewRevision(' in fs
+          assert 'NOT yet resolved' in rd('docs/ULTIMATE_BATCH_69.md')
+          PY
+
+  portable-scope:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang strict C++20 production scope test
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_inventory_scope.cpp \
+              -o "/tmp/ultimate-b69-${compiler}"
+            timeout 30s "/tmp/ultimate-b69-${compiler}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: MSVC native C++20 production scope test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_inventory_scope.cpp /Fe:"${{ runner.temp }}\ultimate-b69.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\ultimate-b69.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Never touch real saves or production
+        shell: bash
+        run: echo B69_GAME_HOOK_SOURCE_AND_SYNTHETIC_TESTS_ONLY_NO_FORNEX
