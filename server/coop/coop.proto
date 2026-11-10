@@ -458,7 +458,26 @@ message Envelope {
         DuelState duel_state = 50;
         EnemyPlaces enemy_places = 51;
         CharacterSheet character_sheet = 52;
+        ChatSend chat_send = 53;       // authenticated client -> server, team only in B42
+        ChatEvent chat_event = 54;     // server -> client: delivered text or failure ack
     }
+}
+
+// Ultimate B42: additive chat envelopes. Does not change the meaning of protocol 8's existing
+// fields. Chat is deliberately NOT an event in the persisted world log; it is transient and
+// sent only to authenticated online peers. Server ignores the client's claimed sender.
+// B42 enables TEAM only; GLOBAL and DIRECT are reserved until privacy and cross-shard routing.
+message ChatSend {
+    uint32 scope = 1;    // 1 global (disabled), 2 team (enabled), 3 direct (disabled)
+    string target = 2;   // future server-resolved account, ignored in B42
+    string text = 3;     // max 512 UTF-8 bytes, 240 scalars, no controls or bidi overrides
+}
+message ChatEvent {
+    uint32 scope = 1;
+    string from = 2;     // canonical authenticated account id, never supplied by a client
+    string text = 3;     // plain text, no HTML/markup interpretation
+    uint32 status = 4;  // 0 on success; else Comms::Status value for the sender's ack
+    bool ack = 5;       // success/failure to the sender; false for another player's message
 }
 
 // Cheat watch (coop/cheat_watch.h, Kaniel 2026-11-04): game -> server only, never sent on. What
