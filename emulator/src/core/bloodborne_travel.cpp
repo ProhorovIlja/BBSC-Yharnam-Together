@@ -9,6 +9,7 @@
 #include "core/bloodborne_flags.h"
 #include "core/bloodborne_lamp_points.h"
 #include "core/bloodborne_party.h"
+#include "core/phantom_inventory_scope.h"
 #include "core/bloodborne_re.h"
 #include "core/bloodborne_re_internal.h"
 #include "core/bloodborne_trade.h"
@@ -1637,6 +1638,24 @@ void GiveBackPhantomKeyItems() {
     static std::vector<HeldGoods> last_look;
     static std::vector<HeldGoods> own_look;
     static s64 looked_ms = 0;
+    // B69: static phantom pointers and observations must NOT outlive their
+    // save slot or a newly created character in the same slot. Previously
+    // switching hunters in one process could interpret a prior hunter's
+    // transient phantom inventory as goods to grant to this one.
+    static BloodborneCoop::PhantomInventoryScope inventory_scope;
+    const int current_slot = character_slot.load(std::memory_order_relaxed);
+    const u64 current_generation =
+        deferred_reward_character_generation.load(std::memory_order_relaxed);
+    if (inventory_scope.Observe(current_slot, current_generation)) {
+        phantom_list = 0;
+        first_look.clear();
+        last_look.clear();
+        own_look.clear();
+        looked_ms = 0;
+    }
+    if (!inventory_scope.Usable()) {
+        return; // no validated character save slot
+    }
     const u64 player = GetLocalPlayer();
     if (!party_controller || player < 0x10000 || !PlayerItemsReadable()) {
         return;
