@@ -1,0 +1,55 @@
+name: Ultimate B65 Windows port game-preflight source integration
+on:
+  pull_request:
+    paths:
+      - 'bbport/scripts/game_check.py'
+      - 'bbport/tests/test_game_check.py'
+      - 'docs/ULTIMATE_BATCH_65.md'
+      - '.github/workflows/ultimate-batch-65-port-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  game-check-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile borrowed checker and fixture-only tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile bbport/scripts/game_check.py bbport/tests/test_game_check.py
+          cd bbport/tests
+          python -m unittest test_game_check -v
+      - name: Assert production integration is optional and never mutates game files
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('bbport/scripts/game_check.py').read_text(encoding='utf-8')
+          t=Path('bbport/tests/test_game_check.py').read_text(encoding='utf-8')
+          for x in ('def readable_and_broken(', 'def _pass_key(',
+                    'def eboot_clean(', 'def problem(game, image_hash=None, cache=None):',
+                    'image_hash is not None', 'f.relative_to(root).as_posix()'):
+              assert x in s, x
+          assert "cache is None or image_hash is not None" in s
+          assert 'BB_SKIP_GAME_CHECK' in s
+          for x in ('test_external_port_fast_preflight_cache_is_explicit_opt_in',
+                    'test_external_port_corrupt_cache_is_not_a_pass',
+                    'test_external_port_locked_shader_scan_reports_but_does_not_crash',
+                    'test_external_port_clean_eboot_warning_ignores_skip_switch'):
+              assert x in t, x
+          assert 'GPL-2.0-only' in Path('docs/ULTIMATE_BATCH_65.md').read_text()
+          PY
+      - name: No copyrighted game data, saves or production deployment
+        run: echo B65_SYNTHETIC_GAME_CHECK_CI_ONLY
