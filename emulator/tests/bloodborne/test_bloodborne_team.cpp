@@ -1444,12 +1444,25 @@ TEST(HomeWorlds, RoundTripsButRejectsCutCorruptOrDuplicateManifest) {
 
 TEST(HomeWorlds, LimitsRememberedWorldsAndChecksLegacyLobbyOwner) {
     HomeWorlds home;
-    for (int i = 0; i < 22; ++i) {
+    for (int i = 0; i < 16; ++i) {
         EXPECT_TRUE(home.Add("home-" + std::to_string(i)));
     }
     EXPECT_EQ(home.worlds.size(), MaxHomeWorlds);
-    EXPECT_FALSE(home.Has("home-0"));
-    EXPECT_TRUE(home.Has("home-21"));
+    // Do NOT evict the oldest home: that could let a prior host's world
+    // silently return to the guest path and overwrite its own old progress.
+    EXPECT_FALSE(home.Add("home-16"));
+    EXPECT_FALSE(home.Add("home-17"));
+    EXPECT_TRUE(home.Has("home-0"));
+    EXPECT_TRUE(home.Has("home-15"));
+    EXPECT_FALSE(home.Has("home-16"));
+    EXPECT_FALSE(ParseHomeWorlds(FormatHomeWorlds(home) + "home-16 0\n"));
+    // An overfull manifest does not become an apparently valid subset.
+    std::string excessive = "worlds\n";
+    for (int i = 0; i < 17; ++i) {
+        excessive += "home-" + std::to_string(i) + " 0\n";
+    }
+    excessive += "end\n";
+    EXPECT_FALSE(ParseHomeWorlds(excessive));
 
     bbcoop::LobbyState lobby;
     bbcoop::TeamWorldInfo* own = lobby.add_worlds();
