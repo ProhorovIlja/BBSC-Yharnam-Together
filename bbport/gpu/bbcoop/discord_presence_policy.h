@@ -55,15 +55,21 @@ struct PresenceText {
 
 inline PresenceText Describe(const PresenceSnapshot& s, const PresencePrivacy& privacy) {
     PresenceText out;
-    // In a boss encounter the fight takes the scarce Discord details row;
-    // build/level still append below, so they do not disappear mid-fight.
-    // Hidden boss information must not reveal a fight-only timer.
-    out.details = s.boss_fighting && privacy.show_boss
-                      ? (s.boss.empty() ? "Boss fight" : "Boss: " + s.boss)
-                      : privacy.show_location && !s.location.empty()
-                            ? "In " + s.location : "Hunting";
+    // B58: prefer Bloodborne's own BL term and never lose the currently
+    // permitted location during a boss encounter. Keep the role in state,
+    // all character details in details, and the fight/session start in timer.
+    const bool location_visible = privacy.show_location && !s.location.empty();
+    const bool boss_visible = s.boss_fighting && privacy.show_boss;
+    if (boss_visible) {
+        out.details = s.boss.empty() ? "Boss fight" : "Boss: " + s.boss;
+        if (location_visible) {
+            out.details += " | " + s.location;
+        }
+    } else {
+        out.details = location_visible ? "In " + s.location : "Hunting";
+    }
     if (privacy.show_level && s.level && *s.level >= 4 && *s.level <= 544) {
-        out.details += " | Lv " + std::to_string(*s.level);
+        out.details += " | BL " + std::to_string(*s.level);
     }
     if (privacy.show_build && !s.build.empty() && s.build.size() <= 48) {
         out.details += " | " + s.build;
