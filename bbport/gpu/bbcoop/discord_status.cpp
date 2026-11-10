@@ -305,7 +305,7 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
         activity += fmt::format(",\"timestamps\":{{\"start\":{}}}", shown.start);
     }
     activity += ",\"assets\":{\"large_image\":\"yharnam\",\"large_text\":" +
-                Json("Yharnam Together") + "}";
+                Json("BBSC: Yharnam Together") + "}";
     if (has_discord_party) {
         // Keep grouping by team ID even when an old/unknown board has no
         // trustworthy count; never fabricate (1/5) from a zero-member board.
