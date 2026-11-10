@@ -62,6 +62,15 @@ int main() {
     assert(ScanLatest(root, 3, identity).status == ScanStatus::Blocked);
     assert(!fs::exists(root / (Name(later) + ".ready")));
     assert(fs::remove(root / ".writer.lock"));
+    // An unreadable dangling lock is NOT an unlocked journal.
+    std::error_code link_ec;
+    fs::create_symlink(root / "not-existing", root / ".writer.lock", link_ec);
+    if (!link_ec) {
+        assert(ScanLatest(root, 3, identity).status == ScanStatus::Blocked);
+        assert(!CreateNewRevision(root, later));
+        assert(fs::is_symlink(fs::symlink_status(root / ".writer.lock")));
+        fs::remove(root / ".writer.lock");
+    }
     assert(CreateNewRevision(root, later));
 
     // An incomplete staged record must never be mistaken for a .ready file.
@@ -70,6 +79,17 @@ int main() {
     assert(!CreateNewRevision(root, interrupted));
     assert(!fs::exists(root / (Name(interrupted) + ".ready")));
     assert(ScanLatest(root, 3, identity).status == ScanStatus::Blocked);
+    // The destination may be a dangling symlink; create_directory/rename
+    // must never claim it is unused or destroy that pre-existing path.
+    Revision occupied{3, identity, 7, "4114 1 1\n"};
+    link_ec.clear();
+    const auto occupied_path = root / (Name(occupied) + ".ready");
+    fs::create_symlink(root / "missing-ledger-target", occupied_path, link_ec);
+    if (!link_ec) {
+        assert(!CreateNewRevision(root, occupied));
+        assert(fs::is_symlink(fs::symlink_status(occupied_path)));
+        fs::remove(occupied_path);
+    }
     // A prior valid revision is NOT silently replayed when newer debt
     // may be stranded in an interrupted pending transaction.
     assert(ScanLatest(root, 4, identity).status == ScanStatus::Empty);
