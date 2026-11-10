@@ -42,7 +42,11 @@ int main() {
     stats.show_level = true;
     stats.show_build = true;
     auto shown = Describe(p, stats);
-    assert(shown.details == "Central Yharnam | BL 25 | STR Build");
+    assert(shown.details == "Central Yharnam | BL 25   STR Build");
+    // A narrow, human-readable gap, not a left/right full-width column.
+    assert(shown.details.find("BL 25   STR Build") != std::string::npos);
+    assert(shown.details.find("BL 25 | STR Build") == std::string::npos);
+
     assert(shown.state == "In co-op (2/5)");
     assert(shown.start == 1600000000);
 
@@ -51,7 +55,7 @@ int main() {
     p.boss_fighting = true;
     p.boss_started_unix = 1600000123;
     shown = Describe(p, stats);
-    assert(shown.details == "Central Yharnam | BL 25 | STR Build");
+    assert(shown.details == "Central Yharnam | BL 25   STR Build");
     assert(shown.state == "Fighting Father Gascoigne (2/5)");
     assert(shown.start == 1600000123);
     // Host fights also show the boss and party occupancy, not "Hosting".
@@ -77,7 +81,7 @@ int main() {
     assert(Describe(p, stats).start == 1600000200);
     stats.show_boss = false;
     shown = Describe(p, stats);
-    assert(shown.details == "Central Yharnam | BL 25 | STR Build");
+    assert(shown.details == "Central Yharnam | BL 25   STR Build");
     assert(shown.state == "In co-op (2/5)");
     assert(shown.start == 1600000000); // a private fight does not leak via timer
     stats.show_boss = true;
@@ -88,7 +92,7 @@ int main() {
     p.boss = "Father Gascoigne";
     p.spectating = true;
     assert(Describe(p, stats).state == "Spectating");
-    assert(Describe(p, stats).details == "Central Yharnam | BL 25 | STR Build");
+    assert(Describe(p, stats).details == "Central Yharnam | BL 25   STR Build");
     p.spectating = false;
 
     // Invasion/duels/down states override stale game boss flags.
@@ -114,7 +118,7 @@ int main() {
     // Privacy toggles are independent. Hidden area/boss never reappear
     // under stats, status, or timer.
     stats.show_location = false;
-    assert(Describe(p, stats).details == "Hunting | BL 25 | STR Build");
+    assert(Describe(p, stats).details == "Hunting | BL 25   STR Build");
     stats.show_level = false;
     assert(Describe(p, stats).details == "Hunting | STR Build");
     stats.show_build = false;
@@ -126,7 +130,7 @@ int main() {
     assert(Describe(p, stats).details == "Central Yharnam | STR Build");
     p.level = 25;
     p.build = "STR/ARC";
-    assert(Describe(p, stats).details == "Central Yharnam | BL 25 | STR/ARC Build");
+    assert(Describe(p, stats).details == "Central Yharnam | BL 25   STR/ARC Build");
 
     // Unknown or impossible membership is never advertised as fake seats.
     assert(ValidPartyCount(2, 5));
