@@ -36,17 +36,17 @@ jobs:
           policy = read('bbport/gpu/bbcoop/discord_presence_policy.h')
           ipc = read('bbport/gpu/bbcoop/discord_status.cpp')
           tests = read('bbport/tests/test_discord_activity.cpp')
-          assert 'out.details += " | " + s.build + " Build";' in policy
+          assert 'out.details += s.build + " Build";' in policy
           assert '"Fighting " + s.boss' in policy
-          assert '"Watching " + s.boss' in policy
+          assert 'out.state = "Spectating";' in policy
           assert 's.boss.empty() ? "Boss fight"' in policy
-          assert '"In co-op ("' in policy and '"In co-op session"' not in policy
+          assert '"In co-op" + party_suffix()' in policy and '"In co-op session"' not in policy
           assert 'discord_party_counter' in policy
           assert 'BBSC: Yharnam Together' in ipc
           assert 'BbHunterBuild::DiscordShort(*mask)' in ipc
-          for label in ('In Central Yharnam | BL 25 | STR/ARC Build',
-                        'Fighting Cleric Beast | Central Yharnam | BL 25 | STR/ARC Build',
-                        'In co-op (2/5)', 'Watching Gehrman', 'STR Build'):
+          for label in ('Central Yharnam | BL 25   STR Build',
+                        'Fighting Father Gascoigne (2/5)',
+                        'In co-op (2/5)', 'Spectating', 'STR/ARC Build'):
               assert label in tests, label
           assert 'two controlled text rows' in read('docs/ULTIMATE_BATCH_59.md')
           PY
