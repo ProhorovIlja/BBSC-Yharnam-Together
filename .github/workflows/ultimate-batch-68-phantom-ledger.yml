@@ -1,0 +1,96 @@
+name: Ultimate B68 phantom key debt and immutable journal safety
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_team.h'
+      - 'emulator/src/core/bloodborne_team.cpp'
+      - 'emulator/src/core/phantom_key_ledger_file.h'
+      - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
+      - 'emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp'
+      - 'docs/ULTIMATE_BATCH_68.md'
+      - '.github/workflows/ultimate-batch-68-phantom-ledger.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit integrated game ledger, strict persistence and no unreviewed live save mutation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          rd=lambda p: Path(p).read_text(encoding='utf-8')
+          teamh=rd('emulator/src/core/bloodborne_team.h')
+          teamcpp=rd('emulator/src/core/bloodborne_team.cpp')
+          travel=rd('emulator/src/core/bloodborne_travel.cpp')
+          fileh=rd('emulator/src/core/phantom_key_ledger_file.h')
+          tests=rd('emulator/tests/bloodborne/test_bloodborne_team.cpp')
+          fs_test=rd('emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp')
+          for token in ('struct OwedKeyItem', 'class PhantomKeyItemLedger', 'ParseOwedKeyItemsStrict'):
+              assert token in teamh,token
+          for token in ('PhantomKeyItemLedger::Load(', 'PhantomKeyItemLedger::LookAtPhantom(',
+                        'PhantomKeyItemLedger::LookAtOwn(', 'PhantomKeyItemLedger::Owed(',
+                        'ParseOwedKeyItemsStrict(', 'EncodeOwedKeyItems(entries) != text'):
+              assert token in teamcpp,token
+          assert 'static PhantomKeyItemLedger ledger;' not in travel
+          assert 'std::ofstream{file, std::ios::binary | std::ios::trunc}' not in travel
+          for token in ('CreateNewRevision(', 'ReadReady(', 'CanonicalDebt(', '.writer.lock',
+                        '.pending', '.ready', 'Checksum('):
+              assert token in fileh,token
+          for token in ('WhatWasGainedComesBackAfterTheGameStartsAgain',
+                        'WhatIsOwedGoesInTheNextPhantomsListToo',
+                        'DebtIsStillNotGrantedTwiceAfterConsecutiveRestarts',
+                        'StrictDebtRecordRejectsSilentLossAndCorruption'):
+              assert token in tests,token
+          assert 'B68_PHANTOM_LEDGER_IMMUTABLE_TEST_PASS' in fs_test
+          assert 'NOT claim' in rd('docs/ULTIMATE_BATCH_68.md')
+          PY
+  portable-immutable-ledger:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and run exact production journal with GCC and Clang
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp \
+              -o "/tmp/ultimate-b68-${cxx}"
+            timeout 30s "/tmp/ultimate-b68-${cxx}"
+          done
+      - name: Enable Microsoft C++20 tools
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile and run exact production journal with MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp /Fe:"${{ runner.temp }}\ultimate-b68.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\ultimate-b68.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Only synthetic temporary test data
+        shell: bash
+        run: echo B68_NO_PLAYER_SAVES_NO_FORNEX_NO_GAME_ASSETS
