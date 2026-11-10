@@ -254,6 +254,7 @@ int main() {
     card = Describe(example, visible, screenshot);
     assert(card.details == "In Central Yharnam");
     assert(card.state == "BL 25   STR Build · Invading");
+    assert(card.start == 1600000000); // no stale boss-clock leak during invasion
     example.invading = false;
     example.boss_fighting = false;
     example.duel = true;
