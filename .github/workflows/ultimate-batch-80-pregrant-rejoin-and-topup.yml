@@ -1,0 +1,146 @@
+name: Ultimate B80 pregrant phantom rejoin and initial own-key transfer safety
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/src/core/phantom_inventory_scope.h'
+      - 'emulator/tests/bloodborne/test_phantom_inventory_scope.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
+      - 'tools/re/tests/test_phantom_multisession_ledger.py'
+      - 'tools/re/tests/test_phantom_return_readiness.py'
+      - '.github/workflows/ultimate-batch-76-rejoin-debt-preserve.yml'
+      - '.github/workflows/ultimate-batch-77-multisession-debt.yml'
+      - '.github/workflows/ultimate-batch-80-pregrant-rejoin-and-topup.yml'
+      - 'docs/ULTIMATE_BATCH_80.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-game-source-policy:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify pregrant rejoin and initial own-goods manager gate in real game callback
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          game=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf8')
+          policy=Path('emulator/src/core/phantom_inventory_scope.h').read_text(encoding='utf8')
+          tests=Path('emulator/tests/bloodborne/test_bloodborne_team.cpp').read_text(encoding='utf8')
+          fn=game.split('void GiveBackPhantomKeyItems() {',1)[1].split('// See LampsToRelight',1)[0]
+          guest=fn.split('if (ReadValue<s32>(player, 0x78) == PhantomType) {',1)[1].split('std::optional<std::vector<HeldGoods>> subsequent_missing;',1)[0]
+          assert 'first_has_gains = phantom_list != 0 && list != phantom_list' in guest
+          assert '!PhantomKeyItemsGained(first_look, last_look).empty()' in guest
+          assert 'BloodborneCoop::PreserveFirstPhantomOnRejoin(' in guest
+          assert guest.index('PreserveFirstPhantomOnRejoin(') < guest.index('last_look = observed;')
+          assert guest.index('subsequent_phantom_debt.LookAtPhantom(list, seen)') < guest.index('last_look = observed;')
+          for tok in ('const std::vector<HeldGoods> observed = HeldKeyGoods();',
+                      'const std::vector<HeldGoods> own_topups',
+                      'if (!own_topups.empty() && !TradeItemsReadyToGive())',
+                      'first_look = observed;', 'last_look = observed;'):
+              assert tok in guest,tok
+          assert guest.index('if (!own_topups.empty() && !TradeItemsReadyToGive())') < guest.index('phantom_list = list;')
+          assert guest.index('if (!own_topups.empty() && !TradeItemsReadyToGive())') < guest.index('first_look = observed;')
+          assert guest.index('if (!own_topups.empty() && !TradeItemsReadyToGive())') < guest.index('last_look = observed;')
+          assert guest.index('if (observed.size() > 256)') < guest.index('phantom_list = list;')
+          assert 'PreserveFirstPhantomOnRejoin(' in policy
+          assert 'return second_lane_active || native_grant_attempted ||' in policy
+          assert 'TEST(PhantomKeyItems, RapidPreGrantRejoinPreservesFirstAndDedupsSecondLaneGoods)' in tests
+          assert 'CreateNewRevision(' not in fn and 'ScanLatest(' not in fn
+          doc=Path('docs/ULTIMATE_BATCH_80.md').read_text(encoding='utf8').lower()
+          assert 'not a disk-save acknowledgement' in doc
+          print('B80_ACTUAL_GAME_PREGRANT_REJOIN_SOURCE_PASS')
+          PY
+  production-phantom-ledger-execution:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and execute extracted genuine production inventory and trade methods
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            CXX="$cxx" python3 -m unittest discover -s tools/re/tests -p 'test_phantom_multisession_ledger.py' -v
+          done
+          python3 -m unittest discover -s tools/re/tests -p 'test_phantom_return_readiness.py' -v
+  actual-scope-cpp:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang strict C++20 production owner and rejoin policy tests
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_inventory_scope.cpp \
+              -o "/tmp/b80-${cxx}"
+            timeout 30s "/tmp/b80-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC strict C++20 production rejoin policy
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_inventory_scope.cpp /Fe:"${{ runner.temp }}\b80.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b80.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  actual-game-translation-units:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install existing game compile dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libprotobuf-dev libfmt-dev libgtest-dev libspdlog-dev \
+            nlohmann-json3-dev libcpp-httplib-dev libboost-dev
+      - name: Compile real trade, guest co-op, phantom ledger and test translation units
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 -- emulator/externals/spdlog emulator/externals/fmt
+          test -f emulator/externals/spdlog/include/spdlog/spdlog.h
+          test -f emulator/externals/fmt/include/fmt/base.h
+          mkdir -p "${RUNNER_TEMP}/b80-proto"
+          protoc -I server/coop --cpp_out="${RUNNER_TEMP}/b80-proto" server/coop/coop.proto
+          for src in emulator/src/core/bloodborne_trade.cpp \
+                     emulator/src/core/bloodborne_travel.cpp \
+                     emulator/src/core/bloodborne_team.cpp \
+                     emulator/tests/bloodborne/test_bloodborne_team.cpp; do
+            echo "B80_REAL_GAME_SYNTAX $src"
+            g++ -std=c++23 -fsyntax-only -Wall -Wextra \
+              -I emulator/externals/fmt/include -I emulator/externals/spdlog/include \
+              -I emulator/src -I server -I "${RUNNER_TEMP}/b80-proto" "$src"
+          done
+      - name: Safety scope
+        shell: bash
+        run: echo B80_NO_REAL_SAVEDATA_NO_FORNEX_NO_GAME_ASSETS_NO_DEPLOY_OR_RELEASE
