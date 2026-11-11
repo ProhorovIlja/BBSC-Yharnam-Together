@@ -332,7 +332,8 @@ private:
         return GameFrame{.sender = self,
                          .instance = instance,
                          .peer_instance = peer_instance.value_or(0),
-                         .ack = expected};
+                         .ack = expected,
+                         .entries = {}};
     }
 
     // The member's game restarted: what it had not taken is dropped, both ways start again. But
