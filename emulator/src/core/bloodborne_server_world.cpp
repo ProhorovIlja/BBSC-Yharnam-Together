@@ -1519,6 +1519,18 @@ void StartTeamLobby() {
     }}.detach();
 }
 
+// B88: the game's own character name is trustworthy only after a
+// save-file open was observed and the name settled; the team title may still
+// have the preceding hunter's name during a save-slot switch.
+std::string SettledOwnCharacterNameForPickupOwner() {
+    const s64 opened = save_opened_ms.load(std::memory_order_relaxed);
+    const s64 now = SteadyMilliseconds();
+    if (opened <= 0 || now < opened || now - opened < CharacterNameSettleMs) {
+        return {};
+    }
+    return TitleLoadCharacterName(false, OwnCharacterName());
+}
+
 void NoteSaveOpenedForName() {
     save_opened_ms.store(SteadyMilliseconds());
 }

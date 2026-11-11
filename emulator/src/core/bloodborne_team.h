@@ -365,6 +365,11 @@ bool KeptChangeStaysWithTeam(s32 flag, bool team_mode, bool plays_in_team);
 bool ShouldReplayGuestPickupsInSession(bool in_session, int current_slot, u64 current_generation,
                                        int observed_slot, u64 observed_generation);
 
+// B88: the saved pickup journal's owner name is a conservative mismatch
+// guard across process restarts; the character name is not a globally
+// unique/immutable player ID, so same-name slot reuse remains a release gate.
+bool PickupOwnerNameMatches(std::string_view recorded, std::string_view active);
+
 // Phase 6: the team join without signs or a bell (docs/native-netcode/session.md, "Team join").
 // The team's host opens its game session itself (NetSync CreateSession) once it stands in its
 // world, and sends the session's join data (the game's own: what a summon sends its guest) to the

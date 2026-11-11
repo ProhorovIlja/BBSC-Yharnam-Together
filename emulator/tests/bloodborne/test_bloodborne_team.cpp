@@ -622,6 +622,19 @@ TEST(GuestPickupReplay, CrashRejoinRestoresCurrentHunterButNotOldSlot) {
         << "after the owner baseline reset, the new owner's own file can be used";
 }
 
+// B88: after a process restart a save slot may belong to another hunter.
+// Bound journals only replay for a matching settled name; empty/corrupt names
+// fail closed. Distinct hunters can still share the same name, so this is a
+// conservative mismatch guard, NOT unique per-character identity.
+TEST(GuestPickupReplay, StoredOwnerNameMustMatchActiveHunterBeforeReplay) {
+    EXPECT_TRUE(PickupOwnerNameMatches("Hunter Alice", "Hunter Alice"));
+    EXPECT_FALSE(PickupOwnerNameMatches("Hunter Alice", "Hunter Bob"));
+    EXPECT_FALSE(PickupOwnerNameMatches("", "Hunter Alice"));
+    EXPECT_FALSE(PickupOwnerNameMatches("Hunter Alice", ""));
+    EXPECT_FALSE(PickupOwnerNameMatches("Hunter Alice\nBob", "Hunter Alice\nBob"));
+    EXPECT_FALSE(PickupOwnerNameMatches(std::string(65, 'a'), std::string(65, 'a')));
+}
+
 // Kaniel's playtest 2026-10-20: Lisara's game took the host's "light the Witch's Abode lamp"
 // request (72200201) as a story step, and her own lamp never lit. A lamp's light request is each
 // player's own; the lit lamp reaches the party by its active flags and the lamp lists.

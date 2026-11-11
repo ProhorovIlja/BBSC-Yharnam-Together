@@ -755,10 +755,75 @@ std::vector<s32>& GuestPickedFlags() {
     return *guest_picked;
 }
 
-void SaveGuestProgress(std::span<const s32> flags) {
+// B88: marker lives alongside the per-slot pickup progress journal. An
+// unlabeled old/legacy journal cannot authorize applying those flags to a
+// new process's possibly different hunter. We keep that journal unchanged.
+std::filesystem::path GuestPickupOwnerFile() {
+    return Common::FS::GetUserPath(Common::FS::PathType::UserDir) /
+           SlotFileName("pickup_owner", Coop::character_slot.load());
+}
+
+std::string ReadGuestPickupOwnerName() {
+    std::ifstream file{GuestPickupOwnerFile(), std::ios::binary};
+    std::string line;
+    std::getline(file, line);
+    return TitleLoadCharacterName(false, line);
+}
+
+bool GuestPickupOwnerMatches() {
+    return PickupOwnerNameMatches(ReadGuestPickupOwnerName(),
+                                  SettledOwnCharacterNameForPickupOwner());
+}
+
+// B88: the caller retains dirty pickup progress until both the owner
+// binding and the journal reach disk. A first pickup can happen before the
+// game's name has settled; never mark it persisted on a failed attempt.
+bool SaveGuestProgress(std::span<const s32> flags) {
+    if (flags.empty()) {
+        // The earlier new-hunter detector archived the old lists. Attempt
+        // BOTH clears even if one fails. Never grant stale pickups.
+        const bool progress_reset = ReplaceGuestMetadataFile(GuestProgressFile(), "");
+        const bool owner_reset = ReplaceGuestMetadataFile(GuestPickupOwnerFile(), "");
+        if (!progress_reset || !owner_reset) {
+            LOG_WARNING(Debug, "Bloodborne party: could not reset guest pickup owner metadata");
+            return false;
+        }
+        return true;
+    }
+    const std::string active = SettledOwnCharacterNameForPickupOwner();
+    if (active.empty()) {
+        return false; // name not yet settled: retry after next observation
+    }
+    const std::string recorded = ReadGuestPickupOwnerName();
+    if (recorded.empty()) {
+        // Only enroll a truly empty journal. Even malformed pre-B88 data
+        // must be preserved, NOT silently re-owned by a new hunter.
+        const auto progress_file = GuestProgressFile();
+        std::error_code check_error;
+        const bool existed = std::filesystem::exists(progress_file, check_error);
+        if (check_error) {
+            return false; // cannot prove there is no older journal
+        }
+        std::ifstream file{progress_file, std::ios::binary};
+        if (existed && !file.is_open()) {
+            return false; // file exists but cannot be inspected
+        }
+        const std::string existing{std::istreambuf_iterator<char>{file}, {}};
+        if (file.bad() || !existing.empty()) {
+            return false; // unreadable or legacy/unbound journal stays quarantined
+        }
+        if (!ReplaceGuestMetadataFile(GuestPickupOwnerFile(), active + "\n")) {
+            LOG_WARNING(Debug, "Bloodborne party: cannot bind new pickup progress to this hunter");
+            return false;
+        }
+    } else if (!PickupOwnerNameMatches(recorded, active)) {
+        return false; // another (named) hunter in this slot: preserve old progress
+    }
     if (!ReplaceGuestMetadataFile(GuestProgressFile(), FormatFlagList(flags))) {
         LOG_WARNING(Debug, "Bloodborne party: guest pickup progress update failed; old file kept");
+        return false;
     }
+    return true;
 }
 
 } // namespace
@@ -777,6 +842,12 @@ namespace {
 
 // Sets the guest's remembered pickups that are not set yet; returns how many it set.
 size_t SetGuestPickedFlags() {
+    // B88: never replay a pre-existing/unbound journal or a prior hunter's
+    // journal. Check BEFORE the first game-native flag write on all paths
+    // (active session, load, and own world); no item lot is granted here.
+    if (!GuestPickupOwnerMatches()) {
+        return 0;
+    }
     std::scoped_lock lock{guest_picked_mutex};
     using SetFlag = void PS4_SYSV_ABI (*)(u64, s32, bool);
     size_t set = 0;
@@ -823,7 +894,12 @@ void BackUpSlotLists() {
     const std::string stamp =
         fmt::format("{:04}{:02}{:02}-{:02}{:02}{:02}", local.tm_year + 1900, local.tm_mon + 1,
                     local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec);
-    for (const std::string_view list : CharacterSlotFiles) {
+    // B88: archive the owner binding alongside every per-hunter slot list.
+    // The old journal and its owner name must be recoverable together.
+    std::vector<std::string_view> saved_lists{std::begin(CharacterSlotFiles),
+                                               std::end(CharacterSlotFiles)};
+    saved_lists.push_back("pickup_owner");
+    for (const std::string_view list : saved_lists) {
         const std::filesystem::path file = Common::FS::GetUserPath(Common::FS::PathType::UserDir) /
                                            SlotFileName(list, character_slot.load());
         std::error_code error;
@@ -2243,6 +2319,7 @@ void KeepGuestProgress(bool in_session) {
     static std::unordered_set<s32> seen_on;
     static bool have_baseline = false;
     static bool set_at_home = false;
+    static bool pickup_metadata_dirty = false; // B88: retry a first pickup after name settles
     static int slot = -1;
     static u64 generation = 0;
     const auto now = std::chrono::steady_clock::now();
@@ -2259,6 +2336,9 @@ void KeepGuestProgress(bool in_session) {
     const bool replay_own_pickups =
         ShouldReplayGuestPickupsInSession(in_session, current_slot, current_generation,
                                           slot, generation);
+    if (slot != current_slot || generation != current_generation) {
+        pickup_metadata_dirty = false; // never retry the previous hunter's journal
+    }
     ResetGuestPickupObservationIfOwnerChanged(
         current_slot, current_generation,
         slot, generation, have_baseline, seen_on, set_at_home, home_since);
@@ -2310,7 +2390,12 @@ void KeepGuestProgress(bool in_session) {
             }
         }
         if (changed) {
-            SaveGuestProgress(picked);
+            pickup_metadata_dirty = true;
+        }
+        // A name/owner binding can become usable after the pickup was seen.
+        // Do not forget an uncommitted pickup simply because seen_on has it.
+        if (pickup_metadata_dirty) {
+            pickup_metadata_dirty = !SaveGuestProgress(picked);
         }
         return;
     }

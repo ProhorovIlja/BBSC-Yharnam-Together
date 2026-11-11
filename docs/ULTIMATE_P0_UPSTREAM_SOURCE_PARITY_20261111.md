@@ -1,5 +1,9 @@
 # 2026-11-11 P0 co-op world/save regression source parity — exact upstream patches versus Ultimate
 
+## Update: B88 (2026-11-11) cross-process pickup-owner safety
+
+Following B87's integration of official [Yharnam Together #566](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/566), a deeper review showed an *independent* risk not solved by upstream: the saved slot's in-process generation resets to 1 at the next game start. B88 [Draft #155](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/155) adds a new per-slot pickup-owner marker, only replays with a settled matching in-game name, quarantines old unbound journals without deletion, and retries a first observed pickup until owner metadata can be safely written. It also adds an isolated rig definition for upstream's exact guest first-lamp pickup-after-crash scenario. **Name equality is not proof of unique hunter identity** (same-name collision remains), and legacy migration is deliberately not automatic. Do not close #73 or treat #137 save-ACK, #35 item lots or #22 HomeWorlds as solved. Refer to [B88 detailed report](ULTIMATE_BATCH_88.md).
+
 ## Update: B87 (2026-11-11), after the original B85 parity audit
 
 The original table below accurately reflects **B85** source status, not the latest branch. B87 [Draft #154](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/154) now adds the missing official [YT #566](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/566) active-session pickup reapplication before baseline to `KeepGuestProgress`, with slot/generation owner guard, scoped in-memory cache and C++ test/CI. The independent no-open-prompt and empty-chest causes under P0 #73 are **not yet resolved**, and a new hunter using the *same slot in a new process* still needs a durable identity check. Host home-world #554 full live migration, #553 game-rig acceptance, phantom item #548 save ACK and related P0s remain separate.

@@ -5039,6 +5039,36 @@ SCENARIOS["doll-level-up-host"] = {
     "timeout": 300,
 }
 
+# B88: reproduce the official Yharnam Together #566 crash/rejoin pickup bug on
+# the *existing Ultimate server-owned team* without running against a player's
+# real saves. Run only with isolated rig baseline copies. Unlike native-world
+# changes, this map pickup (by the first Central Yharnam lamp) is per-hunter.
+PICKUP_CRASH_REJOIN_FLAG = 52410140
+SCENARIOS["pickup-after-guest-crash"] = {
+    "about": "the guest's own pickup stays taken after its game crashes and rejoins "
+             "the host's world; the host's personal pickup remains independent",
+    "roles": {
+        "host": [START, "godmode", "wait-session 2 300", "sync pac-picked",
+                 "wait-solo 200", "wait-session 2 420", "sync pac-checked",
+                 "expect-session 2"],
+        "guest": [
+            [START, "godmode", "wait-session 2 300", "wait 5",
+             f"expect-flag {PICKUP_CRASH_REJOIN_FLAG} 0",
+             "pickup 20", "wait 5", f"expect-flag {PICKUP_CRASH_REJOIN_FLAG} 1",
+             "wait 15", "sync pac-picked", "done"],
+            [START, "godmode", "wait-session 2 420",
+             f"wait-flag {PICKUP_CRASH_REJOIN_FLAG} 1 30",
+             "wait 5", "snapshot", "sync pac-checked", "expect-session 2"],
+        ],
+    },
+    "syncs": {name: {"chapter": "pickup-after-guest-crash", "roles": ["host", "guest"]}
+              for name in ("pac-picked", "pac-checked")},
+    "expect": {"guest": [r"guest picked up item flag 52410140"]},
+    "allow": CRASH_CLEANUP,
+    "timeout": 300,
+}
+
+
 # Probes (the rig rework, Kaniel 2026-11-01): runs that measure, capture or take pictures to
 # look at, not pass/fail tests. Runnable by name like any scenario (run_scenario.py <name>,
 # --play <name>) and in no tier.
