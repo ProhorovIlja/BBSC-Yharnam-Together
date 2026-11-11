@@ -27,6 +27,23 @@ void GpuMemory::AddGuestSource(std::uint64_t phys, std::uint64_t size, VkBuffer 
     }
     std::scoped_lock lk{write_mutex};
     const auto* old = guest_sources.load(std::memory_order_acquire);
+    // B92: direct-memory chunks are nonoverlapping by contract. Without a
+    // guard, a later overlapping source shadows an earlier source in the
+    // upper_bound lookup, so a vertex range can silently read an unrelated
+    // Vulkan buffer at the same physical VA. Validate only adjacent sorted
+    // neighbours before allocating a new (intentionally immutable) list.
+    if (old && !old->empty()) {
+        const auto next = std::ranges::lower_bound(*old, phys, {}, &MemorySource::base);
+        if (next != old->end() && size > (*next)->base - phys) {
+            return; // intersects the following source (including duplicate base)
+        }
+        if (next != old->begin()) {
+            const MemorySource* previous = *std::prev(next);
+            if (previous->size > phys - previous->base) {
+                return; // begins inside the preceding source
+            }
+        }
+    }
     auto* list = old ? new std::vector<MemorySource*>(*old) : new std::vector<MemorySource*>();
     auto* source = new MemorySource{MemorySource::Kind::Guest, phys, size, buffer, device_address,
                                     owner};
@@ -121,8 +138,22 @@ void GpuMemory::AddMirror(std::uint64_t start, std::uint64_t size, VkBuffer buff
         return;
     }
     std::unique_lock lk{mirror_mutex};
-    mirrors[start] = MemorySource{MemorySource::Kind::Mirror, start, size, buffer, device_address,
-                                  owner};
+    // B92: adjacent mirrors are valid, overlapping VRAM copies are not.
+    // Silently replacing a mirror or inserting a partly overlapping buffer
+    // can invalidate a previously returned Vulkan offset during a frame.
+    // The renderer removes old mirrors before registering merged/rebuilt ones.
+    const auto next = mirrors.lower_bound(start);
+    if (next != mirrors.end() && size > next->first - start) {
+        return;
+    }
+    if (next != mirrors.begin()) {
+        const auto previous = std::prev(next);
+        if (previous->second.size > start - previous->first) {
+            return;
+        }
+    }
+    mirrors.emplace(start, MemorySource{MemorySource::Kind::Mirror, start, size, buffer,
+                                        device_address, owner});
 }
 
 void GpuMemory::RemoveMirror(std::uint64_t start) {
