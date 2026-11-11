@@ -36,7 +36,11 @@ int main() {
     assert(ReadReady(ready1) == std::optional{first});
     assert(ScanLatest(root, 3, identity).status == ScanStatus::Ready);
     assert(ScanLatest(root, 3, identity).latest == std::optional{first});
+    // Offline readers now use the same exclusive lock as writers, and must
+    // release it after a successful complete scan.
+    assert(!fs::exists(root / ".writer.lock"));
     assert(ScanLatest(root, 4, identity).status == ScanStatus::Empty);
+    assert(!fs::exists(root / ".writer.lock"));
     assert(!CreateNewRevision(root, first));
     assert(ReadReady(ready1) == std::optional{first});
     assert(!fs::exists(root / ".writer.lock"));
@@ -71,7 +75,16 @@ int main() {
         assert(fs::is_symlink(fs::symlink_status(root / ".writer.lock")));
         fs::remove(root / ".writer.lock");
     }
+
     assert(CreateNewRevision(root, later));
+    // A writer may NEVER skip a sequence or create an older paid record
+    // after a tombstone. This is checked inside the exclusive writer lock.
+    assert(!CreateNewRevision(root, first));
+    assert(!CreateNewRevision(root, cleared));
+    Revision skipped{3, identity, 9, "4114 1 1\n"};
+    assert(!CreateNewRevision(root, skipped));
+    assert(!fs::exists(root / (Name(skipped) + ".ready")));
+    assert(ScanLatest(root, 3, identity).latest == std::optional{later});
 
     // An incomplete staged record must never be mistaken for a .ready file.
     Revision interrupted{3, identity, 5, "4114 1 1\n"};
@@ -95,7 +108,9 @@ int main() {
     assert(ScanLatest(root, 4, identity).status == ScanStatus::Empty);
 
     // Corrupt bytes, wrong checksum and a renamed other character all fail.
-    Revision damaged{3, identity, 6, "4114 1 1\n"};
+    Revision damaged{3, identity, 5, "4114 1 1\n"};
+    assert(!CreateNewRevision(root, damaged));
+    assert(fs::remove_all(root / (Name(interrupted) + ".pending")) == 1);
     assert(CreateNewRevision(root, damaged));
     const fs::path ready6 = root / (Name(damaged) + ".ready");
     {
@@ -105,12 +120,40 @@ int main() {
     assert(!ReadReady(ready6));
     assert(ScanLatest(root, 3, identity).status == ScanStatus::Blocked);
     assert(ReadReady(ready1) == std::optional{first});
+    Revision blocked_after_corruption{3, identity, 6, "4110 1 1\n"};
+    assert(!CreateNewRevision(root, blocked_after_corruption));
+    assert(!fs::exists(root / (Name(blocked_after_corruption) + ".ready")));
     Revision other{4, "abcdef0123456789abcdef0123456789", 1, "4114 1 1\n"};
     assert(CreateNewRevision(root, other));
     assert(ReadReady(root / (Name(other) + ".ready")) == std::optional{other});
     assert(ScanLatest(root, 4, other.character_fingerprint).status == ScanStatus::Ready);
     assert(ScanLatest(root, 4, other.character_fingerprint).latest == std::optional{other});
     assert(ReadReady(root / (Name(first) + ".ready")) != std::optional{other});
+
+    // If an earlier revision disappears, even two individually valid
+    // remaining records must not be accepted as a contiguous history.
+    const fs::path gap_root = root / "isolated-gap-case";
+    assert(fs::create_directory(gap_root));
+    Revision gap1{1, identity, 1, "4114 1 1\n"};
+    Revision gap2{1, identity, 2, "4114 1 1\n"};
+    Revision gap3{1, identity, 3, "4114 1 1\n"};
+    assert(CreateNewRevision(gap_root, gap1));
+    assert(CreateNewRevision(gap_root, gap2));
+    assert(CreateNewRevision(gap_root, gap3));
+    assert(ScanLatest(gap_root, 1, identity).latest == std::optional{gap3});
+    assert(fs::remove_all(gap_root / (Name(gap2) + ".ready")) == 2);
+    assert(ScanLatest(gap_root, 1, identity).status == ScanStatus::Blocked);
+    Revision gap4{1, identity, 4, "4110 1 1\n"};
+    assert(!CreateNewRevision(gap_root, gap4));
+    assert(ReadReady(gap_root / (Name(gap1) + ".ready")) == std::optional{gap1});
+    assert(ReadReady(gap_root / (Name(gap3) + ".ready")) == std::optional{gap3});
+
+    // A NEW character with the same slot may start its own sequence 1
+    // without seeing another hunter's committed key debt.
+    Revision new_hunter{3, "fedcba9876543210fedcba9876543210", 1, "4000 1 1\n"};
+    assert(CreateNewRevision(root, new_hunter));
+    assert(ScanLatest(root, 3, new_hunter.character_fingerprint).latest ==
+           std::optional{new_hunter});
 
     // Refuse invalid item / bell, junk, overlarge, overflow and identity.
     for (const std::string bad : {"200 1 1\n", "4114 0 1\n", "4114 2 1\n",
@@ -139,6 +182,19 @@ int main() {
         fs::remove(link);
     }
     assert(ReadReady(ready1) == std::optional{first});
+    // The scanner must refuse symlink roots before it creates ANY lock in
+    // the linked directory; optional on restricted Windows runner accounts.
+    const auto root_link = root / "shortcut";
+    ec.clear();
+    fs::create_directory_symlink(gap_root, root_link, ec);
+    if (!ec) {
+        assert(ScanLatest(root_link, 1, identity).status == ScanStatus::Blocked);
+        assert(!fs::exists(gap_root / ".writer.lock"));
+        fs::remove(root_link);
+    }
+    // After all normal, failed and incomplete read attempts, a successful
+    // read never leaves its cooperative directory lock behind.
+    assert(!fs::exists(root / ".writer.lock"));
     cleanup();
     std::cout << "B68_PHANTOM_LEDGER_IMMUTABLE_TEST_PASS\n";
 }

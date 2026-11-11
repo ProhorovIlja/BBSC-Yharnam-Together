@@ -165,22 +165,25 @@ struct ScanResult {
     std::optional<Revision> latest;
 };
 
-inline ScanResult ScanLatest(const std::filesystem::path& root, unsigned slot,
-                             std::string_view fingerprint) {
+// Caller MUST hold the exclusive writer lock or obtain it via ScanLatest.
+// This internal reader checks every matching revision, including crashed
+// candidates and gaps, before selecting any old debt.
+namespace detail {
+inline ScanResult ScanRevisionsUnlocked(const std::filesystem::path& root, unsigned slot,
+                                       std::string_view fingerprint) {
     namespace fs = std::filesystem;
     Revision who{slot, std::string{fingerprint}, 1, ""};
     if (!Valid(who)) return {};
     std::error_code err;
     if (!fs::is_directory(fs::symlink_status(root, err)) || err) return {};
-    // fs::exists follows symlinks: a dangling writer-lock symlink must
-    // still block rather than be mistaken for an absent lock.
-    err.clear();
-    const auto lock_status = fs::symlink_status(root / ".writer.lock", err);
-    if ((err && err != std::errc::no_such_file_or_directory) ||
-        lock_status.type() != fs::file_type::not_found) return {};
     const std::string prefix = "slot" + std::to_string(slot) + "-" +
                                std::string(fingerprint) + "-r";
     std::optional<Revision> newest;
+    // At most 32768 retained revisions per hunter. Fixed-size 4KiB
+    // bitset gives O(number of revision files) validation with no heap
+    // allocations, sorting or quadratic duplicate searches.
+    std::array<std::uint64_t, 512> seen{};
+    std::uint64_t count = 0;
     bool blocked = false;
     for (fs::directory_iterator it{root, err}, end; !err && it != end;
          it.increment(err)) {
@@ -197,11 +200,50 @@ inline ScanResult ScanLatest(const std::filesystem::path& root, unsigned slot,
             blocked = true;
             break;
         }
+        // A deleted intermediate revision or a forged massive sequence
+        // creates an ambiguous history: NEVER use a stale previously-paid
+        // debt or implicitly fill a gap.
+        if (item->sequence == 0 || item->sequence > 32768 || count >= 32768) {
+            blocked = true;
+            break;
+        }
+        const auto offset = item->sequence - 1;
+        auto& word = seen[offset / 64];
+        const auto mask = std::uint64_t{1} << (offset % 64);
+        if ((word & mask) != 0) {
+            blocked = true;
+            break;
+        }
+        word |= mask;
+        ++count;
         if (!newest || item->sequence > newest->sequence) newest = item;
     }
     if (err || blocked) return {};
     if (!newest) return {ScanStatus::Empty, std::nullopt};
+    // All seen sequences are unique positive integers; if the maximum
+    // equals count, those integers must be precisely 1, 2, ..., count.
+    if (newest->sequence != count) return {};
     return {ScanStatus::Ready, std::move(newest)};
+}
+} // namespace detail
+
+inline ScanResult ScanLatest(const std::filesystem::path& root, unsigned slot,
+                             std::string_view fingerprint) {
+    namespace fs = std::filesystem;
+    std::error_code err;
+    if (!fs::is_directory(fs::symlink_status(root, err)) || err) return {};
+    // A check for an existing lock followed by an unlocked scan has a TOCTOU
+    // race: another writer may create .pending AFTER the check but BEFORE
+    // this reader lists revisions, leading to stale debt replay.
+    // Use the SAME exclusive cooperative lock for readers and writers.
+    // This is only for offline recovery, NOT a per-frame game-thread scan.
+    const auto lock = root / ".writer.lock";
+    err.clear();
+    if (!fs::create_directory(lock, err) || err) return {};
+    const ScanResult result = detail::ScanRevisionsUnlocked(root, slot, fingerprint);
+    err.clear();
+    if (!fs::remove(lock, err) || err) return {};
+    return result;
 }
 
 inline bool CreateNewRevision(const std::filesystem::path& root, const Revision& r) {
@@ -218,6 +260,19 @@ inline bool CreateNewRevision(const std::filesystem::path& root, const Revision&
         std::error_code ignored;
         fs::remove(lock, ignored);
     };
+    // Reject replay of an older paid record, a skipped revision number, or
+    // attempts to append after a corrupt/pending entry. This check occurs
+    // INSIDE the exclusive writer lock to avoid cooperative-writer races.
+    const ScanResult last = detail::ScanRevisionsUnlocked(
+        root, r.slot, r.character_fingerprint);
+    const bool first = last.status == ScanStatus::Empty && r.sequence == 1;
+    const bool next = last.status == ScanStatus::Ready && last.latest &&
+                      last.latest->sequence < UINT64_MAX &&
+                      r.sequence == last.latest->sequence + 1;
+    if (!first && !next) {
+        release();
+        return false;
+    }
     const std::string name = Name(r);
     const auto pending = root / (name + ".pending");
     const auto ready = root / (name + ".ready");

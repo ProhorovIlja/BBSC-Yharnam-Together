@@ -1,0 +1,122 @@
+name: Ultimate B70 monotonic phantom item journal and replay protection
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/phantom_key_ledger_file.h'
+      - 'emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp'
+      - 'docs/ULTIMATE_BATCH_70.md'
+      - '.github/workflows/ultimate-batch-70-monotonic-ledger.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Enforce strict revision sequencing and no fake live save claim
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('emulator/src/core/phantom_key_ledger_file.h').read_text(encoding='utf-8')
+          tst=Path('emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp').read_text(encoding='utf-8')
+          doc=Path('docs/ULTIMATE_BATCH_70.md').read_text(encoding='utf-8')
+          game=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf-8')
+          for token in ('ScanRevisionsUnlocked(', 'newest->sequence != count',
+                        'last.latest->sequence + 1', 'r.sequence == 1',
+                        'std::array<std::uint64_t, 512> seen{}',
+                        'const ScanResult result = detail::ScanRevisionsUnlocked',
+                        'fs::create_directory(lock, err)',
+                        'ScanStatus::Blocked', 'ScanLatest('):
+              assert token in src, token
+          assert 'if (!fs::create_directory(lock, err) || err) return {};' in src
+          assert 'const auto lock = root / ".writer.lock";' in src
+          assert src.index('fs::create_directory(lock, err)') < src.index(
+              'const ScanResult last = detail::ScanRevisionsUnlocked')
+          for token in ('Revision skipped', 'Revision blocked_after_corruption',
+                        'gap_root', 'Revision new_hunter',
+                        'assert(!CreateNewRevision(root, damaged))'):
+              assert token in tst, token
+          assert "no game\u0027s live reward callback" in doc.lower()
+          assert 'CreateNewRevision(' not in game
+          assert 'GiveBackPhantomKeyItems()' in game
+          assert 'bloodborne/test_bloodborne_team.cpp' in Path(
+              'emulator/tests/CMakeLists.txt').read_text(encoding='utf-8')
+          PY
+  actual-game-team-cpp-compile:
+    # Compile actual B68/B69 core game logic and its GoogleTests, not merely
+    # the portable B70 ledger header. This is a syntax/API check, NOT a full
+    # link, execution, game rig or test suite acceptance result.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install only source-level team dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libprotobuf-dev libfmt-dev libgtest-dev
+      - name: Generate actual shadNet lobby protocol and compile real team sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/b70-proto"
+          protoc -I server/coop --cpp_out="${RUNNER_TEMP}/b70-proto" server/coop/coop.proto
+          for src in emulator/src/core/bloodborne_team.cpp \
+                     emulator/tests/bloodborne/test_bloodborne_team.cpp; do
+            g++ -std=c++23 -fsyntax-only -Wall -Wextra \
+              -I emulator/src -I server -I "${RUNNER_TEMP}/b70-proto" "$src"
+          done
+      - name: Only compilation, no live game or save data
+        shell: bash
+        run: echo B70_GAME_TEAM_CPP_COMPILED_NO_LINK_NO_REAL_USER_SAVES
+
+  native-ledger-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile actual production journal with GCC and Clang C++20
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp \
+              -o "/tmp/ultimate-b70-${cxx}"
+            timeout 30s "/tmp/ultimate-b70-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Compile and run production journal under MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp /Fe:"${{ runner.temp }}\ultimate-b70.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\ultimate-b70.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Synthetic fixture only
+        shell: bash
+        run: echo B70_TEMP_FIXTURES_ONLY_NO_PLAYER_SAVES_NO_FORNEX
