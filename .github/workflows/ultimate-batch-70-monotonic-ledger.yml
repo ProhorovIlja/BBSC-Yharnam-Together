@@ -36,9 +36,12 @@ jobs:
           for token in ('ScanRevisionsUnlocked(', 'newest->sequence != count',
                         'last.latest->sequence + 1', 'r.sequence == 1',
                         'std::array<std::uint64_t, 512> seen{}',
+                        'const ScanResult result = detail::ScanRevisionsUnlocked',
                         'fs::create_directory(lock, err)',
                         'ScanStatus::Blocked', 'ScanLatest('):
               assert token in src, token
+          assert 'if (!fs::create_directory(lock, err) || err) return {};' in src
+          assert 'const auto lock = root / ".writer.lock";' in src
           assert src.index('fs::create_directory(lock, err)') < src.index(
               'const ScanResult last = detail::ScanRevisionsUnlocked')
           for token in ('Revision skipped', 'Revision blocked_after_corruption',
