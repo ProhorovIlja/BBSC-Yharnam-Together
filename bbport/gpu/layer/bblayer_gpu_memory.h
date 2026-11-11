@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -67,6 +68,14 @@ public:
     static GpuMemory& Get();
 
     void SetTranslate(GuestTranslate translate);
+    // B90: guest-supplied GPU/vertex ranges must never wrap the 64-bit
+    // address space. Empty ranges are representable but not bound.
+    // A wrapped range could otherwise select the wrong mirror/source or
+    // produce an invalid Vulkan buffer offset after arithmetic overflow.
+    static constexpr bool AddressRangeFits(std::uint64_t start, std::uint64_t size) {
+        return size <= std::numeric_limits<std::uint64_t>::max() - start;
+    }
+
     /// Blocks (the unit moved to VRAM) of 1 << shift bytes.
     void SetBlockShift(std::uint32_t shift);
     std::uint32_t BlockShift() const {
@@ -138,6 +147,11 @@ public:
     /// the rest a null source (not GPU-visible game memory). In address order.
     template <typename F>
     void ForEachInPlace(std::uint64_t va, std::uint64_t size, F&& f) const {
+        if (!AddressRangeFits(va, size)) {
+            // Never bind/copy a wrapped guest range. The caller must reject
+            // the invalid draw instead of reading the wrong host GPU memory.
+            return;
+        }
         const std::uint64_t end = va + size;
         for (std::uint64_t at = va; at < end;) {
             std::uint64_t phys = 0, map_end = 0;
@@ -151,7 +165,9 @@ public:
             const MemorySource* source = GuestSource(phys);
             std::uint64_t piece = std::min(end, map_end) - at;
             if (source) {
-                piece = std::min(piece, source->base + source->size - phys);
+                // GuestSource already proved phys is inside this source;
+                // subtraction avoids overflowing source.base + source.size.
+                piece = std::min(piece, source->size - (phys - source->base));
             }
             f(Span{source, source ? phys - source->base : 0, at, piece});
             at += piece;
