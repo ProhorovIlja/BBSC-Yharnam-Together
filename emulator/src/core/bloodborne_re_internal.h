@@ -944,6 +944,8 @@ void StartServerWorld();
 // Phase 5, the team lobby (bloodborne_team.h): always in the port, with the server world.
 // The party is the team's: its key and this game's role come with the team's Start.
 bool TeamModeOn();
+// B86: distinguish being team-enabled from actually playing in a team.
+bool SavePlaysInTeam();
 // Phase 6 (bloodborne_join.cpp, see TeamJoin): the host opens its game session as a summon
 // does; its join data (the summon packet's, without the sign's two words); a guest joins from it
 // in place. Game thread.
