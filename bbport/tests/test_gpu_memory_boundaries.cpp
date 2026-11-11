@@ -63,6 +63,24 @@ int main() {
     gpu.AddGuestSource(0x2000, 0x100, VK_NULL_HANDLE, 0, nullptr);
     gpu.AddGuestSource(0x3000, 0x100, VK_NULL_HANDLE, 0, nullptr);
 
+    // B92: the registry is sorted by physical address and guest chunks must
+    // not overlap. Check duplicate, contained and leading-overlap insertions
+    // before drawing: all must preserve the original source's size/identity.
+    gpu.AddGuestSource(0x2080, 0x10, VK_NULL_HANDLE, 0, nullptr);
+    assert(gpu.GuestSource(0x2080) && gpu.GuestSource(0x2080)->base == 0x2000);
+    gpu.AddGuestSource(0x2000, 0x20, VK_NULL_HANDLE, 0, nullptr);
+    assert(gpu.GuestSource(0x2000) && gpu.GuestSource(0x2000)->size == 0x100);
+    gpu.AddGuestSource(0x1ff0, 0x30, VK_NULL_HANDLE, 0, nullptr);
+    assert(!gpu.GuestSource(0x1ff0)); // rejected, not shadowing older chunk
+    // Adjacent ranges must still be accepted, including an insertion before
+    // the first source and another one between two physical sources.
+    gpu.AddGuestSource(0x1f00, 0x100, VK_NULL_HANDLE, 0, nullptr);
+    assert(gpu.GuestSource(0x1fff) && gpu.GuestSource(0x1fff)->base == 0x1f00);
+    assert(gpu.GuestSource(0x2000) && gpu.GuestSource(0x2000)->base == 0x2000);
+    gpu.AddGuestSource(0x2100, 0xf00, VK_NULL_HANDLE, 0, nullptr);
+    assert(gpu.GuestSource(0x2100) && gpu.GuestSource(0x2100)->size == 0xf00);
+    assert(gpu.GuestSource(0x3000) && gpu.GuestSource(0x3000)->base == 0x3000);
+
     // Adjacent guest mappings that remain contiguous in physical memory
     // are one source; no extra draw splitting needed.
     auto span = gpu.ResolveInPlace(0x1070, 0x30);
@@ -140,6 +158,18 @@ int main() {
     gpu.AddMirror(max - 0x7f, 0x100, VK_NULL_HANDLE, 0, nullptr);
     assert(!gpu.MirrorAt(max - 0x70));
     gpu.AddMirror(0x5000, 0x100, VK_NULL_HANDLE, 0, nullptr);
+    // B92: neither a duplicate start nor a partly-overlapping mirror may
+    // replace/obscure the old VRAM copy, even when a later valid run exists.
+    gpu.AddMirror(0x5080, 0x30, VK_NULL_HANDLE, 0, nullptr);
+    assert(gpu.MirrorAt(0x5080) && gpu.MirrorAt(0x5080)->base == 0x5000);
+    gpu.AddMirror(0x4ff0, 0x30, VK_NULL_HANDLE, 0, nullptr);
+    assert(!gpu.MirrorAt(0x4ff0));
+    gpu.AddMirror(0x5000, 0x20, VK_NULL_HANDLE, 0, nullptr);
+    assert(gpu.MirrorAt(0x50f0) && gpu.MirrorAt(0x50f0)->size == 0x100);
+    // Contiguous, but separate Vulkan buffers, may be registered without
+    // forcing them into a single source / silently extending old backing.
+    gpu.AddMirror(0x5100, 0x80, VK_NULL_HANDLE, 0, nullptr);
+    assert(gpu.MirrorAt(0x5100) && gpu.MirrorAt(0x5100)->base == 0x5100);
     gpu.MarkValid(0x5000 >> 4, 0x5100 >> 4);
     auto mirror = gpu.Resolve(0x5050, 0x20);
     assert(mirror.kind == Resolution::Kind::Mirror);
