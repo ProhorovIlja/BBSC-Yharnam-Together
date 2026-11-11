@@ -92,3 +92,33 @@ jobs:
       - name: Scope
         shell: bash
         run: echo B74_SOURCE_AND_SYNTHETIC_GAME_ONLY_NO_REAL_SAVES_NO_FORNEX_NO_ACHIEVEMENT_ACK
+  actual-game-trade-and-travel-cpp-compile:
+    # Full translation unit syntax/API verification of the modified live game
+    # implementation. This is not a link, Windows build, nor a game rig.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install source dependencies for actual port core translation units
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libprotobuf-dev libfmt-dev libgtest-dev
+      - name: Generate actual co-op protobuf and compile changed game sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/b74-proto"
+          protoc -I server/coop --cpp_out="${RUNNER_TEMP}/b74-proto" server/coop/coop.proto
+          for src in emulator/src/core/bloodborne_trade.cpp \
+                     emulator/src/core/bloodborne_travel.cpp; do
+            echo "B74_REAL_GAME_SYNTAX $src"
+            g++ -std=c++23 -fsyntax-only -Wall -Wextra \
+              -I emulator/src -I server -I "${RUNNER_TEMP}/b74-proto" "$src"
+          done
+      - name: No game assets or save writes
+        shell: bash
+        run: echo B74_ACTUAL_GAME_CPP_SYNTAX_ONLY_NOT_LINKED_OR_PLAYTESTED
