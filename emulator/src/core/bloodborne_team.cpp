@@ -531,10 +531,16 @@ std::optional<std::vector<HeldGoods>> PhantomKeyItemLedger::LookAtOwn(u64 list,
         first_look.clear();
         last_look.clear();
     }
-    own_look = std::move(held);
+    // B81: the character can already be marked "home" while the game's
+    // inventory pointer still references the phantom list during unload.
+    // A same-pointer look is NOT the hunter's own inventory. Never replace
+    // our last confirmed own_look with phantom-held goods: the next
+    // LookAtPhantom uses own_look to decide which real hunter items to
+    // restore, and poisoning it can add foreign items or omit own ones.
     if (phantom_list != 0) {
         return std::nullopt;
     }
+    own_look = std::move(held);
     return OwedKeyItemsToGive(carried, own_look);
 }
 
