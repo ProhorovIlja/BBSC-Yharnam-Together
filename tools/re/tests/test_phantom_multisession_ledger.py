@@ -185,12 +185,21 @@ int main() {
         fixture = fixture.replace("// EXACT_PRODUCTION_LEDGER", "\n\n".join(real))
         with tempfile.TemporaryDirectory(prefix="bbsc-b77-real-ledger-") as td:
             src = Path(td) / "production_ledger.cpp"
-            exe = Path(td) / "production_ledger"
+            exe = Path(td) / ("production_ledger.exe" if os.name == "nt"
+                              else "production_ledger")
             src.write_text(fixture, encoding="utf-8")
-            result = subprocess.run(
+            # B81: run the extracted ACTUAL production ledger on Windows
+            # MSVC as well as Linux GCC/Clang; no rewritten fake methods.
+            is_msvc = Path(compiler).stem.lower() == "cl"
+            args = (
+                [compiler, "/nologo", "/std:c++20", "/EHsc", "/W4", "/O2",
+                 str(src), "/Fe:" + str(exe)]
+                if is_msvc else
                 [compiler, "-std=c++20", "-O2", "-Wall", "-Wextra",
-                 "-Werror", "-pedantic", str(src), "-o", str(exe)],
-                text=True, capture_output=True, timeout=60,
+                 "-Werror", "-pedantic", str(src), "-o", str(exe)]
+            )
+            result = subprocess.run(
+                args, cwd=td, text=True, capture_output=True, timeout=60,
             )
             self.assertEqual(result.returncode, 0, result.stderr[-3500:])
             run = subprocess.run([str(exe)], text=True,
