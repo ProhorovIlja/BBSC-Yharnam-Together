@@ -44,6 +44,7 @@ class LiveMultiSessionLedger(unittest.TestCase):
             "subsequent_phantom_debt.LookAtOwn(list, home)",
             "subsequent_phantom_debt.GaveBack();",
             "if (!subsequent_missing) return;",
+            "return_attempt.AcknowledgeObservedHome(subsequent_missing->size())",
             "return_attempt.MarkRequested(); // before every native void grant",
             "for (const HeldGoods& held : *subsequent_missing)",
         ):
@@ -56,8 +57,9 @@ class LiveMultiSessionLedger(unittest.TestCase):
                         own.index("if (phantom_list == 0)"))
         self.assertLess(own.index("return_attempt.MarkRequested(); // before every native void grant"),
                         own.index("for (const HeldGoods& held : *subsequent_missing)"))
-        self.assertLess(own.index("return_attempt.ObservedInOwnInventory(subsequent_missing->size())"),
+        self.assertLess(own.index("return_attempt.AcknowledgeObservedHome(subsequent_missing->size())"),
                         own.index("subsequent_phantom_debt.GaveBack();"))
+        self.assertIn("reported_pending_rejoin_list = 0;", own)
         self.assertNotIn("CreateNewRevision(", body)  # still OFFLINE on purpose
 
     def test_compiled_actual_production_ledger_three_joins_and_late_receipt(self):
