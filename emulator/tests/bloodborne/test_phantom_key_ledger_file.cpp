@@ -36,7 +36,11 @@ int main() {
     assert(ReadReady(ready1) == std::optional{first});
     assert(ScanLatest(root, 3, identity).status == ScanStatus::Ready);
     assert(ScanLatest(root, 3, identity).latest == std::optional{first});
+    // Offline readers now use the same exclusive lock as writers, and must
+    // release it after a successful complete scan.
+    assert(!fs::exists(root / ".writer.lock"));
     assert(ScanLatest(root, 4, identity).status == ScanStatus::Empty);
+    assert(!fs::exists(root / ".writer.lock"));
     assert(!CreateNewRevision(root, first));
     assert(ReadReady(ready1) == std::optional{first});
     assert(!fs::exists(root / ".writer.lock"));
@@ -178,6 +182,19 @@ int main() {
         fs::remove(link);
     }
     assert(ReadReady(ready1) == std::optional{first});
+    // The scanner must refuse symlink roots before it creates ANY lock in
+    // the linked directory; optional on restricted Windows runner accounts.
+    const auto root_link = root / "shortcut";
+    ec.clear();
+    fs::create_directory_symlink(gap_root, root_link, ec);
+    if (!ec) {
+        assert(ScanLatest(root_link, 1, identity).status == ScanStatus::Blocked);
+        assert(!fs::exists(gap_root / ".writer.lock"));
+        fs::remove(root_link);
+    }
+    // After all normal, failed and incomplete read attempts, a successful
+    // read never leaves its cooperative directory lock behind.
+    assert(!fs::exists(root / ".writer.lock"));
     cleanup();
     std::cout << "B68_PHANTOM_LEDGER_IMMUTABLE_TEST_PASS\n";
 }
