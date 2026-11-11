@@ -31,7 +31,7 @@ class PhantomReturnReadiness(unittest.TestCase):
         transition = fn.split("const std::vector<HeldGoods> to_return", 1)[1]
         self.assertLess(transition.index("PhantomReturnMayRetireSnapshot"),
                         transition.index("phantom_list = 0;"))
-        self.assertLess(transition.index("return;\n    }"),
+        self.assertLess(transition.index("return; // unready, or prior grant ambiguous"),
                         transition.index("phantom_list = 0;"))
         self.assertIn("for (const HeldGoods& held : to_return)", transition)
         self.assertIn("return_attempt.MarkRequested();", transition)
