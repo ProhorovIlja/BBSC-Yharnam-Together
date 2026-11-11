@@ -583,6 +583,24 @@ TEST(TeamWorld, AKeptStoryStepYieldsToTheTeamsWorld) {
     EXPECT_FALSE(KeptChangeYieldsToTeam(1205, std::nullopt, Now, blocks, 0));
 }
 
+// B86: based on official Yharnam Together #553. A guest's kept
+// team-world flags are never applied to a solo save, but its own pickup,
+// gesture and gift remain personal. Legitimate in-team and non-team paths
+// preserve their original behavior.
+TEST(TeamWorld, KeptTeamWorldNeverLeaksIntoSoloGuestSave) {
+    for (const s32 flag : {12401800, 12407810, 7240}) {
+        EXPECT_TRUE(KeptChangeStaysWithTeam(flag, true, false)) << flag;
+        EXPECT_FALSE(KeptChangeStaysWithTeam(flag, true, true)) << flag;
+        EXPECT_FALSE(KeptChangeStaysWithTeam(flag, false, false)) << flag;
+    }
+    for (const s32 flag : {6744, 12101022, 52800170}) {
+        EXPECT_FALSE(KeptChangeStaysWithTeam(flag, true, false)) << flag;
+    }
+    EXPECT_FALSE(KeptChangeStaysWithTeam(12401800, true, true));
+    EXPECT_TRUE(KeptChangeStaysWithTeam(12401800, true, false));
+    EXPECT_FALSE(KeptChangeStaysWithTeam(12401800, false, false));
+}
+
 // Kaniel's playtest 2026-10-20: Lisara's game took the host's "light the Witch's Abode lamp"
 // request (72200201) as a story step, and her own lamp never lit. A lamp's light request is each
 // player's own; the lit lamp reaches the party by its active flags and the lamp lists.

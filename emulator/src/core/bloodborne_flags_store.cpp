@@ -1287,7 +1287,18 @@ size_t SetGuestWorldChanges(bool keep) {
     const s64 now_ms = SteadyMilliseconds();
     std::string yielded;
     size_t yielded_count = 0;
+    // B86: the team's world is not the guest's solo progression. Hold its
+    // boss/door/lamp/story changes for the next team load. Personal gifts
+    // and pickups still go to their actual owner's save.
+    const bool team_mode = TeamModeOn();
+    const bool plays_in_team = SavePlaysInTeam();
+    size_t left_to_team = 0;
     for (auto it = world.begin(); it != world.end();) {
+        if (KeptChangeStaysWithTeam(it->first, team_mode, plays_in_team)) {
+            ++left_to_team;
+            ++it;
+            continue;
+        }
         const auto kept = guest_world_kept_ms.find(it->first);
         if (!team_blocks.empty() && KeptChangeYieldsToTeam(it->first,
                                                            kept != guest_world_kept_ms.end()
@@ -1311,6 +1322,11 @@ size_t SetGuestWorldChanges(bool keep) {
         }
     }
     SaveGuestWorldChanges();
+    if (left_to_team > 0) {
+        LOG_INFO(Debug,
+                 "Bloodborne party: this save plays alone: {} kept world changes stay with "
+                 "the team, not its personal world", left_to_team);
+    }
     if (yielded_count > 0) {
         LOG_INFO(Debug,
                  "Bloodborne party: {} of the session's story steps left to the team's world "
