@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <system_error>
 
@@ -31,6 +32,30 @@ int main() {
     assert(Valid(first));
     assert(CanonicalDebt(first.debt));
     assert(Decode(Encode(first)) == std::optional{first});
+    // B73: simulate a file changing AFTER file_size() but BEFORE read:
+    // the actual production stream helper must not read arbitrary bytes,
+    // accept a truncated record, or ignore trailing appended data.
+    const std::string bytes = Encode(first);
+    {
+        std::istringstream exact{bytes};
+        assert(BloodborneCoop::PhantomKeyLedgerFile::detail::ReadExactRecord(
+                   exact, bytes.size()) == std::optional{bytes});
+    }
+    {
+        std::istringstream grown{bytes + "EXTRA"};
+        assert(!BloodborneCoop::PhantomKeyLedgerFile::detail::ReadExactRecord(
+            grown, bytes.size()));
+    }
+    {
+        std::istringstream shrunk{bytes.substr(0, bytes.size() - 1)};
+        assert(!BloodborneCoop::PhantomKeyLedgerFile::detail::ReadExactRecord(
+            shrunk, bytes.size()));
+    }
+    {
+        std::istringstream oversized{bytes};
+        assert(!BloodborneCoop::PhantomKeyLedgerFile::detail::ReadExactRecord(
+            oversized, BloodborneCoop::PhantomKeyLedgerFile::MaxRecordBytes + 1));
+    }
     assert(CreateNewRevision(root, first));
     const fs::path ready1 = root / (Name(first) + ".ready");
     assert(ReadReady(ready1) == std::optional{first});
@@ -221,6 +246,19 @@ int main() {
         assert(!fs::exists(gap_root / ".writer.lock"));
         fs::remove(root_link);
     }
+    // On-disk metadata larger than the hard cap is rejected without reading
+    // the payload. This is an isolated fake revision, never a user's save.
+    const Revision inflated{2, identity, 1, "4114 1 1\n"};
+    const auto huge_dir = root / (Name(inflated) + ".ready");
+    assert(fs::create_directory(huge_dir));
+    {
+        std::ofstream out{huge_dir / "ledger.txt", std::ios::binary};
+        out << std::string(BloodborneCoop::PhantomKeyLedgerFile::MaxRecordBytes + 1, 'X');
+    }
+    assert(!ReadReady(huge_dir));
+    assert(ScanLatest(root, 2, identity).status == ScanStatus::Blocked);
+    assert(!fs::exists(root / ".writer.lock"));
+
     // After all normal, failed and incomplete read attempts, a successful
     // read never leaves its cooperative directory lock behind.
     assert(!fs::exists(root / ".writer.lock"));

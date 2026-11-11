@@ -1,0 +1,83 @@
+name: Ultimate B73 bounded offline phantom ledger reads and replay safety
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/phantom_key_ledger_file.h'
+      - 'emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp'
+      - 'docs/ULTIMATE_BATCH_73.md'
+      - '.github/workflows/ultimate-batch-73-bounded-ledger.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Bound both production reads and ensure live grant is still disabled
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h=Path('emulator/src/core/phantom_key_ledger_file.h').read_text(encoding='utf-8')
+          t=Path('emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp').read_text(encoding='utf-8')
+          g=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf-8')
+          d=Path('docs/ULTIMATE_BATCH_73.md').read_text(encoding='utf-8').lower()
+          assert 'inline constexpr std::size_t MaxRecordBytes = 70 * 1024;' in h
+          assert h.count('detail::ReadExactRecord(')==2
+          assert 'if (expected > MaxRecordBytes || !in)' in h
+          assert 'in.read(data.data(), bytes);' in h
+          assert 'in.gcount() != bytes' in h and 'in.peek()' in h
+          assert 'std::istreambuf_iterator<char>' not in h
+          for token in ('std::istringstream grown', 'std::istringstream shrunk',
+                        'std::istringstream oversized', 'const Revision inflated'):
+              assert token in t,token
+          assert 'CreateNewRevision(' not in g
+          assert 'no live game save acknowledgement' in d
+          print('B73_BOUNDED_FILE_READ_CONTRACT_PASS')
+          PY
+  real-ledger-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang strict C++20 production journal regression
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp \
+              -o "/tmp/b73-${compiler}"
+            timeout 30s "/tmp/b73-${compiler}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Native MSVC strict production journal regression
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp /Fe:"${{ runner.temp }}\b73.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b73.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Synthetic files only
+        shell: bash
+        run: echo B73_NO_FORNEX_NO_REAL_SAVES_NO_LIVE_REWARD_DELIVERY
