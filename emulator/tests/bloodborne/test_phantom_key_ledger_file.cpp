@@ -30,6 +30,22 @@ int main() {
     const std::string identity = "0123456789abcdef0123456789abcdef";
     Revision first{3, identity, 1, "4114 1 1\n4000 1 2\n"};
     assert(Valid(first));
+    // B78: disk revision ownership must accept exactly the same retail
+    // slots 0-9 as the live phantom and deferred reward owner gates.
+    for (unsigned retail_slot = 0; retail_slot < 10; ++retail_slot) {
+        Revision retail = first;
+        retail.slot = retail_slot;
+        assert(Valid(retail));
+        assert(Decode(Encode(retail)) == std::optional{retail});
+    }
+    for (unsigned unsupported_slot : {10u, 11u, 63u, 64u, 1024u}) {
+        Revision invalid_owner = first;
+        invalid_owner.slot = unsupported_slot;
+        assert(!Valid(invalid_owner));
+        assert(!Decode(Encode(invalid_owner)));
+        assert(!CreateNewRevision(root, invalid_owner));
+        assert(ScanLatest(root, unsupported_slot, identity).status == ScanStatus::Blocked);
+    }
     assert(CanonicalDebt(first.debt));
     assert(Decode(Encode(first)) == std::optional{first});
     // B73: simulate a file changing AFTER file_size() but BEFORE read:
