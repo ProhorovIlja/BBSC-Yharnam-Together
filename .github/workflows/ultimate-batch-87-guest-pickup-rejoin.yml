@@ -1,0 +1,61 @@
+name: Ultimate B87 crash-rejoin guest pickup replay owner scope
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_flags_store.cpp'
+      - 'emulator/src/core/bloodborne_team.cpp'
+      - 'emulator/src/core/bloodborne_team.h'
+      - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
+      - 'tools/ultimate/test_batch_87_guest_pickup_rejoin.py'
+      - '.github/workflows/ultimate-batch-87-guest-pickup-rejoin.yml'
+      - 'docs/ULTIMATE_BATCH_87.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-and-native-cpp23:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert live C++ call-site ordering, owner cache and previous safety
+        shell: bash
+        run: |
+          python -m unittest discover -s tools/ultimate -p test_batch_87_guest_pickup_rejoin.py -v
+          python -m py_compile tools/ultimate/test_batch_87_guest_pickup_rejoin.py
+      - name: Extract exact production owner-replay predicate
+        shell: bash
+        run: |
+          python tools/ultimate/test_batch_87_guest_pickup_rejoin.py \
+            --extract-native "$RUNNER_TEMP/b87-owner.cpp"
+      - name: Linux GCC and Clang execute production owner-scope predicate
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++23 -O2 -Wall -Wextra -Werror -pedantic \
+              "$RUNNER_TEMP/b87-owner.cpp" -o "$RUNNER_TEMP/b87-owner"
+            "$RUNNER_TEMP/b87-owner"
+          done
+          echo B87_PRODUCTION_GUARD_LINUX_PASS
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC execute production owner-scope predicate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++latest /EHsc /W4 "$env:RUNNER_TEMP\b87-owner.cpp" /Fe:"$env:RUNNER_TEMP\b87-owner.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP\b87-owner.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "B87_PRODUCTION_GUARD_WINDOWS_PASS"
