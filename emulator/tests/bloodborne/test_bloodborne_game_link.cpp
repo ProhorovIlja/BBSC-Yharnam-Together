@@ -287,9 +287,9 @@ TEST(GameLink, FreshReliableBacklogAndOldResendsNeverDuplicateOrReorder) {
     for (u32 i = 0; i < 64; ++i) EXPECT_EQ(seqs[i + 1000], i);
     EXPECT_EQ(host.Resends(), 64u);
     EXPECT_EQ(host.Unacked(), 1100u);
-    EXPECT_TRUE(host.Flush(201).empty()) << "no early duplicate retransmissions";
-    // The next window covers the next oldest 64; retransmit order stays.
-    const auto second = host.Flush(300);
+    // The next flush covers 36 old packets deferred by the 64/flush
+    // resend budget. Those packets did not go at t=200, so they are due.
+    const auto second = host.Flush(201);
     std::vector<u32> resend_seqs;
     for (const auto& frame : second) {
         for (const auto& entry : frame.entries) {
@@ -300,6 +300,7 @@ TEST(GameLink, FreshReliableBacklogAndOldResendsNeverDuplicateOrReorder) {
     ASSERT_EQ(resend_seqs.size(), 36u);
     for (u32 i = 0; i < 36; ++i) EXPECT_EQ(resend_seqs[i], i + 64);
     EXPECT_EQ(host.Resends(), 100u);
+    EXPECT_TRUE(host.Flush(202).empty()) << "none of 100 just-resend packets repeat early";
 }
 
 TEST(GameLink, EvenZeroResendIntervalDoesNotDuplicateFreshReliablePackets) {
