@@ -107,7 +107,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             protobuf-compiler libprotobuf-dev libfmt-dev libgtest-dev libspdlog-dev \
-            nlohmann-json3-dev libcpp-httplib-dev
+            nlohmann-json3-dev libcpp-httplib-dev libboost-dev
       - name: Generate actual co-op protobuf and compile changed game sources
         shell: bash
         run: |
