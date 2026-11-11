@@ -21,6 +21,12 @@ concurrency:
 
 jobs:
   source-and-native-fixtures:
+    # B02 was designed solely for the original B01->B02 isolated diff.
+    # Later Ultimate PRs deliberately modify shared game_link.h and have
+    # their own native CI. Comparing B82 against B01 flags dozens of
+    # unrelated accumulated files as "unsafe" and never tests behavior.
+    # Preserve the historical scope gate for its intended B02 stack only.
+    if: github.event_name != 'pull_request' || github.base_ref == 'experiment/ultimate-batch-01-gpu-auth-20261108'
     runs-on: ubuntu-24.04
     timeout-minutes: 16
     steps:
