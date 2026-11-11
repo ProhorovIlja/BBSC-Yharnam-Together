@@ -107,6 +107,55 @@ TEST(GameLink, FutureAckNeverDiscardsPreviouslySentOrQueuedJoinData) {
     EXPECT_EQ(host.Unacked(), 0u);
 }
 
+// B85: a stale frame aimed at this game's previous local instance must
+// not reset a current remote peer, even if its remote instance field differs.
+TEST(GameLink, StaleTargetCannotResetActiveWorldHeadOrJoinHello) {
+    GameLinkPeer host{"rig_host", 1};
+    GameLinkPeer guest{"rig_guest", 2};
+    host.Send(PacketClass::Reliable, Packet(0x29, 7), 0);
+    EXPECT_EQ(Marks(Carry(host, guest, 0)), (std::vector<u8>{7}));
+    guest.Flush(1); // ACK lost on network
+    const GameFrame known{.sender = "rig_guest", .instance = 2,
+                          .peer_instance = 1, .ack = 0, .entries = {}};
+    EXPECT_TRUE(host.Receive(known, 10).empty());
+    host.Send(PacketClass::Reliable, Packet(0x42, 8), 11);
+    ASSERT_EQ(host.Unacked(), 2u);
+    GameFrame stale{.sender = "rig_guest", .instance = 999,
+                    .peer_instance = 123, .ack = 999, .entries = {}};
+    stale.entries.push_back({PacketClass::Reliable, 0, Packet(0x42, 99)});
+    EXPECT_TRUE(host.Receive(stale, 20).empty());
+    EXPECT_EQ(host.Restarts(), 0u);
+    EXPECT_EQ(host.Unacked(), 2u);
+
+    const GameFrame valid{.sender = "rig_guest", .instance = 2,
+                          .peer_instance = 1, .ack = 1, .entries = {}};
+    EXPECT_TRUE(host.Receive(valid, 30).empty());
+    EXPECT_EQ(host.Unacked(), 1u);
+    EXPECT_EQ(Marks(Carry(host, guest, 40)), (std::vector<u8>{8}));
+    Carry(guest, host, 50);
+    EXPECT_EQ(host.Unacked(), 0u);
+    EXPECT_EQ(host.Restarts(), 0u);
+}
+
+TEST(GameLink, StaleTargetBeforePeerHandshakeDoesNotPoisonIdentity) {
+    GameLinkPeer host{"rig_host", 1};
+    const GameFrame stale{.sender = "rig_guest", .instance = 999,
+                          .peer_instance = 123, .ack = 0, .entries = {}};
+    EXPECT_TRUE(host.Receive(stale, 10).empty());
+    const auto reply = host.Flush(10);
+    ASSERT_EQ(reply.size(), 1u);
+    EXPECT_EQ(reply[0].peer_instance, 0u);
+    EXPECT_EQ(host.Restarts(), 0u);
+
+    const GameFrame valid{.sender = "rig_guest", .instance = 2,
+                          .peer_instance = 1, .ack = 0, .entries = {}};
+    EXPECT_TRUE(host.Receive(valid, 20).empty());
+    EXPECT_EQ(host.Restarts(), 0u);
+    const auto keepalive = host.Flush(1020);
+    ASSERT_EQ(keepalive.size(), 1u);
+    EXPECT_EQ(keepalive[0].peer_instance, 2u);
+}
+
 TEST(GameLink, FutureAckDoesNotDiscardInboundReliableData) {
     GameLinkPeer host{"rig_host", 1};
     GameFrame impossible{.sender = "rig_guest", .instance = 2,

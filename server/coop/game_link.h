@@ -267,17 +267,21 @@ public:
         }
         const std::optional<s64> heard_before = last_heard_ms;
         last_heard_ms = now_ms;
-        if (!peer_instance || *peer_instance != frame.instance) {
-            if (peer_instance) {
-                RestartStreams(heard_before);
-            }
-            peer_instance = frame.instance;
-        }
+        // B85: validate the frame's intended LOCAL run before learning or
+        // restarting the REMOTE run. A delayed packet for our old game can
+        // carry an unrelated remote instance, and must not evict our active
+        // peer or its unacknowledged world/join stream.
         if (frame.peer_instance != 0 && frame.peer_instance != instance) {
             // Meant for this member's earlier game (this one restarted): nothing of it is taken,
             // and a frame goes back at once so the sender starts its streams again.
             ack_owed = true;
             return {};
+        }
+        if (!peer_instance || *peer_instance != frame.instance) {
+            if (peer_instance) {
+                RestartStreams(heard_before);
+            }
+            peer_instance = frame.instance;
         }
         // B83: a cumulative ACK beyond the last reliable sequence
         // actually put on the wire is impossible. Reject its ACK effect

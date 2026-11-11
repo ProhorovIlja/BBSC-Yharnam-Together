@@ -1,0 +1,81 @@
+name: Ultimate B85 preserve active GameLink streams after delayed old-run frames
+on:
+  pull_request:
+    paths:
+      - 'server/coop/game_link.h'
+      - 'server/tests/test_game_link_resend.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_game_link.cpp'
+      - '.github/workflows/ultimate-batch-85-stale-local-target.yml'
+      - 'docs/ULTIMATE_BATCH_85.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contract-and-native-cpp20:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Ensure stale-target guard precedes remote-instance mutation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h=Path('server/coop/game_link.h').read_text(encoding='utf-8')
+          r=h.split('std::vector<std::vector<u8>> Receive(const GameFrame& frame, s64 now_ms) {',1)[1].split('size_t Unacked() const',1)[0]
+          assert r.index('frame.peer_instance != 0 && frame.peer_instance != instance') < r.index('RestartStreams(heard_before)')
+          assert r.index('return {};') < r.index('RestartStreams(heard_before)')
+          assert r.index('ack_owed = true;') < r.index('RestartStreams(heard_before)')
+          assert 'frame.peer_instance == instance && frame.ack <= sent_reliable_end' in r
+          t=Path('server/tests/test_game_link_resend.cpp').read_text(encoding='utf-8')
+          g=Path('emulator/tests/bloodborne/test_bloodborne_game_link.cpp').read_text(encoding='utf-8')
+          for check in ('StaleTargetNeverRestartsValidPeerOrDropsNativeJoin','StaleTargetBeforeHandshakeCannotSeedPeerInstance'):
+              assert check in t
+          for check in ('StaleTargetCannotResetActiveWorldHeadOrJoinHello','StaleTargetBeforePeerHandshakeDoesNotPoisonIdentity'):
+              assert check in g
+          print('B85_STALE_LOCAL_TARGET_BEFORE_REMOTE_STREAM_RESTART_PASS')
+          PY
+      - name: Linux GCC and Clang compile/run real GameLinkPeer
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I server \
+              server/tests/test_game_link_resend.cpp -o "/tmp/b85-${cxx}"
+            timeout 40s "/tmp/b85-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC compile/run real GameLinkPeer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iserver server/tests/test_game_link_resend.cpp /Fe:"${{ runner.temp }}\b85.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b85.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  emulator-production-gamelink-gtests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install GoogleTest
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgtest-dev
+      - name: Execute real Bloodborne GameLink GTests including stale-target and legitimate restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O1 -pthread -I emulator/src -I server \
+            emulator/tests/bloodborne/test_bloodborne_game_link.cpp \
+            -lgtest_main -lgtest -o /tmp/b85-game-link
+          timeout 100s /tmp/b85-game-link --gtest_filter='GameLink.*' --gtest_color=no
+          echo B85_SHARED_GAME_LINK_STALE_TARGET_GTEST_PASS
