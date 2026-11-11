@@ -6,9 +6,19 @@
 #include <vector>
 
 using BloodborneCoop::PhantomInventoryScope;
+using BloodborneCoop::PhantomReturnMayRetireSnapshot;
 using BloodborneCoop::ValidSaveCharacterScope;
 
 int main() {
+    // B74: while MapItemMan has not yet come back from a scene load,
+    // a transition to the own inventory must retain the phantom observations.
+    assert(PhantomReturnMayRetireSnapshot(0, false));
+    assert(PhantomReturnMayRetireSnapshot(0, true));
+    for (std::size_t owed : {1u, 2u, 5u, 256u}) {
+        assert(!PhantomReturnMayRetireSnapshot(owed, false));
+        assert(PhantomReturnMayRetireSnapshot(owed, true));
+    }
+
     // Delayed rewards and phantom items must accept the exact same 10 slots
     // and reject unknown slot, out-of-range slot, and missing generation.
     for (int slot = 0; slot < 10; ++slot) {
