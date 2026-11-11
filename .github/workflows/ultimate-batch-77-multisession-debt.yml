@@ -1,0 +1,122 @@
+name: Ultimate B77 multiple phantom sessions with independent pending reward lanes
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
+      - 'tools/re/tests/test_phantom_multisession_ledger.py'
+      - 'tools/re/tests/test_phantom_return_readiness.py'
+      - '.github/workflows/ultimate-batch-76-rejoin-debt-preserve.yml'
+      - '.github/workflows/ultimate-batch-77-multisession-debt.yml'
+      - 'docs/ULTIMATE_BATCH_77.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-source-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove two grant lanes are owner scoped and game callbacks remain offline
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          game=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf-8')
+          tests=Path('emulator/tests/bloodborne/test_bloodborne_team.cpp').read_text(encoding='utf-8')
+          part=game.split('void GiveBackPhantomKeyItems() {',1)[1].split('// See LampsToRelight',1)[0]
+          for key in ('static PhantomKeyItemLedger subsequent_phantom_debt;',
+                      'subsequent_phantom_debt.Load({});',
+                      'subsequent_phantom_debt.LookAtPhantom(list, seen)',
+                      'subsequent_phantom_debt.LookAtOwn(list, home)',
+                      'subsequent_phantom_debt.GaveBack();',
+                      'return_attempt.MarkRequested(); // before every native void grant',
+                      'if (!subsequent_missing) return;',
+                      'subsequent_missing->size() > 256'):
+              assert key in part,key
+          assert part.index('subsequent_phantom_debt.Load({});') < part.index('KeyItemList()')
+          assert part.index('subsequent_phantom_debt.LookAtPhantom(list, seen)') < part.index('last_look = HeldKeyGoods();')
+          assert part.index('subsequent_phantom_debt.LookAtOwn(list, home)') < part.index('if (phantom_list == 0)')
+          assert part.index('return_attempt.MarkRequested(); // before every native void grant') < part.index('for (const HeldGoods& held : *subsequent_missing)')
+          assert part.index('return_attempt.ObservedInOwnInventory(subsequent_missing->size())') < part.index('subsequent_phantom_debt.GaveBack();')
+          assert 'CreateNewRevision(' not in part and 'ScanLatest(' not in part
+          assert 'TEST(PhantomKeyItems, PendingFirstGrantRetainsNewGainsAcrossThreePhantomLists)' in tests
+          assert 'not a disk save acknowledgement' in Path('docs/ULTIMATE_BATCH_77.md').read_text(encoding='utf8').lower()
+          print('B77_TWO_LANE_GAME_SOURCE_CONTRACT_PASS')
+          PY
+  execute-production-ledger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Extract actual C++ production ledger; run three-session regression under GCC and Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            CXX="$cxx" python3 -m unittest discover -s tools/re/tests -p 'test_phantom_multisession_ledger.py' -v
+          done
+          python3 -m unittest discover -s tools/re/tests -p 'test_phantom_return_readiness.py' -v
+  native-windows-scope:
+    runs-on: windows-2022
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile and run actual C++ owner and one-shot grant policy under MSVC
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_inventory_scope.cpp /Fe:"${{ runner.temp }}\b77.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b77.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  real-game-cpp-syntax:
+    # Changes are in live game implementation, not just headers.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install actual game source dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libprotobuf-dev libfmt-dev libgtest-dev libspdlog-dev \
+            nlohmann-json3-dev libcpp-httplib-dev libboost-dev
+      - name: Compile actual changed game source and production GTest API
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 -- emulator/externals/spdlog emulator/externals/fmt
+          test -f emulator/externals/spdlog/include/spdlog/spdlog.h
+          test -f emulator/externals/fmt/include/fmt/base.h
+          mkdir -p "${RUNNER_TEMP}/b77-proto"
+          protoc -I server/coop --cpp_out="${RUNNER_TEMP}/b77-proto" server/coop/coop.proto
+          for src in emulator/src/core/bloodborne_trade.cpp \
+                     emulator/src/core/bloodborne_travel.cpp \
+                     emulator/src/core/bloodborne_team.cpp \
+                     emulator/tests/bloodborne/test_bloodborne_team.cpp; do
+            echo "B77_COMPILE_ACTUAL_SOURCE $src"
+            g++ -std=c++23 -fsyntax-only -Wall -Wextra \
+              -I emulator/externals/fmt/include -I emulator/externals/spdlog/include \
+              -I emulator/src -I server -I "${RUNNER_TEMP}/b77-proto" "$src"
+          done
+      - name: Keep prototype away from real game and savedata
+        shell: bash
+        run: echo B77_REAL_CPP_SOURCE_SYNTAX_ONLY_NO_FORNEX_SAVES_OR_GAME_RIG
