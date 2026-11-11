@@ -31,6 +31,17 @@ namespace BloodborneCoop {
 // observes no missing key goods. Never auto-repeat an ambiguous grant: the
 // first call may have succeeded, and a second could duplicate a reward.
 // This is process-local protection, not an on-disk save acknowledgement.
+// B80: when the first phantom has already earned goods, a rapid rejoin to a
+// different guest list must preserve those original first/last observations
+// even BEFORE the first native grant was attempted. The second ledger owns
+// the newer lists; do not mistake a pointer change for an ACK.
+[[nodiscard]] inline constexpr bool PreserveFirstPhantomOnRejoin(
+    bool second_lane_active, bool native_grant_attempted,
+    bool first_list_seen, bool next_list_differs, bool first_has_gains) noexcept {
+    return second_lane_active || native_grant_attempted ||
+           (first_list_seen && next_list_differs && first_has_gains);
+}
+
 class PhantomReturnAttemptGate {
 public:
     void Reset() noexcept { requested_ = false; }
