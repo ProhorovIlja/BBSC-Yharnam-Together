@@ -1,0 +1,40 @@
+# Ultimate B70: never replay, skip or overwrite phantom-earned key-item debt
+
+Date: **2026-11-11**. Stacked on [B69 Draft #134](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/134) / B68 #133, because P0 [#35](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/35) (a guest's earned key/badge disappears after closing the game) is not finished.
+
+## Concrete issue found in B68 code
+
+`phantom_key_ledger_file.h::ScanLatest` chose the greatest numbered valid revision, but did **not verify whether all older sequence numbers were present**. `CreateNewRevision` accepted **any caller-supplied positive sequence** as long as the destination name was unused, including a replay of an old paid debt, a skipped revision, or a record appended while a previous `.pending` record was still unresolved. Reading the greatest existing file after a missing or failed transaction could therefore misclassify a once-paid reward as outstanding, or hide a valid newer debt.
+
+This defect was visible in B68's own test: it staged sequence 5 as pending and then published sequence 6 anyway. That contradicted B68's documented fail-closed guarantees. It is particularly serious for a future live game integration because a crash between item grant and acknowledgement must not accidentally select a stale sidecar.
+
+## Changes in the *real production journal*
+
+1. The underlying scan is now `detail::ScanRevisionsUnlocked`. It checks the whole sequence of committed revisions for one **exact character fingerprint and save slot**, rejecting a missing intermediate sequence, duplicate, sequence zero, sequence above the protective 32768 cap, a corrupt `.ready` file, and `*.pending` or unexpected entries. A revision history is acceptable only if it is **1, 2, 3 ... N** with no gaps.
+2. Public `ScanLatest` still refuses a present/dangling/symlinked writer lock and delegates to the internal scan only when unlocked.
+3. `CreateNewRevision` first acquires the exclusive cooperative filesystem writer lock, **then** scans that character's history. If it has no history, only sequence 1 is legal. If it has a valid history, only `latest.sequence + 1` is accepted. If any revision is missing, corrupted, or pending, no new revision is written and the old files are left alone. This prevents cooperative writers racing between check and append.
+4. Old `.ready` revisions are never deleted or overwritten as part of the operation, including explicit debt-cleared tombstones; other characters' slots/fingerprints do not inherit the previous character's debt.
+5. `test_phantom_key_ledger_file.cpp` now includes: replay and skipped-number rejection, a simulated crashed `.pending` blocking the next write, interruption cleared by manual inspection in a **temporary test folder**, corruption of a committed revision blocking later writes, a missing middle `.ready` revision blocking scan and further writes, and a new hunter using the same save slot but an unrelated 32-hex fingerprint starting at sequence 1.
+
+## Test plan
+
+The dedicated `ultimate-batch-70-monotonic-ledger.yml` runs Win/Linux source contracts and executes the **same C++20 production header** under Windows MSVC and Linux GCC/Clang. It must fail if source and test references diverge.
+
+`emulator/tests/CMakeLists.txt` already lists `bloodborne/test_bloodborne_team.cpp` inside the actual `shadps4_bloodborne_test` target. B69 already corrected a false upstream assumption in that test (the legacy `phantom_keys` file is not yet live). **This standalone journal CI does not compile or execute that full test executable**, and cannot be treated as proof of full emulator compatibility. Full emulator CTest remains an additional P0 gate.
+
+## Honest limits and next step
+
+This is a **source safety improvement to a still-offline item journal**. No game's live reward callback calls this file library yet. No automatic payment acknowledgement is established. The actual #35 loss after quitting a phantom in a playable session is NOT yet solved. Future integration must provide stable save-character identity, event ordering, durable write-before-grant, a verified game-inventory save checkpoint before recording a tombstone, game + network/2–5 player tests and all supported 1.09 regions.
+
+File `flush`, an `std::filesystem::rename` and FNV-1a64 checksum do not guarantee durability across power loss or adversarial integrity. Directory and data fsync/FlushFileBuffers and verified platform-specific no-replace rename or an established transactional store are needed before production use. A stale `.writer.lock` must never be auto-deleted on a timer; manual recovery requires inspecting the saved copies. There is no active save cleanup, game asset access or Fornex production deployment in this batch.
+
+## Research candidates, not automatically transplanted
+
+- [Merged Yharnam Together PR #548](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/548) provided the core phantom debt model. Its live `std::ios::trunc` file writing and best-effort parser are not transplanted because they risk loss on crash.
+- [Merged YT #554](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/554) HomeWorlds rollback remains P0 #22 after B64 pure policy integration; full migration must not delete the only good save.
+- [visy/bloodborne_pc_windows_port v0.8.0](https://github.com/visy/bloodborne_pc_windows_port/releases/tag/v0.8.0) includes evolving party and performance features; YT/shadNet and direct P2P protocols are not interchangeable. Its source patches, NAT/VPN and 5-player experimental features remain indexed by [cross-port issue #130](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/130).
+- [User's separate Windows-port B67 Draft #89](https://github.com/ProhorovIlja/bloodborne_pc_windows_port/pull/89) protects `savedata_party` replacement and launcher startup recovery but does not establish a shared YT/PTP save transaction.
+
+Prior source research/validation is preserved in [cross-chat master](ULTIMATE_CROSS_CHAT_REQUIREMENTS_MASTER.md) and the user-owned `gungrain@gmail.com` Drive journal. GPLv3-only/GPLv2-only distribution conflicts and the separate truly independent no-eboot PC port remain separate release gates.
+
+No real saves, secrets, game/DS3 assets or server production touched.
