@@ -26,6 +26,14 @@ int main() {
     // B76: even a different guest-world phantom list cannot overwrite the
     // old pending grant before an observed own-inventory receipt.
     assert(!receipt.MayUpdatePhantomSnapshot());
+    std::vector<std::uint32_t> owed_snapshot{4114, 4000}; // first phantom
+    const auto observe_phantom = [&](std::vector<std::uint32_t> new_observation) {
+        if (receipt.MayUpdatePhantomSnapshot()) {
+            owed_snapshot = std::move(new_observation);
+        }
+    };
+    observe_phantom({4110, 4103}); // new list during pending native grant
+    assert((owed_snapshot == std::vector<std::uint32_t>{4114, 4000}));
     assert(!receipt.MayRequest(1, true));
     assert(!receipt.MayRequest(1, false));
     assert(!receipt.ObservedInOwnInventory(1));
@@ -33,6 +41,8 @@ int main() {
     receipt.Reset(); // only after an observed home-inventory match / owner switch
     assert(!receipt.Requested());
     assert(receipt.MayUpdatePhantomSnapshot());
+    observe_phantom({4110, 4103}); // owner switched or receipt confirmed
+    assert((owed_snapshot == std::vector<std::uint32_t>{4110, 4103}));
     assert(receipt.MayRequest(5, true));
 
     // B74: while MapItemMan has not yet come back from a scene load,
