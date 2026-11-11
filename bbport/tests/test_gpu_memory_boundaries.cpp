@@ -83,6 +83,38 @@ int main() {
     gpu.ForEachInPlace(max - 4, 10, [&](Span) { invoked = true; });
     assert(!invoked);
 
+    // B91 regression: a mathematically valid range can end inside the
+    // highest 4KiB virtual page. The old unbacked-VA fallback computed
+    // (at | 0xfff) + 1, wrapped to zero, and failed to make forward progress.
+    // Do not hang, iterate from VA 0 or fabricate a GPU-buffer span.
+    std::vector<Span> top_page;
+    gpu.ForEachInPlace(max - 31, 31, [&](Span s) { top_page.push_back(s); });
+    assert(top_page.size() == 1);
+    assert(top_page[0].source == nullptr && top_page[0].va == max - 31);
+    assert(top_page[0].offset == 0 && top_page[0].size == 31);
+
+    // Cross the penultimate/highest page: precisely two monotonically
+    // advancing callback spans, no wrap, no additional low-address read.
+    std::vector<Span> final_pages;
+    gpu.ForEachInPlace(max - 0x100f, 0x100f, [&](Span s) {
+        assert(final_pages.size() < 3);  // fail rather than silently loop
+        final_pages.push_back(s);
+    });
+    assert(final_pages.size() == 2);
+    assert(final_pages[0].source == nullptr &&
+           final_pages[0].va == max - 0x100f && final_pages[0].size == 16);
+    assert(final_pages[1].source == nullptr &&
+           final_pages[1].va == max - 0xfff && final_pages[1].size == 0xfff);
+    assert(final_pages[0].va + final_pages[0].size == final_pages[1].va);
+    assert(final_pages[1].va + final_pages[1].size == max);
+
+    // The zero-size request must not produce any callbacks, including at
+    // the last possible address. An overflowed request is still rejected.
+    std::size_t unexpected_callbacks = 0;
+    gpu.ForEachInPlace(max, 0, [&](Span) { ++unexpected_callbacks; });
+    gpu.ForEachInPlace(max - 31, 33, [&](Span) { ++unexpected_callbacks; });
+    assert(unexpected_callbacks == 0);
+
     // A wrapped source must NOT get into the address map. A legal source
     // close to UINT64_MAX still splits safely at its actual last byte.
     gpu.AddGuestSource(max - 0x7f, 0x100, VK_NULL_HANDLE, 0, nullptr);
