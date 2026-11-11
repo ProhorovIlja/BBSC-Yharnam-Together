@@ -1,0 +1,66 @@
+name: Ultimate B89 PM4 GPU draw dispatch operand bounds
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/cp/cp_decoder.cpp'
+      - 'bbport/gpu/cp/cp_decoder.h'
+      - 'bbport/tests/test_cp_decoder.cpp'
+      - '.github/workflows/ultimate-batch-89-pm4-bounds.yml'
+      - 'docs/ULTIMATE_BATCH_89.md'
+      - 'docs/ULTIMATE_PERFORMANCE_GRAPHICS_NETWORK_SOURCE_AUDIT_20261111.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-gpu-command-processor-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate exact PM4 bounds and malformed-command regression cases
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src = Path("bbport/gpu/cp/cp_decoder.cpp").read_text()
+          test = Path("bbport/tests/test_cp_decoder.cpp").read_text()
+          assert src.count("MinimumDecodedBodyWords(header.Opcode())") == 1
+          assert src.index("if (words < MinimumDecodedBodyWords(") < src.index("current = {header, level.rest.subspan(1, words), level.depth}")
+          for name, count in [("DrawIndex2", 5), ("DrawIndexOffset2", 4),
+                              ("DrawIndexAuto", 2), ("IndexBase", 2),
+                              ("DispatchDirect", 4), ("DispatchIndirect", 2),
+                              ("IndirectBuffer", 3), ("CondExec", 3)]:
+              assert f"Op::{name}:" in src
+          assert "void MalformedDrawAndDispatchOperands()" in test
+          assert "MalformedDrawAndDispatchOperands();" in test
+          print("B89_REAL_PM4_SOURCE_BOUNDARY_CHECK_PASS")
+          PY
+      - name: Linux GCC and Clang compile and run actual graphics CP decoder
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I bbport/gpu/cp \
+              bbport/gpu/cp/cp_decoder.cpp bbport/tests/test_cp_decoder.cpp \
+              -o "$RUNNER_TEMP/b89-pm4"
+            timeout 40s "$RUNNER_TEMP/b89-pm4"
+          done
+          echo B89_GPU_PM4_DECODER_GCC_CLANG_PASS
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC compile and run actual graphics CP decoder
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Ibbport\gpu\cp bbport\gpu\cp\cp_decoder.cpp bbport\tests\test_cp_decoder.cpp /Fe:"$env:RUNNER_TEMP\b89-pm4.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP\b89-pm4.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "B89_GPU_PM4_DECODER_MSVC_PASS"
