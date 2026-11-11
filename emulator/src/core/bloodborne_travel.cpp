@@ -1646,11 +1646,13 @@ void GiveBackPhantomKeyItems() {
     // B75: a void-return item grant MUST NOT be retried blindly. Only a
     // subsequent own-inventory observation can retire this in-memory debt.
     static BloodborneCoop::PhantomReturnAttemptGate return_attempt;
+    static u64 reported_pending_rejoin_list = 0;
     const int current_slot = character_slot.load(std::memory_order_relaxed);
     const u64 current_generation =
         deferred_reward_character_generation.load(std::memory_order_relaxed);
     if (inventory_scope.Observe(current_slot, current_generation)) {
         return_attempt.Reset(); // never carry an attempted grant to another hunter
+        reported_pending_rejoin_list = 0;
         phantom_list = 0;
         first_look.clear();
         last_look.clear();
@@ -1669,6 +1671,20 @@ void GiveBackPhantomKeyItems() {
         return; // loading: neither phantom nor own list can be trusted yet
     }
     if (ReadValue<s32>(player, 0x78) == PhantomType) {
+        // B76: when the prior guest's native GiveItems returned void, a
+        // rejoin can introduce a new phantom inventory before the home
+        // inventory has shown the previous goods. Do NOT overwrite the
+        // first/last observations or the pointer of that unresolved grant.
+        // We deliberately fail closed instead of silently losing a badge.
+        if (!return_attempt.MayUpdatePhantomSnapshot()) {
+            if (list != phantom_list && list != reported_pending_rejoin_list) {
+                reported_pending_rejoin_list = list;
+                LOG_WARNING(Debug,
+                            "Bloodborne party: preserving unconfirmed phantom key item return "
+                            "during a new phantom-list transition; no automatic second grant");
+            }
+            return;
+        }
         const s64 now_ms = SteadyMilliseconds();
         if (now_ms - looked_ms < 250) {
             return;
@@ -1713,6 +1729,7 @@ void GiveBackPhantomKeyItems() {
         // remains offline until the save transaction protocol is verified.
         phantom_list = 0;
         return_attempt.Reset();
+        reported_pending_rejoin_list = 0;
         return;
     }
     if (!return_attempt.MayRequest(to_return.size(), grant_ready)) {
