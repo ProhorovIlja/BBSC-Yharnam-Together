@@ -479,6 +479,15 @@ bool TradeItemsCanBeAdded() {
     return trade_sites.load();
 }
 
+// Stronger than "hooks installed": the real native GiveItems path requires a
+// ready MapItemMan vtable. This is a readiness gate, NOT an item/save ACK.
+bool TradeItemsReadyToGive() {
+    if (!trade_sites.load()) return false;
+    const u64 item_man = ReadValue<u64>(image_base + MapItemManPointerOffset, 0);
+    return item_man != 0 &&
+           HasVtable(item_man, MapItemManVtable, "phantom key return readiness");
+}
+
 // Puts the items in as a pickup does: goods up to the max held, the rest to the storage box,
 // each with the game's popup unless Silent; echoes through AddSouls (the game's thread).
 void AddTradeItems(std::span<const TradeItem> items, ItemPopup popup) {
