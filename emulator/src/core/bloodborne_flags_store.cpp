@@ -7,6 +7,7 @@
 #include "core/bloodborne_altar.h"
 #include "core/bloodborne_crash_dump.h"
 #include "core/bloodborne_party.h"
+#include "core/phantom_inventory_scope.h"
 #include "core/bloodborne_re.h"
 #include "core/bloodborne_re_internal.h"
 #include "core/bloodborne_trade.h"
@@ -1594,6 +1595,9 @@ struct DeferredRewardOwner {
     int slot = -1;
     u64 generation = 0;
     bool operator==(const DeferredRewardOwner&) const = default;
+    [[nodiscard]] bool Valid() const noexcept {
+        return BloodborneCoop::ValidSaveCharacterScope(slot, generation);
+    }
 };
 DeferredRewardOwner CurrentDeferredRewardOwner() {
     return {Coop::character_slot.load(std::memory_order_relaxed),
@@ -1610,7 +1614,7 @@ bool RefreshNpcDeathDropLedger(DeferredRewardOwner current, bool in_session,
         recorded = current;
         awarded.clear();
     }
-    return in_session && current.slot >= 0;
+    return in_session && current.Valid();
 }
 struct HeldBossItem {
     s32 lot;
@@ -1704,7 +1708,7 @@ bool PS4_SYSV_ABI HoldGuestBossItem(u64, const GuestRegisterSnapshot* registers)
     }
     const s32 lot = static_cast<s32>(registers->rsi);
     const DeferredRewardOwner owner = CurrentDeferredRewardOwner();
-    if (owner.slot < 0) {
+    if (!owner.Valid()) {
         return false; // cannot safely defer an award without character identity
     }
     {
@@ -1723,7 +1727,7 @@ namespace Coop {
 
 void QueueGuestNpcGift(const NpcGift& gift) {
     const DeferredRewardOwner owner = CurrentDeferredRewardOwner();
-    if (owner.slot < 0) {
+    if (!owner.Valid()) {
         LOG_WARNING(Debug, "Bloodborne party: cannot queue NPC gift {} for unknown character",
                     gift.lot);
         return;
@@ -1746,7 +1750,7 @@ void QueueGuestNpcGift(const NpcGift& gift) {
 // (else the guest's own world's event would give it again at home).
 void GiveDueNpcGifts(std::chrono::steady_clock::time_point now) {
     const DeferredRewardOwner owner = CurrentDeferredRewardOwner();
-    if (owner.slot < 0) {
+    if (!owner.Valid()) {
         return; // the game has no known character to receive this item
     }
     bool due_now = false;
@@ -1894,7 +1898,7 @@ void GiveDeferredBossItems() {
     const auto now = std::chrono::steady_clock::now();
     GiveDueNpcGifts(now);
     const DeferredRewardOwner owner = CurrentDeferredRewardOwner();
-    if (owner.slot < 0) {
+    if (!owner.Valid()) {
         return;
     }
     bool due_now = false;
