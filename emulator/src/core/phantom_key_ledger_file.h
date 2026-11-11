@@ -11,15 +11,34 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <istream>
 #include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace BloodborneCoop::PhantomKeyLedgerFile {
 
 inline constexpr std::uint64_t MaxRevisions = 32768;
+inline constexpr std::size_t MaxRecordBytes = 70 * 1024;
+
+// An on-disk size check is not a read limit: another process could append
+// data after file_size() and before an unbounded iterator-based stream read.
+// Accept exactly the checked byte count, reject both truncation and growth,
+// and NEVER allocate beyond MaxRecordBytes (even for a changing file).
+namespace detail {
+inline std::optional<std::string> ReadExactRecord(std::istream& in, std::size_t expected) {
+    if (expected > MaxRecordBytes || !in) return std::nullopt;
+    std::string data(expected, '\0');
+    const auto bytes = static_cast<std::streamsize>(expected);
+    in.read(data.data(), bytes);
+    if (in.gcount() != bytes || in.bad()) return std::nullopt;
+    if (in.peek() != std::char_traits<char>::eof() || in.bad()) return std::nullopt;
+    return data;
+}
+} // namespace detail
 
 struct Revision {
     unsigned slot = 0;
@@ -109,7 +128,7 @@ inline std::optional<std::uint64_t> UInt(std::string_view str) {
 }
 
 inline std::optional<Revision> Decode(std::string_view text) {
-    if (text.size() > 70 * 1024) return std::nullopt;
+    if (text.size() > MaxRecordBytes) return std::nullopt;
     const auto line = [&text]() -> std::optional<std::string_view> {
         const auto i = text.find('\n');
         if (i == text.npos) return std::nullopt;
@@ -148,13 +167,12 @@ inline std::optional<Revision> ReadReady(const std::filesystem::path& dir) {
     err.clear();
     if (!fs::is_regular_file(fs::symlink_status(file, err)) || err) return std::nullopt;
     const auto size = fs::file_size(file, err);
-    if (err || size > 70 * 1024) return std::nullopt;
+    if (err || size > MaxRecordBytes) return std::nullopt;
     std::ifstream in{file, std::ios::binary};
     if (!in) return std::nullopt;
-    const std::string data{std::istreambuf_iterator<char>{in},
-                           std::istreambuf_iterator<char>{}};
-    if (in.bad()) return std::nullopt;
-    auto parsed = Decode(data);
+    const auto data = detail::ReadExactRecord(in, static_cast<std::size_t>(size));
+    if (!data) return std::nullopt;
+    auto parsed = Decode(*data);
     if (!parsed || dir.filename() != Name(*parsed) + ".ready") return std::nullopt;
     return parsed;
 }
@@ -302,9 +320,10 @@ inline bool CreateNewRevision(const std::filesystem::path& root, const Revision&
         }
         if (success) {
             std::ifstream in{pending / "ledger.txt", std::ios::binary};
-            const std::string check{std::istreambuf_iterator<char>{in},
-                                    std::istreambuf_iterator<char>{}};
-            success = !in.bad() && Decode(check) == std::optional{r};
+            // A concurrent append or shrink must not turn verification
+            // into an unbounded read or a silently accepted partial record.
+            const auto check = detail::ReadExactRecord(in, data.size());
+            success = check && Decode(*check) == std::optional{r};
         }
         if (success) {
             err.clear();
