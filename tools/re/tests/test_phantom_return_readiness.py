@@ -34,6 +34,15 @@ class PhantomReturnReadiness(unittest.TestCase):
         self.assertLess(transition.index("return;\n    }"),
                         transition.index("phantom_list = 0;"))
         self.assertIn("for (const HeldGoods& held : to_return)", transition)
+        self.assertIn("return_attempt.MarkRequested();", transition)
+        self.assertIn("return_attempt.ObservedInOwnInventory(to_return.size())", transition)
+        self.assertIn("!return_attempt.Requested() && TradeItemsReadyToGive()", transition)
+        self.assertLess(transition.index("return_attempt.MarkRequested();"),
+                        transition.index("for (const HeldGoods& held : to_return)"))
+        self.assertLess(transition.index("return_attempt.ObservedInOwnInventory"),
+                        transition.index("phantom_list = 0;"))
+        self.assertNotIn("phantom_list = 0;\n    for (const HeldGoods& held : to_return)", transition)
+        self.assertIn("return_attempt.Reset(); // never carry an attempted grant", fn)
         self.assertNotIn("gave back {} x goods {}", transition)
 
     def test_compiled_actual_native_give_readiness_fails_closed(self):
