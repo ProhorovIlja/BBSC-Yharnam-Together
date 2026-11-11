@@ -1,0 +1,100 @@
+name: Ultimate B72 exact hunter owner guard for live co-op rewards
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/phantom_inventory_scope.h'
+      - 'emulator/src/core/bloodborne_flags_store.cpp'
+      - 'emulator/tests/bloodborne/test_phantom_inventory_scope.cpp'
+      - 'tools/re/tests/test_deferred_reward_character_owners.py'
+      - '.github/workflows/ultimate-batch-72-reward-identity.yml'
+      - 'docs/ULTIMATE_BATCH_72.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact live producer and consumer code must use one validated owner guard
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('emulator/src/core/bloodborne_flags_store.cpp').read_text(encoding='utf-8')
+          h = Path('emulator/src/core/phantom_inventory_scope.h').read_text(encoding='utf-8')
+          assert 'bool Valid() const noexcept' in p
+          assert 'BloodborneCoop::ValidSaveCharacterScope(slot, generation)' in p
+          assert '#include "core/phantom_inventory_scope.h"' in p
+          assert 'return in_session && current.Valid();' in p
+          assert p.count('if (!owner.Valid()) {') == 4
+          assert 'if (owner.slot < 0)' not in p
+          assert 'return ValidSaveCharacterScope(slot_, generation_);' in h
+          assert 'slot >= 0 && slot < 10 && generation != 0' in h
+          assert 'DeferredRewardOwner' in p and 'DiscardOtherCharactersRewards(' in p
+          assert 'ValidSaveCharacterScope' in Path(
+              'emulator/tests/bloodborne/test_phantom_inventory_scope.cpp'
+          ).read_text(encoding='utf-8')
+          print('B72_SOURCE_SHARED_VALIDATED_HUNTER_OWNER_PASS')
+          PY
+  compiled-owner-extraction:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile actual deferred-owner type and evictor from production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_reward_character_owners.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_deferred_rewards_retries.py' -v
+  native-scope-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run exact production C++20 scope header with GCC and Clang
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_inventory_scope.cpp \
+              -o "/tmp/ultimate-b72-${cxx}"
+            timeout 30s "/tmp/ultimate-b72-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Compile and execute same production scope header under MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_inventory_scope.cpp /Fe:"${{ runner.temp }}\ultimate-b72.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\ultimate-b72.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Safety statement
+        shell: bash
+        run: echo B72_NO_GAME_SAVES_NO_SERVER_DEPLOY_NO_ITEM_GRANT_PROOF
