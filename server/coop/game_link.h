@@ -73,7 +73,9 @@ bool Get(std::span<const u8> bytes, size_t& at, T& value) {
     return true;
 }
 
-constexpr size_t FrameHeaderBytes = 1 + 1 + 16 + 4 + 4 + 4 + 2;
+// Encoded header length varies with sender (u8 length + up to 255 identifier bytes).
+// A fixed 16-byte sender estimate can put oversized frames on the wire.
+constexpr size_t FrameHeaderBytesWithoutSender = 1 + 1 + 4 + 4 + 4 + 2;
 constexpr size_t EntryHeaderBytes = 1 + 4 + 4;
 
 } // namespace GameLinkDetail
@@ -242,7 +244,8 @@ public:
             const size_t size = GameLinkDetail::EntryHeaderBytes + entry.packet.size();
             if (frames.empty() || bytes + size > settings.frame_bytes) {
                 frames.push_back(Header());
-                bytes = GameLinkDetail::FrameHeaderBytes;
+                bytes = GameLinkDetail::FrameHeaderBytesWithoutSender +
+                        std::min<size_t>(self.size(), 0xFF);
             }
             frames.back().entries.push_back(std::move(entry));
             bytes += size;
