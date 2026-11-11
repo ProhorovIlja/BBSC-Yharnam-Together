@@ -57,6 +57,51 @@ int main() {
     static_assert(GpuMemory::AddressRangeFits(max - 4, 4));
     static_assert(GpuMemory::AddressRangeFits(0, max));
 
+    // B93: direct-use VRAM idle accounting used to evaluate address+size-1
+    // without checking size=0 or the table's actual group count. A zero-
+    // byte use at VA=0 must never mark *every* 2-MiB group active.
+    constexpr u64 MiB = 1024 * 1024;
+    constexpr u64 TwoMiB = 2 * MiB;
+    static_assert(!GpuMemory::GroupRangeForBytes(0, 0, 21, 1024));
+    static_assert(!GpuMemory::GroupRangeForBytes(0, 1, 21, 0));
+    static_assert(!GpuMemory::GroupRangeForBytes(0, 1, 64, 1024));
+    static_assert(!GpuMemory::GroupRangeForBytes(max - 7, 15, 21, 1024));
+    static_assert(!GpuMemory::GroupRangeForBytes(TwoMiB * 8, 1, 21, 8));
+    static_assert(GpuMemory::GroupRangeForBytes(0, 1, 21, 8)->first == 0);
+    static_assert(GpuMemory::GroupRangeForBytes(0, 1, 21, 8)->second == 0);
+    static_assert(GpuMemory::GroupRangeForBytes(TwoMiB - 1, 2, 21, 8)->first == 0);
+    static_assert(GpuMemory::GroupRangeForBytes(TwoMiB - 1, 2, 21, 8)->second == 1);
+    static_assert(GpuMemory::GroupRangeForBytes(0, TwoMiB * 8, 21, 8)->second == 7);
+    static_assert(GpuMemory::GroupRangeForBytes(0, TwoMiB * 16, 21, 8)->second == 7);
+    static_assert(GpuMemory::GroupRangeForBytes(max - 1024, 1024, 0, max)->first ==
+                  max - 1024);
+    // Execute the SAME production policy used by NoteDirectUse: invalid
+    // ranges emit no group updates; legitimate cross-group use updates only
+    // the corresponding two entries, and a large request never goes OOB.
+    std::vector<int> group_hits(4096);
+    const auto track_group_use = [&](u64 addr, u64 bytes) {
+        const auto groups = GpuMemory::GroupRangeForBytes(addr, bytes, 21, group_hits.size());
+        if (groups) {
+            for (u64 i = groups->first; i <= groups->second; ++i) {
+                assert(i < group_hits.size());
+                ++group_hits[i];
+            }
+        }
+    };
+    for (int frame = 0; frame < 10000; ++frame) {
+        track_group_use(0, 0);
+        track_group_use(max - 7, 15);
+    }
+    for (const int hits : group_hits) {
+        assert(hits == 0);
+    }
+    track_group_use(TwoMiB - 1, 2);
+    assert(group_hits[0] == 1 && group_hits[1] == 1 && group_hits[2] == 0);
+    track_group_use(TwoMiB * 4095, TwoMiB * 2);
+    assert(group_hits[4095] == 1);
+    track_group_use(TwoMiB * 4096, 1);
+    assert(group_hits[4095] == 1);
+
     GpuMemory& gpu = GpuMemory::Get();
     gpu.SetTranslate(&Translate);
     gpu.SetBlockShift(4);
