@@ -1,0 +1,92 @@
+name: Ultimate B76 pending phantom grant across rejoin inventory swaps
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/phantom_inventory_scope.h'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/tests/bloodborne/test_phantom_inventory_scope.cpp'
+      - 'tools/re/tests/test_phantom_return_readiness.py'
+      - '.github/workflows/ultimate-batch-76-rejoin-debt-preserve.yml'
+      - 'docs/ULTIMATE_BATCH_76.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rejoin-source-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify actual live phantom rejoin path retains unresolved reward observation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          game=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf8')
+          hdr=Path('emulator/src/core/phantom_inventory_scope.h').read_text(encoding='utf8')
+          tst=Path('emulator/tests/bloodborne/test_phantom_inventory_scope.cpp').read_text(encoding='utf8')
+          fn=game.split('void GiveBackPhantomKeyItems() {',1)[1].split('// See LampsToRelight',1)[0]
+          p=fn.split('if (ReadValue<s32>(player, 0x78) == PhantomType) {',1)[1].split('if (phantom_list == 0 || list == phantom_list)',1)[0]
+          assert p.index('if (!return_attempt.MayUpdatePhantomSnapshot())') < p.index('last_look = HeldKeyGoods()')
+          assert p.index('return;\n        }') < p.index('last_look = HeldKeyGoods()')
+          assert p.index('return;\n        }') < p.index('phantom_list = list;')
+          assert p.index('MayUpdatePhantomSnapshot()') < p.index('first_look = last_look;')
+          assert 'reported_pending_rejoin_list = list;' in p
+          assert fn.index('return_attempt.Reset(); // never carry an attempted grant') < fn.index('KeyItemList()')
+          assert fn.count('reported_pending_rejoin_list = 0;') == 2
+          assert 'return !requested_;' in hdr
+          assert 'owed_snapshot == std::vector<std::uint32_t>{4114, 4000}' in tst
+          assert 'owed_snapshot == std::vector<std::uint32_t>{4110, 4103}' in tst
+          assert 'ScanLatest(' not in fn and 'CreateNewRevision(' not in fn
+          doc=Path('docs/ULTIMATE_BATCH_76.md').read_text(encoding='utf8').lower()
+          assert 'does not monitor new phantom-earned items' in doc
+          print('B76_REJOIN_PENDING_DEBT_GUARD_SOURCE_PASS')
+          PY
+      - name: Exact native game callback regression and extracted trade gate
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 -m unittest discover -s tools/re/tests -p 'test_phantom_return_readiness.py' -v
+  actual-scope-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang real C++20 phantom owner and rejoin policy tests
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_inventory_scope.cpp \
+              -o "/tmp/b76-${cxx}"
+            timeout 30s "/tmp/b76-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC real C++20 phantom owner and rejoin policy tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_inventory_scope.cpp /Fe:"${{ runner.temp }}\b76.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b76.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: No private game or production server needed
+        shell: bash
+        run: echo B76_NO_FORNEX_NO_SAVEDATA_NO_GAME_ASSETS_NO_RELEASE
