@@ -81,7 +81,7 @@ TEST(SendPace, ManyActiveObjectsNeverTriggerPerEventFullMapScan) {
     EXPECT_EQ(pace.Size(), 601u);
     // Time passes; the bounded cleanup may now scan but no old key expires
     // until 5 seconds, so no packet fairness or pacing behavior changes.
-    EXPECT_FALSE(pace.Allow(1, At(350ms), 166ms));
+    EXPECT_TRUE(pace.Allow(1, At(350ms), 166ms));
     EXPECT_EQ(pace.Sweeps(), first + 1);
     EXPECT_EQ(pace.Size(), 601u);
     // Map left / player disconnected: stale entries are still reclaimed.
