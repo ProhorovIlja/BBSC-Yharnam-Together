@@ -171,7 +171,7 @@ int main() {
     // Even an externally fabricated beyond-cap .ready record blocks reads.
     const fs::path bound_root = root / "isolated-cap-case";
     assert(fs::create_directory(bound_root));
-    Revision bounded_first{2, identity, 1, "4114 1 1\\n"};
+    Revision bounded_first{2, identity, 1, "4114 1 1\n"};
     assert(CreateNewRevision(bound_root, bounded_first));
     assert(fs::create_directory(bound_root / (Name(beyond_limit) + ".ready")));
     {
@@ -181,7 +181,7 @@ int main() {
     }
     assert(ScanLatest(bound_root, 2, identity).status == ScanStatus::Ready);
     assert(ScanLatest(bound_root, 3, identity).status == ScanStatus::Blocked);
-    assert(!CreateNewRevision(bound_root, Revision{3, identity, 1, "4114 1 1\\n"}));
+    assert(!CreateNewRevision(bound_root, Revision{3, identity, 1, "4114 1 1\n"}));
     assert(!fs::exists(bound_root / ".writer.lock"));
 
     // Refuse invalid item / bell, junk, overlarge, overflow and identity.
