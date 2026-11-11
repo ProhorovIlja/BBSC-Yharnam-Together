@@ -76,7 +76,7 @@ class B87GuestPickup(unittest.TestCase):
     def test_generation_and_slot_invalidate_cached_pickups(self):
         cpp = source("emulator/src/core/bloodborne_flags_store.cpp")
         i = cpp.index("std::optional<std::vector<s32>> guest_picked;")
-        j = cpp.index("void SaveGuestProgress(", i)
+        j = cpp.index("SaveGuestProgress(std::span<const s32> flags) {", i)
         block = cpp[i:j]
         self.assertIn("u64 guest_picked_generation = 0;", block)
         self.assertIn("guest_picked_slot != current_slot", block)
