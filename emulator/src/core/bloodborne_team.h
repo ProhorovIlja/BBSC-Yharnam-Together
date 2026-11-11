@@ -355,6 +355,10 @@ inline constexpr s64 KeptChangeReportMs = 20'000;
 bool KeptChangeYieldsToTeam(s32 flag, std::optional<s64> kept_ms, s64 now_ms,
                             std::span<const u32> team_blocks, u32 flags_per_block);
 
+// B86: in team mode, the host's kept world must not become the guest's
+// solo world after leaving; per-player changes and old non-team play stay.
+bool KeptChangeStaysWithTeam(s32 flag, bool team_mode, bool plays_in_team);
+
 // Phase 6: the team join without signs or a bell (docs/native-netcode/session.md, "Team join").
 // The team's host opens its game session itself (NetSync CreateSession) once it stands in its
 // world, and sends the session's join data (the game's own: what a summon sends its guest) to the
