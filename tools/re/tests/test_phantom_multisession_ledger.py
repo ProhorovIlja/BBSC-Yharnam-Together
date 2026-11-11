@@ -51,7 +51,7 @@ class LiveMultiSessionLedger(unittest.TestCase):
             self.assertIn(marker, body, marker)
         phantom = body.split("if (ReadValue<s32>(player, 0x78) == PhantomType) {", 1)[1]
         self.assertLess(phantom.index("subsequent_phantom_debt.LookAtPhantom(list, seen)"),
-                        phantom.index("last_look = HeldKeyGoods();"))
+                        phantom.index("last_look = observed;"))
         own = body.split("std::optional<std::vector<HeldGoods>> subsequent_missing;", 1)[1]
         self.assertLess(own.index("subsequent_phantom_debt.LookAtOwn(list, home)"),
                         own.index("if (phantom_list == 0)"))
