@@ -1,0 +1,96 @@
+name: Ultimate B75 phantom grant attempt receipt and no blind replay
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/phantom_inventory_scope.h'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/tests/bloodborne/test_phantom_inventory_scope.cpp'
+      - 'tools/re/tests/test_phantom_return_readiness.py'
+      - 'docs/ULTIMATE_BATCH_75.md'
+      - '.github/workflows/ultimate-batch-75-phantom-grant-observation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-and-attempt-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify one-shot production game callback with no unsaved completion claim
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf8')
+          h=Path('emulator/src/core/phantom_inventory_scope.h').read_text(encoding='utf8')
+          part=p.split('void GiveBackPhantomKeyItems() {',1)[1].split('// See LampsToRelight',1)[0]
+          ret=part.split('const std::vector<HeldGoods> to_return',1)[1]
+          assert 'PhantomReturnAttemptGate return_attempt' in part
+          assert part.index('return_attempt.Reset(); // never carry an attempted grant') < part.index('KeyItemList()')
+          assert ret.index('return_attempt.MarkRequested();') < ret.index('for (const HeldGoods& held : to_return)')
+          assert ret.index('return_attempt.ObservedInOwnInventory') < ret.index('phantom_list = 0;')
+          assert '!return_attempt.Requested() && TradeItemsReadyToGive()' in ret
+          assert 'return_attempt.Reset();' in ret
+          assert 'PhantomReturnMayRetireSnapshot(' in ret
+          assert 'ReadValue<s32>(player, 0x78) == PhantomType' in part
+          assert 'CreateNewRevision(' not in part and 'ScanLatest(' not in part
+          assert 'native GiveItems (void return)' in p
+          assert 'class PhantomReturnAttemptGate' in h
+          assert 'return missing_items == 0;' in h
+          assert 'return missing_items != 0 && native_ready && !requested_;' in h
+          doc=Path('docs/ULTIMATE_BATCH_75.md').read_text(encoding='utf8').lower()
+          assert 'not a savedata acknowledgement' in doc
+          print('B75_GAME_NATIVE_GRANT_ONCE_AND_OBSERVATION_CONTRACT_PASS')
+          PY
+      - name: Compile source-extracted native MapItemMan readiness regression
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_phantom_return_readiness.py' -v
+
+  portable-actual-header:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang strict C++20 one-shot grant receipt policy
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_inventory_scope.cpp \
+              -o "/tmp/b75-${cxx}"
+            timeout 30s "/tmp/b75-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: MSVC strict C++20 one-shot grant receipt policy
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_inventory_scope.cpp /Fe:"${{ runner.temp }}\b75.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b75.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Safety
+        shell: bash
+        run: echo B75_NO_PLAYER_SAVE_NO_FORNEX_NO_REWARD_DISK_ACK_NO_RELEASE
