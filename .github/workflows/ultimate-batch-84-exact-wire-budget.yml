@@ -1,0 +1,77 @@
+name: Ultimate B84 exact encoded sender frame-budget regression
+on:
+  pull_request:
+    paths:
+      - 'server/coop/game_link.h'
+      - 'server/tests/test_game_link_resend.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_game_link.cpp'
+      - '.github/workflows/ultimate-batch-84-exact-wire-budget.yml'
+      - 'docs/ULTIMATE_BATCH_84.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-game-link-cpp20:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check encoded-wire budget invariant and regression names
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h = Path('server/coop/game_link.h').read_text(encoding='utf-8')
+          t = Path('server/tests/test_game_link_resend.cpp').read_text(encoding='utf-8')
+          e = Path('emulator/tests/bloodborne/test_bloodborne_game_link.cpp').read_text(encoding='utf-8')
+          assert 'FrameHeaderBytesWithoutSender = 1 + 1 + 4 + 4 + 4 + 2;' in h
+          assert 'std::min<size_t>(self.size(), 0xFF)' in h
+          assert 'FrameHeaderBytes = 1 + 1 + 16' not in h
+          assert 'VariableSenderFrameBudgetTracksActualWireEncoding' in t
+          assert 'FrameByteBudgetUsesEncodedVariableSenderLength' in e
+          print('B84_ENCODED_SENDER_WIRE_BUDGET_CONTRACT_PASS')
+          PY
+      - name: Linux GCC and Clang execute shared production GameLinkPeer
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I server \
+              server/tests/test_game_link_resend.cpp -o "/tmp/b84-${cxx}"
+            timeout 40s "/tmp/b84-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC execute actual shared GameLinkPeer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iserver server/tests/test_game_link_resend.cpp /Fe:"${{ runner.temp }}\b84.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b84.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  actual-emulator-gtest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install GoogleTest
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgtest-dev
+      - name: Run production emulator GameLink GoogleTests
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O1 -pthread -I emulator/src -I server \
+            emulator/tests/bloodborne/test_bloodborne_game_link.cpp \
+            -lgtest_main -lgtest -o /tmp/b84-gamelink-gtest
+          timeout 100s /tmp/b84-gamelink-gtest --gtest_filter='GameLink.*' --gtest_color=no
+          echo B84_REAL_GAME_LINK_GTEST_PASS

@@ -145,6 +145,32 @@ TEST(GameLink, UnreliablePacketsAreNeverResentAndTheNewestWinsPerChannel) {
     EXPECT_TRUE(host.Flush(500).empty()) << "never resent";
 }
 
+// B84: wire header includes the actual encoded sender ID, which can be
+// shorter or longer than 16 bytes. Never exceed a viable configured budget.
+TEST(GameLink, FrameByteBudgetUsesEncodedVariableSenderLength) {
+    for (const size_t length : {size_t{0}, size_t{16}, size_t{32},
+                                size_t{255}, size_t{300}}) {
+        GameLinkPeer::Settings settings;
+        settings.frame_bytes = length > 200 ? 320 : 96;
+        GameLinkPeer host{std::string(length, 'h'), 1, settings};
+        for (u8 mark = 0; mark < 3; ++mark) {
+            host.Send(PacketClass::Unreliable, Packet(4, mark), 0);
+        }
+        const auto frames = host.Flush(0);
+        ASSERT_EQ(frames.size(), length > 16 ? 2u : 1u) << length;
+        size_t entries = 0;
+        for (const auto& frame : frames) {
+            const auto wire = EncodeGameFrame(frame);
+            EXPECT_LE(wire.size(), settings.frame_bytes) << length;
+            const auto decoded = DecodeGameFrame(wire);
+            ASSERT_TRUE(decoded.has_value());
+            EXPECT_EQ(decoded->sender.size(), (std::min)(length, size_t{255}));
+            entries += decoded->entries.size();
+        }
+        EXPECT_EQ(entries, 3u);
+    }
+}
+
 TEST(GameLink, SmallPacketsShareAFrameAndALargeOneGoesAlone) {
     GameLinkPeer host{"rig_host", 1};
     for (u8 mark = 0; mark < 10; ++mark) {
