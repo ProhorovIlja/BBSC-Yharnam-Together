@@ -157,7 +157,12 @@ public:
             std::uint64_t phys = 0, map_end = 0;
             if (!translate || !translate(at, &phys, &map_end) || map_end <= at) {
                 // Not direct memory: up to the next mapping we know of is unknown; one page.
-                const std::uint64_t next = std::min(end, (at | 0xfff) + 1);
+                // B91: at in the final 4 KiB page makes (at | 0xfff) == UINT64_MAX.
+                // Adding 1 would wrap to zero: the old loop then continued from VA 0,
+                // potentially hanging or reading an unrelated low-address GPU source.
+                // Keep the end-exclusive span bounded and strictly advancing.
+                const std::uint64_t page_last = at | std::uint64_t{0xfff};
+                const std::uint64_t next = page_last < end ? page_last + 1 : end;
                 f(Span{nullptr, 0, at, next - at});
                 at = next;
                 continue;

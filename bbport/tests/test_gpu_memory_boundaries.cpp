@@ -31,6 +31,14 @@ bool Translate(u64 va, u64* phys, u64* end) {
         *end = 0x1200;
         return true;
     }
+    if (va >= std::numeric_limits<u64>::max() - 0x100f &&
+        va < std::numeric_limits<u64>::max() - 0xfff) {
+        // The last 16 bytes of the penultimate virtual page map into
+        // an existing guest GPU chunk. The *next* page has no mapping.
+        *phys = 0x3050 + (va - (std::numeric_limits<u64>::max() - 0x100f));
+        *end = std::numeric_limits<u64>::max() - 0xfff;
+        return true;
+    }
     if (va >= 0x4000 && va < 0x4100) {
         // Synthetic source close to the 64-bit end: its base+size would
         // wrap even though every requested byte lies inside the source.
@@ -82,6 +90,40 @@ int main() {
     bool invoked = false;
     gpu.ForEachInPlace(max - 4, 10, [&](Span) { invoked = true; });
     assert(!invoked);
+
+    // B91 regression: a mathematically valid range can end inside the
+    // highest 4KiB virtual page. The old unbacked-VA fallback computed
+    // (at | 0xfff) + 1, wrapped to zero, and failed to make forward progress.
+    // Do not hang, iterate from VA 0 or fabricate a GPU-buffer span.
+    std::vector<Span> top_page;
+    gpu.ForEachInPlace(max - 31, 31, [&](Span s) { top_page.push_back(s); });
+    assert(top_page.size() == 1);
+    assert(top_page[0].source == nullptr && top_page[0].va == max - 31);
+    assert(top_page[0].offset == 0 && top_page[0].size == 31);
+
+    // Cross from the end of a real GPU-backed penultimate page into
+    // the unmapped highest page: the callback must split the 16 mapped
+    // bytes from the 4095 unknown bytes, without wrapping to VA 0.
+    std::vector<Span> final_pages;
+    gpu.ForEachInPlace(max - 0x100f, 0x100f, [&](Span s) {
+        assert(final_pages.size() < 3);  // fail rather than silently loop
+        final_pages.push_back(s);
+    });
+    assert(final_pages.size() == 2);
+    assert(final_pages[0].source != nullptr &&
+           final_pages[0].offset == 0x50 &&
+           final_pages[0].va == max - 0x100f && final_pages[0].size == 16);
+    assert(final_pages[1].source == nullptr &&
+           final_pages[1].va == max - 0xfff && final_pages[1].size == 0xfff);
+    assert(final_pages[0].va + final_pages[0].size == final_pages[1].va);
+    assert(final_pages[1].va + final_pages[1].size == max);
+
+    // The zero-size request must not produce any callbacks, including at
+    // the last possible address. An overflowed request is still rejected.
+    std::size_t unexpected_callbacks = 0;
+    gpu.ForEachInPlace(max, 0, [&](Span) { ++unexpected_callbacks; });
+    gpu.ForEachInPlace(max - 31, 33, [&](Span) { ++unexpected_callbacks; });
+    assert(unexpected_callbacks == 0);
 
     // A wrapped source must NOT get into the address map. A legal source
     // close to UINT64_MAX still splits safely at its actual last byte.

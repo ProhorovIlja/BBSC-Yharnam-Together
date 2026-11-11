@@ -1,0 +1,74 @@
+name: Ultimate B91 final GPU page forward progress
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/layer/bblayer_gpu_memory.h'
+      - 'bbport/tests/test_gpu_memory_boundaries.cpp'
+      - 'bbport/tests/test_support/vulkan/vulkan_core.h'
+      - '.github/workflows/ultimate-batch-91-top-page-forward-progress.yml'
+      - 'docs/ULTIMATE_BATCH_91.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-gpu-module-no-hang:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check real high-page loop and deterministic boundary tests
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src=Path("bbport/gpu/layer/bblayer_gpu_memory.h").read_text()
+          test=Path("bbport/tests/test_gpu_memory_boundaries.cpp").read_text()
+          begin=src.index("void ForEachInPlace(std::uint64_t va, std::uint64_t size, F&& f) const")
+          end=src.index("\n    }\n\nprivate:", begin)
+          body=src[begin:end]
+          assert "const std::uint64_t page_last = at | std::uint64_t{0xfff};" in body
+          assert "const std::uint64_t next = page_last < end ? page_last + 1 : end;" in body
+          assert "(at | 0xfff) + 1" not in body
+          assert "AddressRangeFits(va, size)" in body
+          assert "at = next" in body
+          assert "max - 0x100f, 0x100f" in test
+          assert "gpu.ForEachInPlace(max, 0" in test
+          assert "gpu.ForEachInPlace(max - 31, 33" in test
+          print("B91_HIGH_PAGE_SOURCE_LOOP_GUARD_PASS")
+          PY
+      - name: Linux GCC and Clang compile real production code with UB sanitizer
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O1 -g -Wall -Wextra -Werror -pedantic -pthread \
+              -fsanitize=undefined -fno-sanitize-recover=undefined \
+              -I bbport/tests/test_support -I bbport/gpu/layer \
+              bbport/gpu/layer/bblayer_gpu_memory.cpp \
+              bbport/tests/test_gpu_memory_boundaries.cpp \
+              -o "$RUNNER_TEMP/b91-gpu-forward"
+            timeout 20s "$RUNNER_TEMP/b91-gpu-forward"
+          done
+          echo B91_GPU_PRODUCTION_NO_HIGH_PAGE_HANG_GCC_CLANG_PASS
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC compile and enforce 20-second forward-progress watchdog
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Ibbport\tests\test_support /Ibbport\gpu\layer bbport\gpu\layer\bblayer_gpu_memory.cpp bbport\tests\test_gpu_memory_boundaries.cpp /Fe:"$env:RUNNER_TEMP\b91-gpu-forward.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $proc = Start-Process -FilePath "$env:RUNNER_TEMP\b91-gpu-forward.exe" -NoNewWindow -PassThru
+          if (-not $proc.WaitForExit(20000)) {
+            $proc.Kill()
+            throw 'B91: GPU span iteration failed to terminate within 20 seconds'
+          }
+          if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
+          Write-Host 'B91_GPU_PRODUCTION_NO_HIGH_PAGE_HANG_MSVC_PASS'
