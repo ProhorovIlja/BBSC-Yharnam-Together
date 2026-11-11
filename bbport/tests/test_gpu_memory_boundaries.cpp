@@ -34,7 +34,7 @@ bool Translate(u64 va, u64* phys, u64* end) {
     if (va >= 0x4000 && va < 0x4100) {
         // Synthetic source close to the 64-bit end: its base+size would
         // wrap even though every requested byte lies inside the source.
-        constexpr u64 base = std::numeric_limits<u64>::max() - 0x7f;
+        constexpr u64 base = std::numeric_limits<u64>::max() - 0xff;
         *phys = base + (va - 0x4000);
         *end = 0x4100;
         return true;
@@ -83,16 +83,20 @@ int main() {
     gpu.ForEachInPlace(max - 4, 10, [&](Span) { invoked = true; });
     assert(!invoked);
 
-    // A source close to UINT64_MAX is still usable by subtraction, without
-    // overflow from computing its (unrepresentable) end in base+size.
+    // A wrapped source must NOT get into the address map. A legal source
+    // close to UINT64_MAX still splits safely at its actual last byte.
     gpu.AddGuestSource(max - 0x7f, 0x100, VK_NULL_HANDLE, 0, nullptr);
+    assert(gpu.GuestSource(max - 0x7f) == nullptr);
+    gpu.AddGuestSource(max - 0xff, 0xf0, VK_NULL_HANDLE, 0, nullptr);
     auto high = gpu.ResolvePrefix(0x4000, 0x50);
     assert(high && high->offset == 0 && high->size == 0x50);
-    auto high_end = gpu.ResolvePrefix(0x4070, 0x20);
-    assert(high_end && high_end->offset == 0x70 && high_end->size == 0x20);
+    auto high_end = gpu.ResolvePrefix(0x40e0, 0x20);
+    assert(high_end && high_end->offset == 0xe0 && high_end->size == 0x10);
 
     // One resident mirror cannot bind past the end of its own backing
     // Vulkan buffer even when the adjacent block is valid elsewhere.
+    gpu.AddMirror(max - 0x7f, 0x100, VK_NULL_HANDLE, 0, nullptr);
+    assert(!gpu.MirrorAt(max - 0x70));
     gpu.AddMirror(0x5000, 0x100, VK_NULL_HANDLE, 0, nullptr);
     gpu.MarkValid(0x5000 >> 4, 0x5100 >> 4);
     auto mirror = gpu.Resolve(0x5050, 0x20);
