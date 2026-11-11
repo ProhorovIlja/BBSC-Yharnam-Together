@@ -78,6 +78,44 @@ TEST(GameLink, ReliablePacketsArriveInOrderThoughOneIsLost) {
     EXPECT_TRUE(host.Flush(1000).empty()) << "all acked: nothing more to send";
 }
 
+// B83: the sender has already queued a join hello but has not flushed it.
+// An ACK for the unsent sequence is impossible and must not remove the
+// earlier world/state from the reliable retry queue.
+TEST(GameLink, FutureAckNeverDiscardsPreviouslySentOrQueuedJoinData) {
+    GameLinkPeer host{"rig_host", 1};
+    GameLinkPeer guest{"rig_guest", 2};
+    host.Send(PacketClass::Reliable, Packet(0x29, 41), 0);
+    EXPECT_EQ(Marks(Carry(host, guest, 0)), (std::vector<u8>{41}));
+    // Guest's legitimate ACK is lost; host retains sequence 0 for retry.
+    guest.Flush(10);
+    host.Send(PacketClass::Reliable, Packet(0x42, 42), 10); // seq1 queued, not sent
+    EXPECT_EQ(host.Unacked(), 2u);
+    const GameFrame impossible{.sender = "rig_guest", .instance = 2,
+                               .peer_instance = 1, .ack = 2, .entries = {}};
+    host.Receive(impossible, 20);
+    EXPECT_EQ(host.Unacked(), 2u);
+    const GameFrame extreme{.sender = "rig_guest", .instance = 2,
+                            .peer_instance = 1, .ack = 0xFFFFFFFFu, .entries = {}};
+    host.Receive(extreme, 30);
+    EXPECT_EQ(host.Unacked(), 2u);
+    const GameFrame valid{.sender = "rig_guest", .instance = 2,
+                          .peer_instance = 1, .ack = 1, .entries = {}};
+    host.Receive(valid, 40);
+    EXPECT_EQ(host.Unacked(), 1u);
+    EXPECT_EQ(Marks(Carry(host, guest, 50)), (std::vector<u8>{42}));
+    Carry(guest, host, 60);
+    EXPECT_EQ(host.Unacked(), 0u);
+}
+
+TEST(GameLink, FutureAckDoesNotDiscardInboundReliableData) {
+    GameLinkPeer host{"rig_host", 1};
+    GameFrame impossible{.sender = "rig_guest", .instance = 2,
+                         .peer_instance = 1, .ack = 500, .entries = {}};
+    impossible.entries.push_back({PacketClass::Reliable, 0, Packet(0x42, 55)});
+    EXPECT_EQ(Marks(host.Receive(impossible, 10)), (std::vector<u8>{55}));
+    EXPECT_EQ(host.Unacked(), 0u);
+}
+
 TEST(GameLink, AnAckThatIsLostMeansAResendTheReceiverIgnores) {
     GameLinkPeer host{"rig_host", 1};
     GameLinkPeer guest{"rig_guest", 2};
