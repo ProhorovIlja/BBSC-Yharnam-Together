@@ -6,8 +6,20 @@
 #include <vector>
 
 using BloodborneCoop::PhantomInventoryScope;
+using BloodborneCoop::ValidSaveCharacterScope;
 
 int main() {
+    // Delayed rewards and phantom items must accept the exact same 10 slots
+    // and reject unknown slot, out-of-range slot, and missing generation.
+    for (int slot = 0; slot < 10; ++slot) {
+        assert(ValidSaveCharacterScope(slot, 1));
+        assert(ValidSaveCharacterScope(slot, UINT64_MAX));
+        assert(!ValidSaveCharacterScope(slot, 0));
+    }
+    for (int slot : {-3, -2, -1, 10, 11, 64}) {
+        assert(!ValidSaveCharacterScope(slot, 1));
+        assert(!ValidSaveCharacterScope(slot, UINT64_MAX));
+    }
     PhantomInventoryScope scope;
     assert(!scope.Usable());
     assert(scope.Observe(-1, 1));
