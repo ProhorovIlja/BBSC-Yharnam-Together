@@ -108,8 +108,9 @@ class B86WorldIsolation(unittest.TestCase):
             self.assertIn(number, test)
 
 
-if __name__ == "__main__" and len(sys.argv) >= 3 and sys.argv[1] == "--extract-native":
-    emit_native(Path(sys.argv[2]))
-    print("B86_EXTRACTED_PRODUCTION_POLICY_READY")
-else:
-    unittest.main()
+if __name__ == "__main__":
+    if len(sys.argv) >= 3 and sys.argv[1] == "--extract-native":
+        emit_native(Path(sys.argv[2]))
+        print("B86_EXTRACTED_PRODUCTION_POLICY_READY")
+    else:
+        unittest.main()
