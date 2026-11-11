@@ -89,9 +89,11 @@ class B88PickupOwner(unittest.TestCase):
         i = s.index("bool SaveGuestProgress(std::span<const s32> flags) {")
         j = s.index("\n}", i) + 2
         body = s[i:j]
-        self.assertIn('if (!existing.empty())', body)
-        self.assertIn('return false; // legacy/unbound journal', body)
-        self.assertLess(body.index("if (!existing.empty())"),
+        self.assertIn('if (file.bad() || !existing.empty())', body)
+        self.assertIn('return false; // unreadable or legacy/unbound journal', body)
+        self.assertIn('if (existed && !file.is_open())', body)
+        self.assertIn('std::filesystem::exists(progress_file, check_error)', body)
+        self.assertLess(body.index("if (file.bad() || !existing.empty())"),
                         body.index("ReplaceGuestMetadataFile(GuestPickupOwnerFile(), active"))
         self.assertIn("PickupOwnerNameMatches(recorded, active)", body)
         self.assertIn('ReplaceGuestMetadataFile(GuestProgressFile(), FormatFlagList(flags))', body)
