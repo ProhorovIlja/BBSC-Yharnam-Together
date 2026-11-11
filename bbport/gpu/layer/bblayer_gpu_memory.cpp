@@ -20,6 +20,11 @@ void GpuMemory::SetBlockShift(std::uint32_t shift) {
 
 void GpuMemory::AddGuestSource(std::uint64_t phys, std::uint64_t size, VkBuffer buffer,
                                VkDeviceAddress device_address, void* owner) {
+    // B90: reject a source with an impossible wrapped physical endpoint.
+    // Such an entry could make a GPU buffer offset appear in the wrong chunk.
+    if (size == 0 || !AddressRangeFits(phys, size)) {
+        return;
+    }
     std::scoped_lock lk{write_mutex};
     const auto* old = guest_sources.load(std::memory_order_acquire);
     auto* list = old ? new std::vector<MemorySource*>(*old) : new std::vector<MemorySource*>();
@@ -112,6 +117,9 @@ Resolution GpuMemory::Resolve(std::uint64_t va, std::uint64_t size) const {
 
 void GpuMemory::AddMirror(std::uint64_t start, std::uint64_t size, VkBuffer buffer,
                           VkDeviceAddress device_address, void* owner) {
+    if (size == 0 || !AddressRangeFits(start, size)) {
+        return;
+    }
     std::unique_lock lk{mirror_mutex};
     mirrors[start] = MemorySource{MemorySource::Kind::Mirror, start, size, buffer, device_address,
                                   owner};
