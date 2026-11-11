@@ -1,0 +1,116 @@
+name: Ultimate B82 O(1) reliable resend membership without game packet loss
+on:
+  pull_request:
+    paths:
+      - 'server/coop/game_link.h'
+      - 'server/tests/test_game_link_resend.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_game_link.cpp'
+      - '.github/workflows/ultimate-batch-82-game-link-resend.yml'
+      - 'docs/ULTIMATE_BATCH_82.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify same native packet set, resend limits and O(1) membership
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h=Path('server/coop/game_link.h').read_text(encoding='utf8')
+          f=h.split('std::vector<GameFrame> Flush(s64 now_ms) {',1)[1].split('// A frame from the member:',1)[0]
+          tests=Path('server/tests/test_game_link_resend.cpp').read_text(encoding='utf8')
+          gtest=Path('emulator/tests/bloodborne/test_bloodborne_game_link.cpp').read_text(encoding='utf8')
+          assert '#include <unordered_set>' in h
+          assert 'std::unordered_set<u32> emitted_reliable;' in f
+          assert 'bool emitted_indexed = false;' in f
+          assert 'if (!emitted_indexed)' in f
+          assert 'emitted_reliable.insert(sent.seq);' in f
+          assert 'emitted_reliable.insert(seq).second' in f
+          assert f.index('if (now_ms - out.sent_ms < out.wait_ms)') < f.index('if (!emitted_indexed)')
+          assert f.index('if (!emitted_indexed)') < f.index('emitted_reliable.insert(seq).second')
+          assert 'std::ranges::none_of(entries' not in f
+          assert 'entries.push_back({out.packet_class, out.seq, out.packet});' in f
+          assert 'fresh.clear();' in f
+          assert 'settings.max_resends' in f and 'settings.quiet_ms' in f
+          assert 'out.wait_ms = (std::min)(out.wait_ms * 2, settings.max_resend_ms)' in f
+          assert 'if (out.packet_class == PacketClass::Unreliable' not in f
+          assert 'IsNativeGamePacket' not in h
+          assert 'EveryEnemyUnreliablePacketIsPreserved' in tests
+          assert 'FreshPacketsNotRepeatedEvenWithZeroResendDelay' in tests
+          assert 'IndependentTwoThreeFiveMemberStreams' in tests
+          assert 'SameChannelUnreliablePacketsAreNotCoalescedAcrossEnemies' in gtest
+          assert 'FreshReliableBacklogAndOldResendsNeverDuplicateOrReorder' in gtest
+          doc=Path('docs/ULTIMATE_BATCH_82.md').read_text(encoding='utf8').lower()
+          assert 'no measured latency reduction' in doc
+          print('B82_SHARED_GAME_LINK_PACKET_BEHAVIOR_CONTRACT_PASS')
+          PY
+  actual-shared-client-server-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and run production GameLinkPeer with GCC and Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+              -I server server/tests/test_game_link_resend.cpp -o "/tmp/b82-${cxx}"
+            timeout 30s "/tmp/b82-${cxx}"
+          done
+  actual-shared-client-server-msvc:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile and run production GameLinkPeer with MSVC
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iserver server/tests/test_game_link_resend.cpp /Fe:"${{ runner.temp }}\b82.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b82.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  actual-game-existing-gtest-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install GTest dev headers
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgtest-dev
+      - name: Syntax compile real emulator GameLink GTest containing loss and rejoin cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -fsyntax-only -Wall -Wextra \
+              -I emulator/src -I server emulator/tests/bloodborne/test_bloodborne_game_link.cpp
+          done
+          g++ -std=c++23 -O1 -pthread -I emulator/src -I server \
+            emulator/tests/bloodborne/test_bloodborne_game_link.cpp \
+            -lgtest_main -lgtest -o /tmp/b82-game-link-tests
+          timeout 90s /tmp/b82-game-link-tests --gtest_filter='GameLink.*' --gtest_color=no
+      - name: No production server or real game touched
+        shell: bash
+        run: echo B82_REAL_CPP_TESTS_ONLY_NO_FORNEX_NO_SAVES_NO_DEPLOY
