@@ -46,14 +46,23 @@ class PhantomReturnReadiness(unittest.TestCase):
         # Rejoin guard must run BEFORE throttle and BEFORE any mutation of
         # last_look, first_look or phantom_list for a new guest list.
         phantom_branch = fn.split("if (ReadValue<s32>(player, 0x78) == PhantomType)", 1)[1]
-        self.assertIn("if (!return_attempt.MayUpdatePhantomSnapshot())", phantom_branch)
+        self.assertIn("subsequent_tracking || !return_attempt.MayUpdatePhantomSnapshot()", phantom_branch)
+        self.assertIn("subsequent_phantom_debt.LookAtPhantom(list, seen)", phantom_branch)
         self.assertIn("reported_pending_rejoin_list", phantom_branch)
-        self.assertLess(phantom_branch.index("MayUpdatePhantomSnapshot"),
+        self.assertLess(phantom_branch.index("subsequent_phantom_debt.LookAtPhantom"),
                         phantom_branch.index("last_look = HeldKeyGoods();"))
         self.assertLess(phantom_branch.index("MayUpdatePhantomSnapshot"),
                         phantom_branch.index("phantom_list = list;"))
         self.assertLess(phantom_branch.index("return;\n        }"),
                         phantom_branch.index("last_look = HeldKeyGoods();"))
+        self.assertIn("subsequent_phantom_debt.LookAtOwn(list, home)", fn)
+        self.assertIn("if (!subsequent_missing) return;", fn)
+        self.assertIn("subsequent_phantom_debt.GaveBack();", fn)
+        self.assertIn("return_attempt.MarkRequested(); // before every native void grant", fn)
+        self.assertLess(fn.index("return_attempt.MarkRequested(); // before every native void grant"),
+                        fn.index("for (const HeldGoods& held : *subsequent_missing)"))
+        self.assertIn("subsequent_phantom_debt.Load({});", fn)
+        self.assertNotIn("CreateNewRevision(", fn)
         self.assertNotIn("gave back {} x goods {}", transition)
 
     def test_compiled_actual_native_give_readiness_fails_closed(self):

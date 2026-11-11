@@ -1646,12 +1646,20 @@ void GiveBackPhantomKeyItems() {
     // B75: a void-return item grant MUST NOT be retried blindly. Only a
     // subsequent own-inventory observation can retire this in-memory debt.
     static BloodborneCoop::PhantomReturnAttemptGate return_attempt;
+    // B77: shadow the next and subsequent phantom lists while a prior native
+    // grant lacks an own-inventory receipt. This reuses the tested upstream
+    // PhantomKeyItemLedger, never rewrites the old pending snapshot and never
+    // writes a save. It is a SECOND, independent in-process grant lane.
+    static PhantomKeyItemLedger subsequent_phantom_debt;
+    static bool subsequent_tracking = false;
     static u64 reported_pending_rejoin_list = 0;
     const int current_slot = character_slot.load(std::memory_order_relaxed);
     const u64 current_generation =
         deferred_reward_character_generation.load(std::memory_order_relaxed);
     if (inventory_scope.Observe(current_slot, current_generation)) {
         return_attempt.Reset(); // never carry an attempted grant to another hunter
+        subsequent_phantom_debt.Load({});
+        subsequent_tracking = false;
         reported_pending_rejoin_list = 0;
         phantom_list = 0;
         first_look.clear();
@@ -1671,17 +1679,28 @@ void GiveBackPhantomKeyItems() {
         return; // loading: neither phantom nor own list can be trusted yet
     }
     if (ReadValue<s32>(player, 0x78) == PhantomType) {
-        // B76: when the prior guest's native GiveItems returned void, a
-        // rejoin can introduce a new phantom inventory before the home
-        // inventory has shown the previous goods. Do NOT overwrite the
-        // first/last observations or the pointer of that unresolved grant.
-        // We deliberately fail closed instead of silently losing a badge.
-        if (!return_attempt.MayUpdatePhantomSnapshot()) {
+        // B77: old pending receipt and new phantom sessions are TWO different
+        // observations. Keep the first snapshot untouched while the secondary
+        // pure ledger tracks newly earned goods over any number of re-joins.
+        // No new native grant happens inside this branch.
+        if (subsequent_tracking || !return_attempt.MayUpdatePhantomSnapshot()) {
+            const s64 now_ms = SteadyMilliseconds();
+            if (now_ms - looked_ms < 250) return;
+            looked_ms = now_ms;
+            const std::vector<HeldGoods> seen = HeldKeyGoods();
+            if (seen.size() > 256) {
+                LOG_ERROR(Debug,
+                          "Bloodborne party: refusing an oversized phantom key list; "
+                          "pending return and subsequent debt remain unresolved");
+                return;
+            }
+            subsequent_tracking = true;
+            (void)subsequent_phantom_debt.LookAtPhantom(list, seen);
             if (list != phantom_list && list != reported_pending_rejoin_list) {
                 reported_pending_rejoin_list = list;
                 LOG_WARNING(Debug,
-                            "Bloodborne party: preserving unconfirmed phantom key item return "
-                            "during a new phantom-list transition; no automatic second grant");
+                            "Bloodborne party: separately tracking new phantom key debt "
+                            "while an earlier native return awaits a home-inventory receipt");
             }
             return;
         }
@@ -1706,7 +1725,51 @@ void GiveBackPhantomKeyItems() {
         }
         return;
     }
-    if (phantom_list == 0 || list == phantom_list) {
+    // B77: the secondary ledger distinguishes the *new phantom's* list
+    // from a true home list. Never acknowledge the old pending native grant
+    // against a transient phantom inventory (even if character type changed).
+    std::optional<std::vector<HeldGoods>> subsequent_missing;
+    if (subsequent_tracking) {
+        const std::vector<HeldGoods> home = HeldKeyGoods();
+        subsequent_missing = subsequent_phantom_debt.LookAtOwn(list, home);
+        if (!subsequent_missing) return; // still a phantom list during unload
+    }
+    if (phantom_list == 0) {
+        if (subsequent_tracking) {
+            // The original grant was observed in the home inventory; new
+            // phantom gains have their own independent one-shot receipt.
+            // Never grant an over-cap or still-ambiguous batch twice.
+            if (subsequent_phantom_debt.Owed().size() > 256 ||
+                subsequent_missing->size() > 256) {
+                return; // strict offline ledger record cap; fail closed
+            }
+            if (return_attempt.ObservedInOwnInventory(subsequent_missing->size())) {
+                subsequent_phantom_debt.GaveBack();
+                subsequent_tracking = false;
+                return;
+            }
+            if (!return_attempt.MayRequest(subsequent_missing->size(),
+                                           TradeItemsReadyToGive())) {
+                return;
+            }
+            return_attempt.MarkRequested(); // before every native void grant
+            for (const HeldGoods& held : *subsequent_missing) {
+                const TradeItem item{BloodborneCoop::TradeItemKind::Goods, held.goods,
+                                     static_cast<u32>(held.count)};
+                AddTradeItems(std::span{&item, 1}, ItemPopup::Silent);
+                LOG_INFO(Debug, "Bloodborne party: requested subsequent phantom return {} x goods {}; "
+                         "awaiting own-inventory observation", held.count, held.goods);
+            }
+            return;
+        }
+        if (const s64 now_ms = SteadyMilliseconds(); now_ms - looked_ms >= 250) {
+            looked_ms = now_ms;
+            own_look = HeldKeyGoods();
+        }
+        return;
+    }
+    if (list == phantom_list) {
+        // No native grant into a still-active first phantom list.
         if (const s64 now_ms = SteadyMilliseconds(); now_ms - looked_ms >= 250) {
             looked_ms = now_ms;
             own_look = HeldKeyGoods();

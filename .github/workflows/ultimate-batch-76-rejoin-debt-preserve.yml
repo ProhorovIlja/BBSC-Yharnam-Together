@@ -36,11 +36,13 @@ jobs:
           tst=Path('emulator/tests/bloodborne/test_phantom_inventory_scope.cpp').read_text(encoding='utf8')
           fn=game.split('void GiveBackPhantomKeyItems() {',1)[1].split('// See LampsToRelight',1)[0]
           p=fn.split('if (ReadValue<s32>(player, 0x78) == PhantomType) {',1)[1].split('if (phantom_list == 0 || list == phantom_list)',1)[0]
-          assert p.index('if (!return_attempt.MayUpdatePhantomSnapshot())') < p.index('last_look = HeldKeyGoods()')
+          assert p.index('if (subsequent_tracking || !return_attempt.MayUpdatePhantomSnapshot())') < p.index('last_look = HeldKeyGoods()')
           assert p.index('return;\n        }') < p.index('last_look = HeldKeyGoods()')
           assert p.index('return;\n        }') < p.index('phantom_list = list;')
           assert p.index('MayUpdatePhantomSnapshot()') < p.index('first_look = last_look;')
           assert 'reported_pending_rejoin_list = list;' in p
+          assert 'subsequent_phantom_debt.LookAtPhantom(list, seen)' in p
+          assert p.index('subsequent_phantom_debt.LookAtPhantom(list, seen)') < p.index('last_look = HeldKeyGoods()')
           assert fn.index('return_attempt.Reset(); // never carry an attempted grant') < fn.index('KeyItemList()')
           assert fn.count('\n        reported_pending_rejoin_list = 0;') == 2
           assert 'return !requested_;' in hdr
