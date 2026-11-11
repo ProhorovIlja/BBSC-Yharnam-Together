@@ -861,6 +861,45 @@ TEST(PhantomKeyItems, APhantomsListAfterAnotherKeepsWhatIsOwed) {
 
 // While the guest is no phantom any more but its list is still the phantom's, nothing is given
 // (the game would drop it with that list); the same run's trip home gives as before.
+// B81: native reload switches character type before the inventory list
+// pointer. The phantom list is NOT a valid observation of the hunter's own
+// items. A speculative LookAtOwn with that pointer must not poison
+// own_look, even if its item IDs resemble legitimate key goods.
+TEST(PhantomKeyItems, StillPhantomListDoesNotReplaceConfirmedHomeInventory) {
+    PhantomKeyItemLedger ledger;
+    EXPECT_TRUE(ledger.LookAtOwn(0x1000, {{4114, 1}})->empty());
+    // New phantom already has 4000 from its world; hunter has 4114.
+    EXPECT_EQ(ledger.LookAtPhantom(0x2000, {{4000, 1}}),
+              (std::vector<HeldGoods>{{4114, 1}}));
+    // Game marks the player home before swapping the key inventory pointer.
+    // This must NOT commit 4000 to the hunter's home observation.
+    EXPECT_EQ(ledger.LookAtOwn(0x2000, {{4000, 1}}), std::nullopt);
+    EXPECT_EQ(ledger.LookAtOwn(0x2000, {{4000, 1}}), std::nullopt);
+    EXPECT_TRUE(ledger.Owed().empty()); // 4000 was already in the guest world
+    // A second phantom appears without a valid home-list transition.
+    EXPECT_EQ(ledger.LookAtPhantom(0x3000, {}),
+              (std::vector<HeldGoods>{{4114, 1}}));
+    // No stale 4000 and no dropped 4114.
+    EXPECT_TRUE(ledger.LookAtPhantom(0x3000, {{4114, 1}}).empty());
+    EXPECT_TRUE(ledger.Owed().empty());
+    const auto home = ledger.LookAtOwn(0x4000, {{4114, 1}});
+    ASSERT_TRUE(home.has_value());
+    EXPECT_TRUE(home->empty());
+}
+
+// B81: after the true home list arrives, updating own_look is permitted.
+TEST(PhantomKeyItems, TrueHomeListMayRefreshOwnInventoryAfterPhantomReload) {
+    PhantomKeyItemLedger ledger;
+    EXPECT_TRUE(ledger.LookAtOwn(0x1000, {{4114, 1}})->empty());
+    (void)ledger.LookAtPhantom(0x2000, {{4000, 1}});
+    EXPECT_EQ(ledger.LookAtOwn(0x2000, {{4000, 1}}), std::nullopt);
+    auto real_home = ledger.LookAtOwn(0x3000, {{4114, 1}, {4103, 1}});
+    ASSERT_TRUE(real_home);
+    EXPECT_TRUE(real_home->empty());
+    EXPECT_EQ(ledger.LookAtPhantom(0x4000, {}),
+              (std::vector<HeldGoods>{{4114, 1}, {4103, 1}}));
+}
+
 TEST(PhantomKeyItems, NothingIsGivenIntoThePhantomsList) {
     PhantomKeyItemLedger ledger;
     EXPECT_TRUE(ledger.LookAtPhantom(0x2000, {}).empty());
