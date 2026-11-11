@@ -26,6 +26,27 @@ namespace BloodborneCoop {
     return missing_items == 0 || native_give_ready;
 }
 
+// B75: a native GiveItems call has a void return and can be asynchronous.
+// Record ONE attempt until a later read of the hunter's own inventory
+// observes no missing key goods. Never auto-repeat an ambiguous grant: the
+// first call may have succeeded, and a second could duplicate a reward.
+// This is process-local protection, not an on-disk save acknowledgement.
+class PhantomReturnAttemptGate {
+public:
+    void Reset() noexcept { requested_ = false; }
+    void MarkRequested() noexcept { requested_ = true; }
+    [[nodiscard]] bool Requested() const noexcept { return requested_; }
+    [[nodiscard]] bool MayRequest(std::size_t missing_items, bool native_ready) const noexcept {
+        return missing_items != 0 && native_ready && !requested_;
+    }
+    [[nodiscard]] bool ObservedInOwnInventory(std::size_t missing_items) const noexcept {
+        return missing_items == 0;
+    }
+
+private:
+    bool requested_ = false;
+};
+
 class PhantomInventoryScope {
 public:
     [[nodiscard]] bool Observe(int slot, std::uint64_t generation) noexcept {
