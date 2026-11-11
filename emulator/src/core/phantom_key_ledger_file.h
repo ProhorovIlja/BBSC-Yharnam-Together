@@ -12,7 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <istream>
-#include <iterator>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
