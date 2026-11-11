@@ -5,6 +5,7 @@
 // character generation and save slot that created them. This guard does not
 // access a real save, session or network. The returned "changed" signal
 // directs the real game hook to clear its cached observations immediately.
+#include <cstddef>
 #include <cstdint>
 
 namespace BloodborneCoop {
@@ -15,6 +16,14 @@ namespace BloodborneCoop {
 [[nodiscard]] inline constexpr bool ValidSaveCharacterScope(
     int slot, std::uint64_t generation) noexcept {
     return slot >= 0 && slot < 10 && generation != 0;
+}
+
+// At an own-list transition, never forget earned phantom items while the
+// game's item grant path is unready. Zero owed items can retire without a
+// grant. A ready native call is NOT proof of durable save acknowledgement.
+[[nodiscard]] inline constexpr bool PhantomReturnMayRetireSnapshot(
+    std::size_t missing_items, bool native_give_ready) noexcept {
+    return missing_items == 0 || native_give_ready;
 }
 
 class PhantomInventoryScope {
