@@ -79,18 +79,34 @@ public:
         return last_.size() + buckets_.size();
     }
 
+    // B89: observability for regression/benchmark checks: a bounded stale
+    // sweep must NOT run once for every event on a large active map.
+    std::size_t Sweeps() const {
+        return sweeps_;
+    }
+
 private:
     struct Bucket {
         double tokens;
         Clock::time_point last;
     };
 
-    // Objects not seen for 5 s are gone (a map left, a member out): forgotten once the table
-    // holds more than a few hundred.
+    // B89: while hundreds of objects/events are active, a full O(n)
+    // unordered_map sweep on EVERY Allow/AllowRate is a CPU hot path:
+    // 600 events can scan 600 entries hundreds of times per game frame.
+    // Amortize the same >5s stale cleanup to at most once every 250ms,
+    // preserving the existing per-key packet pacing and purge semantics.
     void Forget(Clock::time_point now) {
         if (last_.size() + buckets_.size() < 512) {
             return;
         }
+        constexpr auto SweepInterval = std::chrono::milliseconds{250};
+        if (last_sweep_ != Clock::time_point{} && now >= last_sweep_ &&
+            now - last_sweep_ < SweepInterval) {
+            return;
+        }
+        last_sweep_ = now;
+        ++sweeps_;
         std::erase_if(last_, [now](const auto& entry) {
             return now - entry.second > std::chrono::seconds{5};
         });
@@ -99,6 +115,8 @@ private:
         });
     }
 
+    Clock::time_point last_sweep_{};
+    std::size_t sweeps_ = 0;
     std::unordered_map<u64, Clock::time_point> last_;
     std::unordered_map<u64, Bucket> buckets_;
 };

@@ -3,6 +3,30 @@
 
 namespace BbCp {
 
+// B89: the PM4 stream's header can be internally self-consistent while the
+// command's payload is missing mandatory dwords. Packet::Word() deliberately
+// returns 0 for absent words; allowing an undersized draw to reach Vulkan can
+// therefore turn a truncated draw into a plausible, but WRONG, GPU command.
+// Check the operations this decoder actually interprets BEFORE applying any
+// registers, notifying the sink, or following an indirect buffer.
+// The common valid path is a small switch, without allocation or GPU sync.
+constexpr u32 MinimumDecodedBodyWords(Op op) {
+    switch (op) {
+    case Op::DrawIndex2:        return 5;
+    case Op::DrawIndexOffset2:  return 4;
+    case Op::DrawIndexAuto:     return 2;
+    case Op::IndexBase:         return 2;
+    case Op::DispatchDirect:    return 4;
+    case Op::DispatchIndirect:  return 2;
+    case Op::IndirectBuffer:    return 3;
+    case Op::CondExec:          return 3;
+    // All other type-3 packets have at least one word by the PM4 header
+    // encoding. Some variable-length instructions are delegated to the sink:
+    // do not impose guessed constraints on instructions we do not interpret.
+    default:                   return 1;
+    }
+}
+
 bool Decoder::ApplyRegisters(const Packet& packet) {
     const auto& body = packet.body;
     std::array<RegisterWrite, 5> writes;
@@ -132,6 +156,14 @@ const Packet* Cursor::Next() {
         if (words + 1 > level.rest.size()) {
             ++stats.bad;
             sink.OnBadPacket(level.rest, "packet past the end of its buffer", level.depth);
+            levels.clear();
+            return nullptr;
+        }
+        if (words < MinimumDecodedBodyWords(header.Opcode())) {
+            // Do not turn an incomplete draw/dispatch/indirect command into
+            // a real render submission with Packet::Word's fallback zeroes.
+            ++stats.bad;
+            sink.OnBadPacket(level.rest, "PM4 command body too short", level.depth);
             levels.clear();
             return nullptr;
         }

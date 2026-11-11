@@ -158,6 +158,56 @@ void MalformedBuffers() {
     assert(decoder.Registers()[Bank::Context + 0x10] == 0);
 }
 
+// B89: an internally complete Type-3 packet can still be missing mandatory
+// opcode operands. Never apply its register writes, emit a phantom draw or
+// dispatch, follow an invalid indirect buffer, or invoke the GPU sink. Test
+// the same *actual* decoder used by the graphics runtime and by the cursor.
+void MalformedDrawAndDispatchOperands() {
+    struct Case {
+        Op opcode;
+        std::vector<u32> short_body;
+    };
+    const std::vector<Case> cases{
+        {Op::DrawIndex2, {1, 2, 3, 4}},
+        {Op::DrawIndexOffset2, {1, 2, 3}},
+        {Op::DrawIndexAuto, {7}},
+        {Op::IndexBase, {123}},
+        {Op::DispatchDirect, {1, 2, 3}},
+        {Op::DispatchIndirect, {1}},
+        {Op::IndirectBuffer, {0x1000, 0}},
+        {Op::CondExec, {0x1000, 0}},
+    };
+    for (const auto& item : cases) {
+        Decoder decoder;
+        Recorder sink;
+        decoder.Registers().Write(Reg::VgtNumIndices, 901);
+        decoder.Registers().Write(Reg::VgtDmaBase, 902);
+        // Correct draw after the malformed packet must not execute, either.
+        Stream stream;
+        stream.Packet(item.opcode, item.short_body)
+              .Packet(Op::DrawIndexAuto, {42, 1});
+        decoder.Decode(stream.words, sink);
+        assert(decoder.Stats().bad == 1);
+        assert(decoder.Stats().draws == 0 && decoder.Stats().dispatches == 0);
+        assert(decoder.Stats().indirect_buffers == 0);
+        assert(decoder.Stats().packets == 0 &&
+               decoder.Stats().register_packets == 0);
+        assert(decoder.Registers()[Reg::VgtNumIndices] == 901);
+        assert(decoder.Registers()[Reg::VgtDmaBase] == 902);
+        assert(sink.events ==
+               (std::vector<std::string>{"bad PM4 command body too short depth 0"}));
+
+        Decoder cursor_decoder;
+        Recorder cursor_sink;
+        Cursor cursor{cursor_decoder, stream.words, cursor_sink};
+        assert(cursor.Next() == nullptr);
+        assert(cursor_decoder.Stats().bad == 1 &&
+               cursor_decoder.Stats().packets == 0);
+        assert(cursor_sink.events.size() == 1 &&
+               cursor_sink.events.front() == "bad PM4 command body too short depth 0");
+    }
+}
+
 void CursorObserverAndOwnerStorage() {
     struct Observer : RegisterObserver {
         std::vector<RegisterWrite> writes;
@@ -218,6 +268,7 @@ int main() {
     PartialWritesClearStateAndEvents();
     ConditionalExecution();
     MalformedBuffers();
+    MalformedDrawAndDispatchOperands();
     CursorObserverAndOwnerStorage();
     std::puts("PASS: cp decoder: registers, draws, dispatches, indirect buffers, COND_EXEC, "
               "malformed buffers, cursor, observer");
