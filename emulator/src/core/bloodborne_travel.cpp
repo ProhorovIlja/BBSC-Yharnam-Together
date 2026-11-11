@@ -1683,7 +1683,15 @@ void GiveBackPhantomKeyItems() {
         // observations. Keep the first snapshot untouched while the secondary
         // pure ledger tracks newly earned goods over any number of re-joins.
         // No new native grant happens inside this branch.
-        if (subsequent_tracking || !return_attempt.MayUpdatePhantomSnapshot()) {
+        // B80: B77 only switched to the secondary ledger AFTER a native
+        // grant had been attempted. A guest can rejoin straight into another
+        // phantom inventory without visiting their home first. Preserve
+        // earned items from the first phantom even before any grant call.
+        const bool first_has_gains = phantom_list != 0 && list != phantom_list &&
+            !PhantomKeyItemsGained(first_look, last_look).empty();
+        if (BloodborneCoop::PreserveFirstPhantomOnRejoin(
+                subsequent_tracking, return_attempt.Requested(),
+                phantom_list != 0, list != phantom_list, first_has_gains)) {
             const s64 now_ms = SteadyMilliseconds();
             if (now_ms - looked_ms < 250) return;
             looked_ms = now_ms;
@@ -1699,8 +1707,8 @@ void GiveBackPhantomKeyItems() {
             if (list != phantom_list && list != reported_pending_rejoin_list) {
                 reported_pending_rejoin_list = list;
                 LOG_WARNING(Debug,
-                            "Bloodborne party: separately tracking new phantom key debt "
-                            "while an earlier native return awaits a home-inventory receipt");
+                            "Bloodborne party: tracking new phantom key debt separately "
+                            "while earlier guest-earned goods remain unresolved");
             }
             return;
         }
@@ -1709,20 +1717,36 @@ void GiveBackPhantomKeyItems() {
             return;
         }
         looked_ms = now_ms;
-        last_look = HeldKeyGoods();
+        const std::vector<HeldGoods> observed = HeldKeyGoods();
+        if (observed.size() > 256) {
+            LOG_ERROR(Debug, "Bloodborne party: refusing oversized new phantom key list");
+            return;
+        }
         if (list != phantom_list) {
+            const std::vector<HeldGoods> own_topups =
+                OwnKeyItemsForPhantom(own_look, observed);
+            // B80: native AddTradeItems returns void and can silently discard
+            // a give if the manager is unavailable during a join's load.
+            // Do not commit the new phantom pointer, first or last snapshot
+            // before the game can actually accept the initial top-up.
+            if (!own_topups.empty() && !TradeItemsReadyToGive()) {
+                return; // retry the new-list observation on a later tick
+            }
             phantom_list = list;
-            first_look = last_look;
-            for (const HeldGoods& held : OwnKeyItemsForPhantom(own_look, last_look)) {
+            first_look = observed;
+            for (const HeldGoods& held : own_topups) {
                 const TradeItem item{BloodborneCoop::TradeItemKind::Goods, held.goods,
                                      static_cast<u32>(held.count)};
                 AddTradeItems(std::span{&item, 1}, ItemPopup::Silent);
                 LOG_INFO(Debug,
-                         "Bloodborne party: {} x goods {} of the guest's own in the phantom's key "
-                         "items",
+                         "Bloodborne party: requested {} x goods {} of the guest's own in the "
+                         "phantom's key items; native void grant is not a receipt",
                          held.count, held.goods);
             }
         }
+        // On an unavailable manager or oversized list, preserve the OLD
+        // original observations for the first guest session.
+        last_look = observed;
         return;
     }
     // B77: the secondary ledger distinguishes the *new phantom's* list
