@@ -103,6 +103,10 @@ jobs:
             "$cxx" -std=c++20 -fsyntax-only -Wall -Wextra \
               -I emulator/src -I server emulator/tests/bloodborne/test_bloodborne_game_link.cpp
           done
+          g++ -std=c++23 -O1 -pthread -I emulator/src -I server \
+            emulator/tests/bloodborne/test_bloodborne_game_link.cpp \
+            -lgtest_main -lgtest -o /tmp/b82-game-link-tests
+          timeout 90s /tmp/b82-game-link-tests --gtest_filter='GameLink.*' --gtest_color=no
       - name: No production server or real game touched
         shell: bash
         run: echo B82_REAL_CPP_TESTS_ONLY_NO_FORNEX_NO_SAVES_NO_DEPLOY
