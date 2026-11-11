@@ -62,6 +62,16 @@ class LiveMultiSessionLedger(unittest.TestCase):
         self.assertIn("reported_pending_rejoin_list = 0;", own)
         self.assertNotIn("CreateNewRevision(", body)  # still OFFLINE on purpose
 
+    def test_live_own_inventory_readback_does_not_accept_phantom_pointer(self):
+        src = TEAM.read_text(encoding="utf-8")
+        method = definition(src, "std::optional<std::vector<HeldGoods>> PhantomKeyItemLedger::LookAtOwn(")
+        self.assertIn("if (phantom_list != 0)", method)
+        self.assertIn("own_look = std::move(held);", method)
+        self.assertLess(method.index("if (phantom_list != 0)"),
+                        method.index("own_look = std::move(held);"))
+        self.assertLess(method.index("return std::nullopt;"),
+                        method.index("own_look = std::move(held);"))
+
     def test_compiled_actual_production_ledger_three_joins_and_late_receipt(self):
         source = TEAM.read_text(encoding="utf-8")
         real = [
@@ -152,18 +162,44 @@ int main() {
     assert(fully_observed && fully_observed->empty());
     second_lane.GaveBack();
     assert(second_lane.Owed().empty());
+    // B81: character type says "home", but KeyItemList is STILL the
+    // phantom's pointer. This is NOT a confirmed home inventory read.
+    PhantomKeyItemLedger reload;
+    const auto own = reload.LookAtOwn(0x1000, {{4114,1}});
+    assert(own && own->empty());
+    assert((reload.LookAtPhantom(0x2000, {{4000,1}}) ==
+            std::vector<HeldGoods>{{4114,1}}));
+    assert(!reload.LookAtOwn(0x2000, {{4000,1}}).has_value());
+    assert(!reload.LookAtOwn(0x2000, {{4000,1}}).has_value());
+    assert(reload.Owed().empty());
+    // Must restore hunter's 4114, not the foreign 4000.
+    assert((reload.LookAtPhantom(0x3000, {}) ==
+            std::vector<HeldGoods>{{4114,1}}));
+    const auto true_home = reload.LookAtOwn(0x4000, {{4114,1},{4103,1}});
+    assert(true_home && true_home->empty());
+    assert((reload.LookAtPhantom(0x5000, {}) ==
+            std::vector<HeldGoods>{{4114,1},{4103,1}}));
     return 0;
 }
 '''
         fixture = fixture.replace("// EXACT_PRODUCTION_LEDGER", "\n\n".join(real))
         with tempfile.TemporaryDirectory(prefix="bbsc-b77-real-ledger-") as td:
             src = Path(td) / "production_ledger.cpp"
-            exe = Path(td) / "production_ledger"
+            exe = Path(td) / ("production_ledger.exe" if os.name == "nt"
+                              else "production_ledger")
             src.write_text(fixture, encoding="utf-8")
-            result = subprocess.run(
+            # B81: run the extracted ACTUAL production ledger on Windows
+            # MSVC as well as Linux GCC/Clang; no rewritten fake methods.
+            is_msvc = Path(compiler).stem.lower() == "cl"
+            args = (
+                [compiler, "/nologo", "/std:c++20", "/EHsc", "/W4", "/O2",
+                 str(src), "/Fe:" + str(exe)]
+                if is_msvc else
                 [compiler, "-std=c++20", "-O2", "-Wall", "-Wextra",
-                 "-Werror", "-pedantic", str(src), "-o", str(exe)],
-                text=True, capture_output=True, timeout=60,
+                 "-Werror", "-pedantic", str(src), "-o", str(exe)]
+            )
+            result = subprocess.run(
+                args, cwd=td, text=True, capture_output=True, timeout=60,
             )
             self.assertEqual(result.returncode, 0, result.stderr[-3500:])
             run = subprocess.run([str(exe)], text=True,

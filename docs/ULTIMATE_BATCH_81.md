@@ -1,0 +1,22 @@
+# Ultimate B81: never accept a still-phantom inventory as the hunter's own
+
+Date: 2026-11-11. Stacked on [B80 Draft PR #146](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/146), playable Ultimate. Primarily [P0 phantom-earned key item safety #137](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/137); deferred native boss/NPC item-lots [#35](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/35) remain separate.
+
+## Source-confirmed defect
+
+The real production `emulator/src/core/bloodborne_team.cpp::PhantomKeyItemLedger::LookAtOwn` previously performed `own_look = std::move(held)` **before** checking `phantom_list != 0`. In a real guest leaving a world, the player character type can switch to home before `KeyItemList()` is swapped back. The higher-level B77+ live `GiveBackPhantomKeyItems` deliberately calls `subsequent_phantom_debt.LookAtOwn(list, home)` at that transition to reject it if it still points to a phantom list. However the ledger had already overwritten `own_look` with the **guest world's** key goods before returning `nullopt`. A later `LookAtPhantom` (another join without a confirmed true-home list) uses `own_look` for `OwnKeyItemsForPhantom`, and can therefore incorrectly offer foreign/world items while forgetting the hunter's actual badges/tools.
+
+## Exact real code fix
+
+- Move the `if (phantom_list != 0) return std::nullopt;` check before writing `own_look`. This does not change the existing merge of earned phantom debt for an actual different list pointer. Genuine own inventory observations still update `own_look` and compute owed goods.
+- New production GoogleTests simulate: known hunter own `4114`, phantom world initially holding `4000` that the hunter never earned, guest unload with the still-phantom pointer, repeated speculative own reads, subsequent rejoin to new phantom inventory; expect to top up `4114` only, **never `4000`**. A true subsequent home-list observation legitimately refreshes `own_look` with `4114` and `4103`.
+- `tools/re/tests/test_phantom_multisession_ledger.py` extends an **actual production source-extracted** C++20 ledger fixture with the same pointer-staleness and verified true-home transitions. It can now compile and run that actual method implementation on Linux GCC, Linux Clang and Windows MSVC (previously only GCC/Clang); no replicated fake `LookAtOwn` algorithm.
+- Dedicated B81 CI: source contract on Windows/Linux, executable production ledger tests GCC/Clang and MSVC, plus real C++23 game/source translation-unit syntax tests with pinned fmt/spdlog and generated protobuf. Inherited B77/B80 CI still applies to all changes.
+
+## Separate reported old BBSC Bell icon issue — evidence limited
+
+[CLSAMG22/BBSC issue #6](https://github.com/CLSAMG22/BBSC/issues/6) reports Hunt Bell, Kin Bell and Duel Bell displayed without icons, recategorized as Key Items and unusable when loading existing characters in the historical BBSC BBport edition (two independent comments); fresh characters reportedly worked. An earlier [CLSAMG22 release v0.0.1_items](https://github.com/CLSAMG22/BBSC/releases/tag/v0.0.1_items) states "Fixed item not appearing bug(test)" but was **not confirmed** by the issue reporters. The modern [v1.4.0 portable editions](https://github.com/CLSAMG22/BBSC/releases/tag/v1.4.0) package Yharnam Together, not the exact original test build. This B81 fix addresses a genuine co-op ledger bug on phantom/home inventory transition; **it does not prove or claim a fix to the Hunt/Kin/Duel Bell parameter, icon or consumable category definitions**. Requires game parameter assets and existing-character reload validation, not an invented fix.
+
+## Blocking limitations
+
+This is in-process game item observation, **not a disk save acknowledgement**. A native void-return item grant and `TradeItemsReadyToGive()` still cannot prove that the game accepted or persisted goods. B68–B79 immutable disk journal remains offline and not wired to live game/saves, pending durable per-hunter identity, actual disk-save ACK, crash-safe write ordering and no-double-grant reconciliation. No real 2–5 player Windows game rig was run, no performance benchmark or external mod ABI validation. Draft source integration only, not a stable downloadable release, not the separate true no-eboot native Windows executable. Fornex production, real save bytes and private copyright-protected game files not modified.
