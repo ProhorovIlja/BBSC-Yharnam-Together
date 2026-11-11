@@ -42,7 +42,7 @@ jobs:
           assert p.index('MayUpdatePhantomSnapshot()') < p.index('first_look = last_look;')
           assert 'reported_pending_rejoin_list = list;' in p
           assert fn.index('return_attempt.Reset(); // never carry an attempted grant') < fn.index('KeyItemList()')
-          assert fn.count('reported_pending_rejoin_list = 0;') == 2
+          assert fn.count('\\n        reported_pending_rejoin_list = 0;') == 2
           assert 'return !requested_;' in hdr
           assert 'owed_snapshot == std::vector<std::uint32_t>{4114, 4000}' in tst
           assert 'owed_snapshot == std::vector<std::uint32_t>{4110, 4103}' in tst
