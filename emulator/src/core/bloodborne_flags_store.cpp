@@ -885,7 +885,12 @@ void BackUpSlotLists() {
     const std::string stamp =
         fmt::format("{:04}{:02}{:02}-{:02}{:02}{:02}", local.tm_year + 1900, local.tm_mon + 1,
                     local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec);
-    for (const std::string_view list : CharacterSlotFiles) {
+    // B88: archive the owner binding alongside every per-hunter slot list.
+    // The old journal and its owner name must be recoverable together.
+    std::vector<std::string_view> saved_lists{std::begin(CharacterSlotFiles),
+                                               std::end(CharacterSlotFiles)};
+    saved_lists.push_back("pickup_owner");
+    for (const std::string_view list : saved_lists) {
         const std::filesystem::path file = Common::FS::GetUserPath(Common::FS::PathType::UserDir) /
                                            SlotFileName(list, character_slot.load());
         std::error_code error;
