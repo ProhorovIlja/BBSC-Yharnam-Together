@@ -4,6 +4,7 @@ on:
     paths:
       - 'bbport/gpu/layer/bblayer_gpu_memory.h'
       - 'bbport/gpu/layer/bblayer_gpu_memory.cpp'
+      - 'bbport/gpu/shadps4/video_core/buffer_cache/buffer_cache_layer.cpp'
       - 'bbport/tests/test_gpu_memory_boundaries.cpp'
       - 'bbport/tests/test_support/vulkan/vulkan_core.h'
       - '.github/workflows/ultimate-batch-90-gpu-range-boundaries.yml'
@@ -38,6 +39,10 @@ jobs:
           assert "size <= mirror.size - (va - mirror.base)" in cpp
           assert "gpu.Resolve(0x10f0, 0x30).kind == Resolution::Kind::Mixed" in test
           assert "gpu.Resolve(max - 4, 10).kind == Resolution::Kind::None" in test
+          layer=Path("bbport/gpu/shadps4/video_core/buffer_cache/buffer_cache_layer.cpp").read_text()
+          func=layer[layer.index("bool BufferCache::LayerMirrored(VAddr addr, u64 size) {"):]
+          assert func.index("!BbLayer::GpuMemory::AddressRangeFits(addr, size)") < func.index("Layer().AnyValid(")
+          assert func.index("!BbLayer::GpuMemory::AddressRangeFits(addr, size)") < func.index("thread_local std::array<Memo, 1024> memo")
           print("B90_REAL_GPU_MEMORY_BOUNDARY_SOURCE_PASS")
           PY
       - name: Linux GCC and Clang compile real Vulkan guest memory module
