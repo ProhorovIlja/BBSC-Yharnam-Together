@@ -112,12 +112,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # shadPS4 pins spdlog v2 as a submodule; Ubuntu's packaged
+          # spdlog 1.x lacks source_loc::basename and other v2 APIs.
+          git submodule update --init --depth 1 -- emulator/externals/spdlog
+          test -f emulator/externals/spdlog/include/spdlog/spdlog.h
           mkdir -p "${RUNNER_TEMP}/b74-proto"
           protoc -I server/coop --cpp_out="${RUNNER_TEMP}/b74-proto" server/coop/coop.proto
           for src in emulator/src/core/bloodborne_trade.cpp \
                      emulator/src/core/bloodborne_travel.cpp; do
             echo "B74_REAL_GAME_SYNTAX $src"
             g++ -std=c++23 -fsyntax-only -Wall -Wextra \
+              -I emulator/externals/spdlog/include \
               -I emulator/src -I server -I "${RUNNER_TEMP}/b74-proto" "$src"
           done
       - name: No game assets or save writes
