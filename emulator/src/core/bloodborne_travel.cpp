@@ -1661,6 +1661,9 @@ void GiveBackPhantomKeyItems() {
         return;
     }
     const u64 list = KeyItemList();
+    if (list == 0) {
+        return; // loading: neither phantom nor own list can be trusted yet
+    }
     if (ReadValue<s32>(player, 0x78) == PhantomType) {
         const s64 now_ms = SteadyMilliseconds();
         if (now_ms - looked_ms < 250) {
@@ -1690,13 +1693,24 @@ void GiveBackPhantomKeyItems() {
         }
         return;
     }
+    const std::vector<HeldGoods> to_return =
+        PhantomKeyItemsToGiveBack(first_look, last_look, HeldKeyGoods());
+    // B74: the native trade helper is void and quietly returns when hooks
+    // are absent; it also drops the give when MapItemMan is absent during
+    // loads. Until BOTH are available, keep the last phantom observations
+    // and retry this transition on a later game-thread tick instead of
+    // erasing the only in-process evidence of earned key items.
+    if (!BloodborneCoop::PhantomReturnMayRetireSnapshot(
+            to_return.size(), to_return.empty() || TradeItemsReadyToGive())) {
+        return;
+    }
     phantom_list = 0;
-    for (const HeldGoods& held : PhantomKeyItemsToGiveBack(first_look, last_look, HeldKeyGoods())) {
+    for (const HeldGoods& held : to_return) {
         const TradeItem item{BloodborneCoop::TradeItemKind::Goods, held.goods,
                              static_cast<u32>(held.count)};
         AddTradeItems(std::span{&item, 1}, ItemPopup::Silent);
         LOG_INFO(Debug,
-                 "Bloodborne party: gave back {} x goods {}: gained as a phantom, dropped by "
+                 "Bloodborne party: requested return of {} x goods {}: gained as a phantom, dropped by "
                  "the game with its key item list",
                  held.count, held.goods);
     }

@@ -1,0 +1,131 @@
+name: Ultimate B74 live phantom return readiness and missing-MapItemMan guard
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_trade.h'
+      - 'emulator/src/core/bloodborne_trade.cpp'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/src/core/phantom_inventory_scope.h'
+      - 'emulator/tests/bloodborne/test_phantom_inventory_scope.cpp'
+      - 'tools/re/tests/test_phantom_return_readiness.py'
+      - '.github/workflows/ultimate-batch-74-phantom-return-readiness.yml'
+      - 'docs/ULTIMATE_BATCH_74.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-native-gate-and-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify production game-thread guards and exact native grant gating
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          trade=Path('emulator/src/core/bloodborne_trade.cpp').read_text(encoding='utf8')
+          travel=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf8')
+          header=Path('emulator/src/core/bloodborne_trade.h').read_text(encoding='utf8')
+          scope=Path('emulator/src/core/phantom_inventory_scope.h').read_text(encoding='utf8')
+          assert 'bool TradeItemsReadyToGive();' in header
+          fn=trade.split('bool TradeItemsReadyToGive() {',1)[1].split('\n}',1)[0]
+          assert fn.index('!trade_sites.load()') < fn.index('ReadValue<u64>')
+          assert 'HasVtable(item_man, MapItemManVtable' in fn
+          assert 'PhantomReturnMayRetireSnapshot(' in scope
+          f=travel.split('void GiveBackPhantomKeyItems() {',1)[1].split('// See LampsToRelight',1)[0]
+          assert 'if (list == 0)' in f
+          r=f.split('const std::vector<HeldGoods> to_return',1)[1]
+          assert r.index('PhantomReturnMayRetireSnapshot(') < r.index('phantom_list = 0;')
+          assert 'TradeItemsReadyToGive()' in r
+          assert 'requested return of' in r
+          assert 'ScanLatest(' not in f and 'CreateNewRevision(' not in f
+          print('B74_REAL_GAME_RETURN_SOURCE_CONTRACT_PASS')
+          PY
+      - name: Compile and run extracted actual production native grant readiness
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tools/re/tests -p 'test_phantom_return_readiness.py' -v
+
+  actual-scope-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC + Clang actual portable production header
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+              -I emulator/src emulator/tests/bloodborne/test_phantom_inventory_scope.cpp \
+              -o "/tmp/b74-${cxx}"
+            timeout 30s "/tmp/b74-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: MSVC actual portable production header
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_inventory_scope.cpp /Fe:"${{ runner.temp }}\b74.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b74.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Scope
+        shell: bash
+        run: echo B74_SOURCE_AND_SYNTHETIC_GAME_ONLY_NO_REAL_SAVES_NO_FORNEX_NO_ACHIEVEMENT_ACK
+  actual-game-trade-and-travel-cpp-compile:
+    # Full translation unit syntax/API verification of the modified live game
+    # implementation. This is not a link, Windows build, nor a game rig.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install source dependencies for actual port core translation units
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libprotobuf-dev libfmt-dev libgtest-dev libspdlog-dev \
+            nlohmann-json3-dev libcpp-httplib-dev libboost-dev
+      - name: Generate actual co-op protobuf and compile changed game sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shadPS4 pins spdlog v2 as a submodule; Ubuntu's packaged
+          # spdlog 1.x lacks source_loc::basename and other v2 APIs.
+          git submodule update --init --depth 1 -- emulator/externals/spdlog emulator/externals/fmt
+          test -f emulator/externals/spdlog/include/spdlog/spdlog.h
+          test -f emulator/externals/fmt/include/fmt/base.h
+          mkdir -p "${RUNNER_TEMP}/b74-proto"
+          protoc -I server/coop --cpp_out="${RUNNER_TEMP}/b74-proto" server/coop/coop.proto
+          for src in emulator/src/core/bloodborne_trade.cpp \
+                     emulator/src/core/bloodborne_travel.cpp; do
+            echo "B74_REAL_GAME_SYNTAX $src"
+            g++ -std=c++23 -fsyntax-only -Wall -Wextra \
+              -I emulator/externals/fmt/include -I emulator/externals/spdlog/include \
+              -I emulator/src -I server -I "${RUNNER_TEMP}/b74-proto" "$src"
+          done
+      - name: No game assets or save writes
+        shell: bash
+        run: echo B74_ACTUAL_GAME_CPP_SYNTAX_ONLY_NOT_LINKED_OR_PLAYTESTED
