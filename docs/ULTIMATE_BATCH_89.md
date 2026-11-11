@@ -14,6 +14,14 @@ Date: 2026-11-11. Stacked on B88 [Draft #155](https://github.com/ProhorovIlja/BB
 
 Dedicated CI compiles and **runs this production CP decoder** with actual unit tests on GCC, Clang and Windows MSVC. Compiling a test is not proof of fixes to renderer/Vulkan/shader cache in-game, frame-time improvements, or actual vertex artifacts.
 
+## B89 additional actual network-client CPU hot-path optimization
+
+In the same accumulated B89 batch, verified a second source defect in `emulator/src/core/bloodborne_send_pace.h::SendPace::Forget`: once `last_.size()+buckets_.size() >= 512`, **every** player-state/event packet pace query previously ran `std::erase_if` over **both entire unordered maps**. This is `O(active_keys)` for each query; an unlocked-FPS team with hundreds of active events can repeat full sweeps unnecessarily on every outgoing packet. It does not change the wire format, reliable ordering, native lot data or game's gameplay speed.
+
+B89 now amortizes stale-entry sweeps to **at most once each 250 ms** while the table remains large, preserving the existing 5-second expiry and the same `Allow`/`AllowRate` individual send-rate/early-frame decisions. `Sweeps()` reports the actual number of full-table purges for deterministic testing. New actual source tests `emulator/tests/bloodborne/test_bloodborne_send_pace.cpp` and lightweight `bbport/tests/test_send_pace_hot_path.cpp` cover **600–800 active keys, 2000 repeated lookups, scan throttling, genuine packet pacing and subsequent stale cleanup**. Dedicated CI executes the real production `SendPace` header with GCC/Clang/MSVC and **all original+new emulator GoogleTests** (alongside PM4 graphics tests), not a toy copy.
+
+**Validation:** [B89 combined CI run 43025112946](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/43025112946) was **SUCCESS 3/3** on commit `595e066ae84c71fcb4138c41e63da1ef115e9103`. This confirms functional regression and bounded cleanup count, **not** measured server CPU or per-hunter RTT reduction. The optimization is on **the client's game packet preparation**; actual server cost is a separate profiling gate.
+
 ## Requested broad Ultimate quality and performance constraints
 
 [Cross-project source audit and measurable roadmap](ULTIMATE_PERFORMANCE_GRAPHICS_NETWORK_SOURCE_AUDIT_20261111.md) covers:
