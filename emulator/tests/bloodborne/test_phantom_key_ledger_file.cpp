@@ -155,6 +155,35 @@ int main() {
     assert(ScanLatest(root, 3, new_hunter.character_fingerprint).latest ==
            std::optional{new_hunter});
 
+    // B71: the writer must never publish sequence 32769, because readers
+    // reject histories beyond the bounded 32768-revision bitmap. A writer
+    // that accepted it could permanently block its own character journal.
+    Revision at_limit = first;
+    at_limit.sequence = 32768;
+    assert(Valid(at_limit));
+    assert(!CreateNewRevision(root, at_limit)); // a gap still fails closed
+    Revision beyond_limit = first;
+    beyond_limit.sequence = 32769;
+    assert(!Valid(beyond_limit));
+    assert(!CreateNewRevision(root, beyond_limit));
+    assert(!fs::exists(root / (Name(beyond_limit) + ".pending")));
+    assert(!fs::exists(root / (Name(beyond_limit) + ".ready")));
+    // Even an externally fabricated beyond-cap .ready record blocks reads.
+    const fs::path bound_root = root / "isolated-cap-case";
+    assert(fs::create_directory(bound_root));
+    Revision bounded_first{2, identity, 1, "4114 1 1\n"};
+    assert(CreateNewRevision(bound_root, bounded_first));
+    assert(fs::create_directory(bound_root / (Name(beyond_limit) + ".ready")));
+    {
+        std::ofstream out{bound_root / (Name(beyond_limit) + ".ready") / "ledger.txt",
+                          std::ios::binary};
+        out << Encode(beyond_limit);
+    }
+    assert(ScanLatest(bound_root, 2, identity).status == ScanStatus::Ready);
+    assert(ScanLatest(bound_root, 3, identity).status == ScanStatus::Blocked);
+    assert(!CreateNewRevision(bound_root, Revision{3, identity, 1, "4114 1 1\n"}));
+    assert(!fs::exists(bound_root / ".writer.lock"));
+
     // Refuse invalid item / bell, junk, overlarge, overflow and identity.
     for (const std::string bad : {"200 1 1\n", "4114 0 1\n", "4114 2 1\n",
                                   "4114 1 1", "4114 1 1\njunk\n", "0 1 1\n",

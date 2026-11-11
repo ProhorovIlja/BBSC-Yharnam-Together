@@ -2,6 +2,12 @@
 
 **Updated 2026-11-10. Read this with [the 28-source historical Drive manifest](ULTIMATE_CROSS_CHAT_SOURCE_MANIFEST.md), [prior full bug registry](ULTIMATE_BUG_ISSUE_BACKLOG.md), [external source radar](ULTIMATE_GLOBAL_SOURCE_INTAKE_20261109.md), and [P0 gameplay user report](ULTIMATE_CROSS_CHAT_SOURCE_MANIFEST.md).**
 
+## B71 checkpoint (2026-11-11)
+
+- [Draft PR #136](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/136) on B70 fixes a real writer/reader mismatch: the disk-journal reader refused sequence above 32768 but the writer allowed publication of 32769. Both now use `MaxRevisions`; above-cap append is rejected *before* touching files. Native unit tests cover boundary, failed append and external malformed record. [Technical proof and remaining gates](ULTIMATE_BATCH_71.md).
+- Uploaded current conversation handoff to gungrain@gmail.com `Bloodborne — Seamless Hunt — HANDOFF / 01-HISTORY-MD`: [2026-11-11 history](https://drive.google.com/file/d/1Lro5VfpyTzSaKV4dXZ7foWBHt1xXRWmJ/view?usp=drivesdk). Updated Google Drive B54–B71 journal. B70 cumulative real Windows client build [successful](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/42978376586).
+- Latest scoped source intake: upstream YT PRs #577/#575/#574/#571/#559; visy Windows port 0.8.0 VPN/NAT and party changes; droogie/bbhost. **Candidate** status only; no protocol-blind bulk merge. P0 guest grant persistence #35, host worlds #22, native game/CI and 2–5 player rig still open. B71 dedicated CI not considered passed until observed.
+
 ## Scope and evidence honesty
 
 - The source of the user's instructions is not just this particular ChatGPT turn: there are **28 indexed private history handoffs** in the correct Google Drive authorized private Drive account folder, plus current Project chat context, native port charter and private gameplay research docs. Indexing a file is NOT the same as fully re-reading every message/attachment. A chat that is neither in the supplied context nor archived in accessible Drive/Project files is not accessible and must not be called verified.

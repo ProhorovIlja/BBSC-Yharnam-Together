@@ -19,6 +19,8 @@
 
 namespace BloodborneCoop::PhantomKeyLedgerFile {
 
+inline constexpr std::uint64_t MaxRevisions = 32768;
+
 struct Revision {
     unsigned slot = 0;
     std::string character_fingerprint; // 32 hex ASCII bytes, not a player name
@@ -68,7 +70,8 @@ inline bool CanonicalDebt(std::string_view payload) {
 }
 
 inline bool Valid(const Revision& r) {
-    if (r.slot >= 64 || r.sequence == 0 || r.character_fingerprint.size() != 32 ||
+    if (r.slot >= 64 || r.sequence == 0 || r.sequence > MaxRevisions ||
+        r.character_fingerprint.size() != 32 ||
         !CanonicalDebt(r.debt)) return false;
     return std::all_of(r.character_fingerprint.begin(), r.character_fingerprint.end(),
                        [](unsigned char c) {
@@ -203,7 +206,7 @@ inline ScanResult ScanRevisionsUnlocked(const std::filesystem::path& root, unsig
         // A deleted intermediate revision or a forged massive sequence
         // creates an ambiguous history: NEVER use a stale previously-paid
         // debt or implicitly fill a gap.
-        if (item->sequence == 0 || item->sequence > 32768 || count >= 32768) {
+        if (item->sequence == 0 || item->sequence > MaxRevisions || count >= MaxRevisions) {
             blocked = true;
             break;
         }
