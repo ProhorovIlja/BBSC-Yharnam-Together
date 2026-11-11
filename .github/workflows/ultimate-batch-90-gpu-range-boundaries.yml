@@ -1,0 +1,66 @@
+name: Ultimate B90 Vulkan guest vertex buffer boundary safety
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/layer/bblayer_gpu_memory.h'
+      - 'bbport/gpu/layer/bblayer_gpu_memory.cpp'
+      - 'bbport/tests/test_gpu_memory_boundaries.cpp'
+      - 'bbport/tests/test_support/vulkan/vulkan_core.h'
+      - '.github/workflows/ultimate-batch-90-gpu-range-boundaries.yml'
+      - 'docs/ULTIMATE_BATCH_90.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-gpu-memory-module-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check production path, not synthetic GPU resolver
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          cpp=Path("bbport/gpu/layer/bblayer_gpu_memory.cpp").read_text()
+          h=Path("bbport/gpu/layer/bblayer_gpu_memory.h").read_text()
+          test=Path("bbport/tests/test_gpu_memory_boundaries.cpp").read_text()
+          assert "if (size == 0 || !AddressRangeFits(va, size))" in cpp
+          assert "source->size - (phys - source->base)" in cpp
+          assert "std::min(piece, source->size - (phys - source->base))" in h
+          assert "if (!AddressRangeFits(va, size))" in h
+          assert "size <= mirror.size - (va - mirror.base)" in cpp
+          assert "gpu.Resolve(0x10f0, 0x30).kind == Resolution::Kind::Mixed" in test
+          assert "gpu.Resolve(max - 4, 10).kind == Resolution::Kind::None" in test
+          print("B90_REAL_GPU_MEMORY_BOUNDARY_SOURCE_PASS")
+          PY
+      - name: Linux GCC and Clang compile real Vulkan guest memory module
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -pthread \
+              -I bbport/tests/test_support -I bbport/gpu/layer \
+              bbport/gpu/layer/bblayer_gpu_memory.cpp \
+              bbport/tests/test_gpu_memory_boundaries.cpp \
+              -o "$RUNNER_TEMP/b90-guest-gpu-boundaries"
+            timeout 40s "$RUNNER_TEMP/b90-guest-gpu-boundaries"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC compile real Vulkan guest memory module
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Ibbport\tests\test_support /Ibbport\gpu\layer bbport\gpu\layer\bblayer_gpu_memory.cpp bbport\tests\test_gpu_memory_boundaries.cpp /Fe:"$env:RUNNER_TEMP\b90-guest-gpu-boundaries.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP\b90-guest-gpu-boundaries.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "B90_WINDOWS_GPU_BOUNDARY_PASS"
