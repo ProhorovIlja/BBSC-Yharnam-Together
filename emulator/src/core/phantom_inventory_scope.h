@@ -9,6 +9,14 @@
 
 namespace BloodborneCoop {
 
+// Shared validated runtime owner identity: all retail userdata0000..0009
+// and a nonzero generation are required for BOTH phantom inventories and
+// delayed boss/NPC rewards. A slot alone can belong to a later hunter.
+[[nodiscard]] inline constexpr bool ValidSaveCharacterScope(
+    int slot, std::uint64_t generation) noexcept {
+    return slot >= 0 && slot < 10 && generation != 0;
+}
+
 class PhantomInventoryScope {
 public:
     [[nodiscard]] bool Observe(int slot, std::uint64_t generation) noexcept {
@@ -24,7 +32,7 @@ public:
         // The real Bloodborne save-slot hook uses userdata0000..userdata0009.
         // Unknown / unsupported slots and missing generation MUST NOT
         // inherit any previous hunter's cached phantom inventory state.
-        return slot_ >= 0 && slot_ < 10 && generation_ != 0;
+        return ValidSaveCharacterScope(slot_, generation_);
     }
 
     [[nodiscard]] int Slot() const noexcept { return slot_; }
