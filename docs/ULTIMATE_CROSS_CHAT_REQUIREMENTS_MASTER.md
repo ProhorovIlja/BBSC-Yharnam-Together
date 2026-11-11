@@ -1,5 +1,11 @@
 # BBSC: Yharnam Together Ultimate | Cross-chat canonical requirement ledger
 
+## B85 checkpoint — stale old-local-run frames cannot reset active GameLink (2026-11-11)
+
+- [Draft PR #152](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/152) on B84 corrects a real existing **client/server** `GameLinkPeer::Receive` order-of-operations defect: formerly a changed remote instance called `RestartStreams` **before** rejecting a datagram addressed to the receiver's previous game instance. Delayed old-target frames could discard unacknowledged world head/join-control packets and poison the known peer instance. B85 validates the local target **before** learning or resetting the remote instance, preserving the existing reply and valid-restart protocol. Native C++20 and emulator GTests cover stale-target, ACK loss, pending join, initial handshake, real ACK and later delivery. [B85 technical report](ULTIMATE_BATCH_85.md); [dedicated CI](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/43013039091).
+- The source-only improvement is **not** a verified live-game reconnect or lower ping; existing P0 world progress #22, delayed reward #35 and phantom savedata debt #137 remain unresolved until game-rig/save-ACK validation. Real Fornex, private game data, and saves untouched.
+- A private cumulative engineering log is kept under the gungrain account; public GitHub contains **no private screenshot, Discord transcript or personal Google Drive file ID**. Earlier branch/PR/Drive source census remains at [2026-11-11 B84 global source sweep](ULTIMATE_GLOBAL_SOURCE_SWEEP_20261111_B84.md).
+
 ## B84 checkpoint — exact encoded GameLink frame budget (2026-11-11)
 
 - [Draft PR #151](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/151) stacks on B83 and corrects a real sender-length accounting defect in the **shared Yharnam Together client/server network path**: the splitter assumed a 16-byte sender, but the encoder serializes 0–255 sender bytes. Actual C++ tests cover 0/16/32/255/300 and large entries. [Technical proof](ULTIMATE_BATCH_84.md); [GitHub Actions 3/3 SUCCESS](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/43010114675), Linux GCC/Clang, Windows MSVC and genuine emulator GoogleTests. No claimed RTT improvement or multi-game rig.
