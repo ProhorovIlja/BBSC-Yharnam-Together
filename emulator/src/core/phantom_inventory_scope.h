@@ -36,6 +36,12 @@ public:
     void Reset() noexcept { requested_ = false; }
     void MarkRequested() noexcept { requested_ = true; }
     [[nodiscard]] bool Requested() const noexcept { return requested_; }
+    // B76: a second phantom list may arrive BEFORE the previous void native
+    // grant has been observed in the real hunter's own inventory. It must
+    // never replace the first/last observations for that pending grant.
+    [[nodiscard]] bool MayUpdatePhantomSnapshot() const noexcept {
+        return !requested_;
+    }
     [[nodiscard]] bool MayRequest(std::size_t missing_items, bool native_ready) const noexcept {
         return missing_items != 0 && native_ready && !requested_;
     }
