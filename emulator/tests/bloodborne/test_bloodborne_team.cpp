@@ -754,18 +754,18 @@ TEST(PhantomKeyItems, PendingFirstGrantRetainsNewGainsAcrossThreePhantomLists) {
     (void)secondary.LookAtPhantom(0xC000, {});
     EXPECT_TRUE(secondary.LookAtPhantom(0xC000, {{4103, 1}}).empty());
     EXPECT_EQ(secondary.Owed(),
-              (std::vector<OwedKeyItem>{{4110, 1, 1}, {4000, 1, 1}, {4103, 1, 1}}));
+              (std::vector<OwedKeyItem>{{4103, 1, 1}, {4000, 1, 1}, {4110, 1, 1}}));
     // Character type may have changed before the game's phantom key list
     // was swapped: a same-pointer look must not acknowledge a home inventory.
     EXPECT_EQ(secondary.LookAtOwn(0xC000, {{4103, 1}}), std::nullopt);
     const auto missed = secondary.LookAtOwn(0xD000, {});
     ASSERT_TRUE(missed);
     EXPECT_EQ(*missed,
-              (std::vector<HeldGoods>{{4110, 1}, {4000, 1}, {4103, 1}}));
+              (std::vector<HeldGoods>{{4103, 1}, {4000, 1}, {4110, 1}}));
     // A successful native void-return call has no guaranteed save ACK.
     // The debt remains until a later real own-list observation shows it.
     EXPECT_EQ(secondary.Owed(),
-              (std::vector<OwedKeyItem>{{4110, 1, 1}, {4000, 1, 1}, {4103, 1, 1}}));
+              (std::vector<OwedKeyItem>{{4103, 1, 1}, {4000, 1, 1}, {4110, 1, 1}}));
     const auto now_held = secondary.LookAtOwn(
         0xD000, {{4110, 1}, {4000, 1}, {4103, 1}});
     ASSERT_TRUE(now_held);
