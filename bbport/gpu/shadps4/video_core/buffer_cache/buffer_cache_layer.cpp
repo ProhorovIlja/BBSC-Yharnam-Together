@@ -1593,7 +1593,12 @@ u64 BufferCache::LayerTrapFaults() {
 
 namespace VideoCore {
 bool BufferCache::LayerMirrored(VAddr addr, u64 size) {
-    if (size == 0 || !LayerActive()) {
+    // B90: this frequent renderer query bypasses GpuMemory::Resolve, so it
+    // must enforce the SAME address-space bound before (addr+size-1)
+    // computes the resident mirror block range. A wrapped vertex range
+    // must never match unrelated low blocks or poison the hot-path memo.
+    if (size == 0 || !LayerActive() ||
+        !BbLayer::GpuMemory::AddressRangeFits(addr, size)) {
         return false;
     }
     // Asked for every small binding by two threads: the answer memoized per thread while no
