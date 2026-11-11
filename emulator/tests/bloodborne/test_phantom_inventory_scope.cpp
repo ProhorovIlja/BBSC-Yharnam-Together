@@ -39,6 +39,18 @@ int main() {
     assert(!receipt.MayRequest(1, false));
     assert(!receipt.ObservedInOwnInventory(1));
     assert(receipt.ObservedInOwnInventory(0));
+    // B78: the second phantom return must NOT permanently latch out later
+    // sessions after its home inventory is observed to contain all goods.
+    assert(!receipt.AcknowledgeObservedHome(1));
+    assert(receipt.Requested());
+    assert(receipt.AcknowledgeObservedHome(0));
+    assert(!receipt.Requested());
+    assert(receipt.MayRequest(2, true));
+    receipt.MarkRequested();
+    assert(!receipt.AcknowledgeObservedHome(1));
+    assert(!receipt.MayRequest(2, true));
+    assert(receipt.AcknowledgeObservedHome(0));
+    assert(receipt.MayUpdatePhantomSnapshot());
     receipt.Reset(); // only after an observed home-inventory match / owner switch
     assert(!receipt.Requested());
     assert(receipt.MayUpdatePhantomSnapshot());
