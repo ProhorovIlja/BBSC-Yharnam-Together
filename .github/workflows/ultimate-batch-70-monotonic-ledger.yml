@@ -50,6 +50,37 @@ jobs:
           assert 'bloodborne/test_bloodborne_team.cpp' in Path(
               'emulator/tests/CMakeLists.txt').read_text(encoding='utf-8')
           PY
+  actual-game-team-cpp-compile:
+    # Compile actual B68/B69 core game logic and its GoogleTests, not merely
+    # the portable B70 ledger header. This is a syntax/API check, NOT a full
+    # link, execution, game rig or test suite acceptance result.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install only source-level team dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libprotobuf-dev libfmt-dev libgtest-dev
+      - name: Generate actual shadNet lobby protocol and compile real team sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/b70-proto"
+          protoc -I server/coop --cpp_out="${RUNNER_TEMP}/b70-proto" server/coop/coop.proto
+          for src in emulator/src/core/bloodborne_team.cpp \
+                     emulator/tests/bloodborne/test_bloodborne_team.cpp; do
+            g++ -std=c++23 -fsyntax-only -Wall -Wextra \
+              -I emulator/src -I server -I "${RUNNER_TEMP}/b70-proto" "$src"
+          done
+      - name: Only compilation, no live game or save data
+        shell: bash
+        run: echo B70_GAME_TEAM_CPP_COMPILED_NO_LINK_NO_REAL_USER_SAVES
+
   native-ledger-tests:
     strategy:
       fail-fast: false
