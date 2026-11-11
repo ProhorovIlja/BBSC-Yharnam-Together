@@ -135,6 +135,45 @@ int FreshPacketsNotRepeatedEvenWithZeroResendDelay() {
     return 0;
 }
 
+// B84: the frame-budget calculation must count the sender bytes actually
+// encoded, not assume a fixed 16-byte identifier. All senders carry the same
+// three native packets; none may exceed a budget that can fit one entry.
+int VariableSenderFrameBudgetTracksActualWireEncoding() {
+    for (const size_t sender_length : {size_t{0}, size_t{16}, size_t{32},
+                                       size_t{255}, size_t{300}}) {
+        GameLinkPeer::Settings settings;
+        settings.frame_bytes = sender_length > 200 ? 320 : 96;
+        GameLinkPeer host{std::string(sender_length, 'h'), 1, settings};
+        for (u8 mark = 0; mark < 3; ++mark) {
+            host.Send(PacketClass::Unreliable, Packet(4, mark), 0);
+        }
+        const auto frames = host.Flush(0);
+        CHECK(frames.size() == (sender_length > 16 ? 2u : 1u));
+        size_t total = 0;
+        for (const auto& frame : frames) {
+            const auto wire = EncodeGameFrame(frame);
+            CHECK(wire.size() <= settings.frame_bytes);
+            const auto decoded = DecodeGameFrame(wire);
+            CHECK(decoded.has_value());
+            CHECK(decoded->sender.size() == (std::min)(sender_length, size_t{255}));
+            total += decoded->entries.size();
+        }
+        CHECK(total == 3);
+    }
+    // An individual oversized native packet remains alone, as documented.
+    GameLinkPeer::Settings small;
+    small.frame_bytes = 40;
+    GameLinkPeer host{"a_sender_longer_than_16", 1, small};
+    host.Send(PacketClass::Reliable, std::vector<u8>(250, 7), 0);
+    host.Send(PacketClass::Reliable, Packet(0x42, 8), 0);
+    const auto frames = host.Flush(0);
+    CHECK(frames.size() == 2);
+    CHECK(frames[0].entries.size() == 1);
+    CHECK(frames[1].entries.size() == 1);
+    CHECK(EncodeGameFrame(frames[0]).size() > small.frame_bytes);
+    return 0;
+}
+
 int IndependentTwoThreeFiveMemberStreams() {
     for (int team = 2; team <= 5; ++team) {
         if (team == 4) continue;
@@ -163,6 +202,7 @@ int main() {
     if (FutureAckBeforeFlushDoesNotRetireReliableState()) return 1;
     if (FreshPacketsNotRepeatedEvenWithZeroResendDelay()) return 1;
     if (IndependentTwoThreeFiveMemberStreams()) return 1;
+    if (VariableSenderFrameBudgetTracksActualWireEncoding()) return 1;
     std::cout << "B82_REAL_GAME_LINK_RETRANSMISSION_PASS\n";
     return 0;
 }
