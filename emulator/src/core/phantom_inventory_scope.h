@@ -48,6 +48,14 @@ public:
     [[nodiscard]] bool ObservedInOwnInventory(std::size_t missing_items) const noexcept {
         return missing_items == 0;
     }
+    // B78: a subsequent batch must unlock future co-op grants only after
+    // its own inventory receipt. Never reset merely because GiveItems was
+    // invoked or MapItemMan was available. This is not disk save ACK.
+    [[nodiscard]] bool AcknowledgeObservedHome(std::size_t missing_items) noexcept {
+        if (missing_items != 0) return false;
+        requested_ = false;
+        return true;
+    }
 
 private:
     bool requested_ = false;

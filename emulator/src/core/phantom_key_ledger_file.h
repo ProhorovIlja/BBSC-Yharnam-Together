@@ -89,7 +89,10 @@ inline bool CanonicalDebt(std::string_view payload) {
 }
 
 inline bool Valid(const Revision& r) {
-    if (r.slot >= 64 || r.sequence == 0 || r.sequence > MaxRevisions ||
+    // Match the retail game's ten supported userdata0000..userdata0009
+    // slots. The old offline-only contract accepted 10..63 despite the
+    // live item owner gate rejecting them; never persist invalid owners.
+    if (r.slot >= 10 || r.sequence == 0 || r.sequence > MaxRevisions ||
         r.character_fingerprint.size() != 32 ||
         !CanonicalDebt(r.debt)) return false;
     return std::all_of(r.character_fingerprint.begin(), r.character_fingerprint.end(),
@@ -146,7 +149,7 @@ inline std::optional<Revision> Decode(std::string_view text) {
     const auto nslot = UInt(*slot), nseq = UInt(*seq);
     const auto nlen = UInt(*length), nhash = UInt(*checksum);
     if (!nslot || !nseq || !nlen || !nhash || *nlen != text.size() ||
-        *nslot >= 64) return std::nullopt;
+        *nslot >= 10) return std::nullopt;
     Revision r{static_cast<unsigned>(*nslot), std::string(*fingerprint),
                *nseq, std::string(text)};
     if (!Valid(r) || Checksum(r.debt) != *nhash || Encode(r) !=
