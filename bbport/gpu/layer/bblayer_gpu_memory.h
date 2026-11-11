@@ -13,6 +13,7 @@
 // direct memory. See docs/MEMORY_MODULE_PLAN.ru.md.
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <limits>
@@ -20,6 +21,7 @@
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
@@ -74,6 +76,28 @@ public:
     // produce an invalid Vulkan buffer offset after arithmetic overflow.
     static constexpr bool AddressRangeFits(std::uint64_t start, std::uint64_t size) {
         return size <= std::numeric_limits<std::uint64_t>::max() - start;
+    }
+
+    // B93: a renderer's per-2-MiB idle-use table has a finite number of
+    // groups. A zero-byte range used to underflow address + size - 1 and
+    // iterate over all groups; an empty table underflowed size() - 1.
+    // Reject invalid/overflowing requests before ANY table access and clip
+    // only valid ranges to the actual group count. The API is pure so the
+    // real render hot-path and native regression tests share the exact code.
+    static constexpr std::optional<std::pair<std::uint64_t, std::uint64_t>>
+    GroupRangeForBytes(std::uint64_t address, std::uint64_t size,
+                       std::uint32_t group_shift, std::uint64_t group_count) {
+        if (size == 0 || group_count == 0 || group_shift >= 64 ||
+            !AddressRangeFits(address, size)) {
+            return std::nullopt;
+        }
+        const std::uint64_t first = address >> group_shift;
+        if (first >= group_count) {
+            return std::nullopt;
+        }
+        const std::uint64_t last =
+            std::min((address + size - 1) >> group_shift, group_count - 1);
+        return std::pair{first, last};
     }
 
     /// Blocks (the unit moved to VRAM) of 1 << shift bytes.
