@@ -601,6 +601,27 @@ TEST(TeamWorld, KeptTeamWorldNeverLeaksIntoSoloGuestSave) {
     EXPECT_FALSE(KeptChangeStaysWithTeam(12401800, false, false));
 }
 
+// B87: pure live-owner policy for official Yharnam Together #566's
+// crash/rejoin pickup replay. Never reuse the previous hunter's flags
+// immediately after a save-slot switch or a new generation in that slot.
+TEST(GuestPickupReplay, CrashRejoinRestoresCurrentHunterButNotOldSlot) {
+    EXPECT_TRUE(ShouldReplayGuestPickupsInSession(true, 2, 1, -1, 0))
+        << "a new game process may restore the same slot's persisted pickups";
+    EXPECT_TRUE(ShouldReplayGuestPickupsInSession(true, 2, 1, 2, 1))
+        << "on normal rejoin / host-map reload, restore flags before the baseline";
+    EXPECT_FALSE(ShouldReplayGuestPickupsInSession(false, 2, 1, 2, 1));
+    EXPECT_FALSE(ShouldReplayGuestPickupsInSession(true, -1, 1, -1, 0))
+        << "never use unowned character metadata";
+    EXPECT_FALSE(ShouldReplayGuestPickupsInSession(true, 2, 0, 2, 0))
+        << "invalid generation cannot authorize replay";
+    EXPECT_FALSE(ShouldReplayGuestPickupsInSession(true, 3, 1, 2, 1))
+        << "different save slot: do not replay previous hunter's pickups";
+    EXPECT_FALSE(ShouldReplayGuestPickupsInSession(true, 2, 2, 2, 1))
+        << "same slot now carries a new hunter generation";
+    EXPECT_TRUE(ShouldReplayGuestPickupsInSession(true, 3, 1, 3, 1))
+        << "after the owner baseline reset, the new owner's own file can be used";
+}
+
 // Kaniel's playtest 2026-10-20: Lisara's game took the host's "light the Witch's Abode lamp"
 // request (72200201) as a story step, and her own lamp never lit. A lamp's light request is each
 // player's own; the lit lamp reaches the party by its active flags and the lamp lists.

@@ -359,6 +359,12 @@ bool KeptChangeYieldsToTeam(s32 flag, std::optional<s64> kept_ms, s64 now_ms,
 // solo world after leaving; per-player changes and old non-team play stay.
 bool KeptChangeStaysWithTeam(s32 flag, bool team_mode, bool plays_in_team);
 
+// B87: only replay persisted pickup flags after a co-op crash/rejoin if
+// the active hunter's save slot and generation still match this process's
+// observation; allow initial game boot (no old hunter observed).
+bool ShouldReplayGuestPickupsInSession(bool in_session, int current_slot, u64 current_generation,
+                                       int observed_slot, u64 observed_generation);
+
 // Phase 6: the team join without signs or a bell (docs/native-netcode/session.md, "Team join").
 // The team's host opens its game session itself (NetSync CreateSession) once it stands in its
 // world, and sends the session's join data (the game's own: what a summon sends its guest) to the
