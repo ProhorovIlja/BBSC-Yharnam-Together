@@ -738,9 +738,9 @@ int guest_picked_slot = -1;
 u64 guest_picked_generation = 0; // B87: never reuse a previous hunter's in-memory pickup cache
 
 std::vector<s32>& GuestPickedFlags() {
-    const int current_slot = character_slot.load();
+    const int current_slot = Coop::character_slot.load();
     const u64 current_generation =
-        deferred_reward_character_generation.load(std::memory_order_relaxed);
+        Coop::deferred_reward_character_generation.load(std::memory_order_relaxed);
     // B87: the same save slot may now contain a new hunter. The existing
     // ForgetSlotIfNewCharacter path archives and clears per-slot metadata,
     // then increments the generation; no prior hunter's cache may survive.
