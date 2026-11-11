@@ -735,10 +735,19 @@ std::filesystem::path GuestProgressFile() {
 std::mutex guest_picked_mutex;
 std::optional<std::vector<s32>> guest_picked;
 int guest_picked_slot = -1;
+u64 guest_picked_generation = 0; // B87: never reuse a previous hunter's in-memory pickup cache
 
 std::vector<s32>& GuestPickedFlags() {
-    if (!guest_picked || guest_picked_slot != character_slot.load()) {
-        guest_picked_slot = character_slot.load();
+    const int current_slot = character_slot.load();
+    const u64 current_generation =
+        deferred_reward_character_generation.load(std::memory_order_relaxed);
+    // B87: the same save slot may now contain a new hunter. The existing
+    // ForgetSlotIfNewCharacter path archives and clears per-slot metadata,
+    // then increments the generation; no prior hunter's cache may survive.
+    if (!guest_picked || guest_picked_slot != current_slot ||
+        guest_picked_generation != current_generation) {
+        guest_picked_slot = current_slot;
+        guest_picked_generation = current_generation;
         std::ifstream file{GuestProgressFile()};
         const std::string text{std::istreambuf_iterator<char>{file}, {}};
         guest_picked = ParseFlagList(text);
@@ -2241,8 +2250,17 @@ void KeepGuestProgress(bool in_session) {
         return;
     }
     last = now;
+    const int current_slot = character_slot.load();
+    const u64 current_generation =
+        deferred_reward_character_generation.load(std::memory_order_relaxed);
+    // B87: a live slot/generation transition must not immediately replay
+    // the previous hunter's flags. On first process start the owner is
+    // unobserved (-1) and the slot's persisted pickups may be restored.
+    const bool replay_own_pickups =
+        ShouldReplayGuestPickupsInSession(in_session, current_slot, current_generation,
+                                          slot, generation);
     ResetGuestPickupObservationIfOwnerChanged(
-        character_slot.load(), deferred_reward_character_generation.load(std::memory_order_relaxed),
+        current_slot, current_generation,
         slot, generation, have_baseline, seen_on, set_at_home, home_since);
     if (watched.empty()) {
         watched = MapPickupFlags();
@@ -2255,6 +2273,19 @@ void KeepGuestProgress(bool in_session) {
     if (in_session) {
         home_since = {};
         set_at_home = false;
+        // Official Yharnam Together #566, adapted to this fork: a joined
+        // guest's own pickup flags may have been cleared by the host's map
+        // after a crash/rejoin. Reapply them *before* taking the observation
+        // baseline, or the item can appear and be collected again.
+        // The game-native flag setter is idempotent (only missing flags),
+        // and owner transitions are explicitly gated above.
+        if (replay_own_pickups) {
+            if (const size_t set = SetGuestPickedFlags(); set > 0) {
+                LOG_INFO(Debug,
+                         "Bloodborne party: restored {} of this guest's own pickup flags "
+                         "in the joined session", set);
+            }
+        }
         if (!have_baseline) {
             seen_on.clear();
             for (const s32 flag : watched) {
