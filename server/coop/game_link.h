@@ -176,17 +176,19 @@ public:
 
     // The frames to send now: new packets, reliable ones due again, and an ack when one is owed.
     std::vector<GameFrame> Flush(s64 now_ms) {
-        // B82: track reliably emitted sequence numbers with expected O(1)
-        // lookup. The previous none_of(entries) scan ran for every due
-        // resend and became quadratic when a stalled game had accumulated
-        // many fresh packets. Do not coalesce any unreliable channel:
-        // same-channel game packets can belong to DIFFERENT enemies.
+        // B82: index reliably emitted sequence numbers only when a
+        // retransmission is ACTUALLY due. A normal game tick has no due
+        // resends and must not allocate/hash any packet at all. Earlier
+        // none_of(entries) scanned the full fresh queue for every due
+        // resend on stalled/rejoining links. The lazy set is expected O(1)
+        // membership without ever folding unreliable native packets:
+        // same-channel game packets may describe DIFFERENT enemies.
         std::unordered_set<u32> emitted_reliable;
+        bool emitted_indexed = false;
         std::vector<GameFrameEntry> entries;
         for (Outgoing& out : fresh) {
             entries.push_back({out.packet_class, out.seq, out.packet});
             if (out.packet_class == PacketClass::Reliable) {
-                emitted_reliable.insert(out.seq);
                 out.sent_ms = now_ms;
                 out.wait_ms = settings.resend_ms;
                 unacked.emplace(out.seq, std::move(out));
@@ -208,11 +210,22 @@ public:
             if (quiet || resent >= settings.max_resends) {
                 break;
             }
-            // Insertion returns false for a reliable already emitted in
-            // this Flush (including fresh packets with a zero resend
-            // interval). Keep ACK, resend order and every packet unchanged.
-            if (now_ms - out.sent_ms >= out.wait_ms &&
-                emitted_reliable.insert(seq).second) {
+            // Only the first due resend builds the index from entries
+            // emitted so far. No due resends means no hash allocations on
+            // the hot path. Include fresh reliable messages (which can be
+            // due immediately if resend_ms=0 or on a reconnect).
+            if (now_ms - out.sent_ms < out.wait_ms) {
+                continue;
+            }
+            if (!emitted_indexed) {
+                emitted_indexed = true;
+                for (const GameFrameEntry& sent : entries) {
+                    if (sent.packet_class == PacketClass::Reliable) {
+                        emitted_reliable.insert(sent.seq);
+                    }
+                }
+            }
+            if (emitted_reliable.insert(seq).second) {
                 out.sent_ms = now_ms;
                 out.wait_ms = (std::min)(out.wait_ms * 2, settings.max_resend_ms);
                 ++resends;
