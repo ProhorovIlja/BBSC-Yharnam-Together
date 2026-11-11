@@ -33,8 +33,9 @@ jobs:
           tst=Path('emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp').read_text(encoding='utf-8')
           doc=Path('docs/ULTIMATE_BATCH_70.md').read_text(encoding='utf-8')
           game=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf-8')
-          for token in ('ScanRevisionsUnlocked(', 'sequences[i] != i + 1',
+          for token in ('ScanRevisionsUnlocked(', 'newest->sequence != count',
                         'last.latest->sequence + 1', 'r.sequence == 1',
+                        'std::array<std::uint64_t, 512> seen{}',
                         'fs::create_directory(lock, err)',
                         'ScanStatus::Blocked', 'ScanLatest('):
               assert token in src, token
