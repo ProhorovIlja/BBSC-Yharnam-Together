@@ -10,6 +10,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "coop/coop_types.h"
@@ -175,8 +176,28 @@ public:
 
     // The frames to send now: new packets, reliable ones due again, and an ack when one is owed.
     std::vector<GameFrame> Flush(s64 now_ms) {
+        // B82: the receiver uses newest-wins per unreliable NetSync
+        // channel. When the game queued several states before this Flush
+        // (e.g. frame hitch), transmitting the older states only consumes
+        // bandwidth and increases the peer's queueing delay. Keep the LAST
+        // valid native {channel, size, payload} state per channel, without
+        // changing the sequence numbers of surviving packets. Never fold
+        // reliable messages, or non-native/short unreliable payloads.
+        std::unordered_map<u32, size_t> newest_unreliable;
+        for (size_t index = 0; index < fresh.size(); ++index) {
+            const Outgoing& pending = fresh[index];
+            if (pending.packet_class == PacketClass::Unreliable &&
+                IsNativeGamePacket(pending.packet)) {
+                newest_unreliable[ChannelOf(pending.packet)] = index;
+            }
+        }
         std::vector<GameFrameEntry> entries;
-        for (Outgoing& out : fresh) {
+        for (size_t index = 0; index < fresh.size(); ++index) {
+            Outgoing& out = fresh[index];
+            if (out.packet_class == PacketClass::Unreliable && IsNativeGamePacket(out.packet) &&
+                newest_unreliable.at(ChannelOf(out.packet)) != index) {
+                continue;
+            }
             entries.push_back({out.packet_class, out.seq, out.packet});
             if (out.packet_class == PacketClass::Reliable) {
                 out.sent_ms = now_ms;
@@ -308,6 +329,19 @@ private:
         s64 wait_ms = 0; // until its next resend (backs off)
         s64 queued_ms = 0;
     };
+    // Only actual native game NetSync packets may be folded. Other users of
+    // GameLinkPeer share its transport but need not use this packet layout.
+    // Reject a malformed size prefix instead of treating unrelated bytes as
+    // a channel. This does not validate game semantics, only the envelope.
+    static bool IsNativeGamePacket(const std::vector<u8>& packet) {
+        if (packet.size() < 8) return false;
+        u32 payload_bytes = 0;
+        for (size_t i = 0; i < 4; ++i) {
+            payload_bytes |= u32{packet[4 + i]} << (8 * i);
+        }
+        return static_cast<size_t>(payload_bytes) == packet.size() - 8;
+    }
+
     // The game's join hello: the first it sends a member's game in a session.
     static constexpr u32 JoinHelloChannel = 0x42;
 
