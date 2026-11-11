@@ -1,0 +1,76 @@
+name: Ultimate B93 bounded GPU idle usage tracking
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/layer/bblayer_gpu_memory.h'
+      - 'bbport/gpu/shadps4/video_core/buffer_cache/buffer_cache_layer.cpp'
+      - 'bbport/tests/test_gpu_memory_boundaries.cpp'
+      - 'bbport/tests/test_support/vulkan/vulkan_core.h'
+      - '.github/workflows/ultimate-batch-93-gpu-idle-use-bounds.yml'
+      - 'docs/ULTIMATE_BATCH_93.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-and-real-gpu-range-policy:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify renderer uses actual checked production group policy
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source=Path("bbport/gpu/shadps4/video_core/buffer_cache/buffer_cache_layer.cpp").read_text()
+          header=Path("bbport/gpu/layer/bblayer_gpu_memory.h").read_text()
+          tests=Path("bbport/tests/test_gpu_memory_boundaries.cpp").read_text()
+          note=source.split("void BufferCache::NoteDirectUse(VAddr address, u64 size) {",1)[1].split("\nu64 BufferCache::LayerCompactMirrors(",1)[0]
+          assert "GpuMemory::GroupRangeForBytes(" in note
+          assert note.index("if (!groups)") < note.index("layer_group_use[group]")
+          assert "(address + size - 1)" not in note
+          assert "layer_group_use.size() - 1" not in note
+          assert "group >= group_use.size() || group_end <= block" in source
+          assert "group >= layer_group_use.size() || group_end <= block" in source
+          assert "size == 0 || group_count == 0 || group_shift >= 64" in header
+          assert "AddressRangeFits(address, size)" in header
+          assert "for (int frame = 0; frame < 10000; ++frame)" in tests
+          assert "GpuMemory::GroupRangeForBytes(TwoMiB - 1, 2, 21, 8)" in tests
+          print("B93_PRODUCTION_RENDERER_GROUP_RANGE_SOURCE_CONTRACTS_PASS")
+          PY
+      - name: GCC and Clang compile real GPU memory module with UBSan and run
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O1 -g -Wall -Wextra -Werror -pedantic -pthread \
+              -fsanitize=undefined -fno-sanitize-recover=undefined \
+              -I bbport/tests/test_support -I bbport/gpu/layer \
+              bbport/gpu/layer/bblayer_gpu_memory.cpp \
+              bbport/tests/test_gpu_memory_boundaries.cpp \
+              -o "$RUNNER_TEMP/b93-gpu-idle"
+            timeout 30s "$RUNNER_TEMP/b93-gpu-idle"
+          done
+          echo B93_ACTUAL_GPU_IDLE_GROUP_GCC_CLANG_PASS
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: MSVC compile real GPU memory module and run with watchdog
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Ibbport\tests\test_support /Ibbport\gpu\layer bbport\gpu\layer\bblayer_gpu_memory.cpp bbport\tests\test_gpu_memory_boundaries.cpp /Fe:"$env:RUNNER_TEMP\b93-gpu-idle.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $proc = Start-Process -FilePath "$env:RUNNER_TEMP\b93-gpu-idle.exe" -NoNewWindow -PassThru
+          if (-not $proc.WaitForExit(20000)) {
+            $proc.Kill()
+            throw 'B93: GPU idle-group tests failed to terminate'
+          }
+          if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
+          Write-Host 'B93_ACTUAL_GPU_IDLE_GROUP_MSVC_PASS'

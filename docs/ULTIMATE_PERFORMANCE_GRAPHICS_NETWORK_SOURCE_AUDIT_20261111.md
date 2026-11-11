@@ -38,6 +38,12 @@ Status: active **evidence-backed** improvement registry, not a claim that the en
 
 GPU captures, actual FaceGen/readbacks correctness, shadowed chunk reproduction from a game rig and measured FPS/VRAM impacts remain outstanding. Do not assume test success proves a real-game vertex artifact is fixed. NVIDIA Reflex remains a genuine capability-checked integration task, not enabled.
 
+## B93 VRAM idle-use CPU work / source-level overflow guard (2026-11-11)
+
+[Draft B93 PR #160](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/160) identifies a concrete GPU memory-accounting issue in actual bundled renderer `BufferCache::NoteDirectUse`: `(address+size-1)` without zero-size check could underflow and falsely mark **all** idle-use groups active, adding CPU work and preventing valid reclamation of VRAM under pressure. An empty `layer_group_use` table would also underflow `size()-1`. New actual `GpuMemory::GroupRangeForBytes` bounds the tracked groups (zero/overflow/invalid/shift/table count), renderer uses it before indexing; `LayerProcessIdle`/`LayerYieldToImages` now bail from invalid/out-of-range group scans instead of reading beyond table or staying in nonadvancing loop. Actual compiled GPU-memory module native tests check 10k invalid requests and representative valid group boundaries. Dedicated [B93 cross-platform native CI](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/workflows/ultimate-batch-93-gpu-idle-use-bounds.yml). No real graphics benchmark, shadPS4 FaceGen fix, NVIDIA Reflex SDK or measured FPS improvement claimed.
+
+Separate B92 source invariant concern: `GpuMemory::AddMirror` currently has `void` result; a rejected overlapping mirror can leave the renderer's `layer_mirrors` bookkeeping and the GPU memory registry out of sync. Requires correct success reporting and safe rollback/failover review with failure-injection, not blindly turning a rejected registration into a crash. Reported here as open.
+
 ## Required test baseline and quality bars
 
 1. **Baseline:** clean Bloodborne 1.09 with matched game region (nine CUSA variants in #84), DLC, build commit, GPU driver, machine CPU/RAM/VRAM, resolution, upscaler/FG, render patch, savedata *copy*, mods hash. Do not bundle proprietary game content with public code.
