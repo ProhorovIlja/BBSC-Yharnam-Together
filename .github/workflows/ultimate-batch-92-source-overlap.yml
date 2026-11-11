@@ -1,0 +1,77 @@
+name: Ultimate B92 GPU source and VRAM mirror overlap safety
+on:
+  pull_request:
+    paths:
+      - 'bbport/gpu/layer/bblayer_gpu_memory.cpp'
+      - 'bbport/gpu/layer/bblayer_gpu_memory.h'
+      - 'bbport/tests/test_gpu_memory_boundaries.cpp'
+      - 'bbport/tests/test_support/vulkan/vulkan_core.h'
+      - '.github/workflows/ultimate-batch-92-source-overlap.yml'
+      - 'docs/ULTIMATE_BATCH_92.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-gpu-source-boundaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check registration checks precede source map mutation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("bbport/gpu/layer/bblayer_gpu_memory.cpp").read_text()
+          a=s.split("void GpuMemory::AddGuestSource(", 1)[1].split("const MemorySource* GpuMemory::GuestSource", 1)[0]
+          m=s.split("void GpuMemory::AddMirror(", 1)[1].split("void GpuMemory::RemoveMirror", 1)[0]
+          assert a.index("std::ranges::lower_bound(*old, phys") < a.index("new std::vector<MemorySource*>")
+          assert a.index("size > (*next)->base - phys") < a.index("new std::vector<MemorySource*>")
+          assert a.index("previous->size > phys - previous->base") < a.index("new std::vector<MemorySource*>")
+          assert m.index("mirrors.lower_bound(start)") < m.index("mirrors.emplace(start")
+          assert m.index("size > next->first - start") < m.index("mirrors.emplace(start")
+          assert m.index("previous->second.size > start - previous->first") < m.index("mirrors.emplace(start")
+          t=Path("bbport/tests/test_gpu_memory_boundaries.cpp").read_text()
+          for required in ("gpu.AddGuestSource(0x2080, 0x10", "gpu.AddGuestSource(0x1ff0, 0x30",
+                           "gpu.AddGuestSource(0x2100, 0xf00", "gpu.AddMirror(0x5080, 0x30",
+                           "gpu.AddMirror(0x4ff0, 0x30", "gpu.AddMirror(0x5100, 0x80",
+                           "gpu.ForEachInPlace(max - 0x100f, 0x100f"):
+              assert required in t, required
+          print("B92_SOURCE_NONOVERLAP_CONTRACTS_PASS")
+          PY
+      - name: GCC and Clang compile actual GpuMemory with UBSan and run
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O1 -g -Wall -Wextra -Werror -pedantic -pthread \
+              -fsanitize=undefined -fno-sanitize-recover=undefined \
+              -I bbport/tests/test_support -I bbport/gpu/layer \
+              bbport/gpu/layer/bblayer_gpu_memory.cpp \
+              bbport/tests/test_gpu_memory_boundaries.cpp \
+              -o "$RUNNER_TEMP/b92-gpu-sources"
+            timeout 30s "$RUNNER_TEMP/b92-gpu-sources"
+          done
+          echo B92_ACTUAL_GPU_SOURCE_AND_MIRROR_REGISTRY_GCC_CLANG_PASS
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: MSVC compile actual GpuMemory and run with watchdog
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Ibbport\tests\test_support /Ibbport\gpu\layer bbport\gpu\layer\bblayer_gpu_memory.cpp bbport\tests\test_gpu_memory_boundaries.cpp /Fe:"$env:RUNNER_TEMP\b92-gpu-sources.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $proc = Start-Process -FilePath "$env:RUNNER_TEMP\b92-gpu-sources.exe" -NoNewWindow -PassThru
+          if (-not $proc.WaitForExit(20000)) {
+            $proc.Kill()
+            throw 'B92: GPU registry tests failed to terminate'
+          }
+          if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
+          Write-Host 'B92_ACTUAL_GPU_SOURCE_AND_MIRROR_REGISTRY_MSVC_PASS'
