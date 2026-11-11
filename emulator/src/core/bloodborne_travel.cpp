@@ -1743,9 +1743,14 @@ void GiveBackPhantomKeyItems() {
                 subsequent_missing->size() > 256) {
                 return; // strict offline ledger record cap; fail closed
             }
-            if (return_attempt.ObservedInOwnInventory(subsequent_missing->size())) {
+            if (return_attempt.AcknowledgeObservedHome(subsequent_missing->size())) {
+                // B78: a verified home inventory receipt must reset the
+                // native-grant latch too. B77 cleared the debt but left the
+                // latch set, suppressing every subsequent party return.
+                // The receipt is in RAM only, NOT disk savedata acknowledgement.
                 subsequent_phantom_debt.GaveBack();
                 subsequent_tracking = false;
+                reported_pending_rejoin_list = 0;
                 return;
             }
             if (!return_attempt.MayRequest(subsequent_missing->size(),
