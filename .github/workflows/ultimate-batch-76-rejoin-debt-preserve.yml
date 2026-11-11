@@ -39,7 +39,7 @@ jobs:
           assert p.index('if (BloodborneCoop::PreserveFirstPhantomOnRejoin(') < p.index('last_look = observed;')
           assert p.index('return;\n        }') < p.index('last_look = observed;')
           assert p.index('return;\n        }') < p.index('phantom_list = list;')
-          assert p.index('MayUpdatePhantomSnapshot()') < p.index('first_look = last_look;')
+          assert p.index('PreserveFirstPhantomOnRejoin(') < p.index('first_look = observed;')
           assert 'reported_pending_rejoin_list = list;' in p
           assert 'subsequent_phantom_debt.LookAtPhantom(list, seen)' in p
           assert p.index('subsequent_phantom_debt.LookAtPhantom(list, seen)') < p.index('last_look = observed;')
