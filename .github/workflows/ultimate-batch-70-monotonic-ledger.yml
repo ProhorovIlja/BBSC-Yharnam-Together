@@ -44,7 +44,7 @@ jobs:
                         'gap_root', 'Revision new_hunter',
                         'assert(!CreateNewRevision(root, damaged))'):
               assert token in tst, token
-          assert 'no game's live reward callback' in doc.lower()
+          assert "no game\u0027s live reward callback" in doc.lower()
           assert 'CreateNewRevision(' not in game
           assert 'GiveBackPhantomKeyItems()' in game
           assert 'bloodborne/test_bloodborne_team.cpp' in Path(
