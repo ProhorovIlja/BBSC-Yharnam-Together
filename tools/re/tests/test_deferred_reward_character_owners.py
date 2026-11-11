@@ -39,7 +39,10 @@ class RewardCharacterOwnership(unittest.TestCase):
             new_char.index("deferred_reward_character_generation.fetch_add("),
             new_char.index("BackUpSlotLists();"),
         )
-        self.assertIn("owner.slot < 0", code)
+        self.assertIn("return BloodborneCoop::ValidSaveCharacterScope(slot, generation);", code)
+        self.assertGreaterEqual(code.count("if (!owner.Valid()) {"), 4)
+        self.assertIn("return in_session && current.Valid();", code)
+        self.assertNotIn("if (owner.slot < 0)", code)
         boss_queue = code.split("bool PS4_SYSV_ABI HoldGuestBossItem(", 1)[1].split(
             "\n} // namespace", 1
         )[0]
@@ -98,6 +101,7 @@ class RewardCharacterOwnership(unittest.TestCase):
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include "core/phantom_inventory_scope.h"
 using u64 = std::uint64_t;
 // EXACT_OWNER_TYPE
 // EXACT_EVICTION_HELPER
@@ -105,6 +109,11 @@ using u64 = std::uint64_t;
 struct Lot { int id; int due; DeferredRewardOwner owner; };
 struct Gift { int id; DeferredRewardOwner owner; };
 int main() {
+    CHECK((DeferredRewardOwner{0, 1}.Valid()));
+    CHECK((DeferredRewardOwner{9, 42}.Valid()));
+    CHECK(!(DeferredRewardOwner{-1, 1}.Valid()));
+    CHECK(!(DeferredRewardOwner{10, 1}.Valid()));
+    CHECK(!(DeferredRewardOwner{1, 0}.Valid()));
     // Five-hunter synthetic scenario. A single local character's reward
     // queue contains stale entries from earlier slots and a new character
     // that reused the same slot. Only the exact slot + generation survives.
@@ -141,7 +150,7 @@ int main() {
             path.write_text(fixture, encoding="utf-8")
             result = subprocess.run(
                 [compiler, "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
-                 str(path), "-o", str(exe)],
+                 "-I", str(ROOT / "emulator/src"), str(path), "-o", str(exe)],
                 capture_output=True, text=True, timeout=40,
             )
             self.assertEqual(result.returncode, 0, result.stderr[-2500:])
