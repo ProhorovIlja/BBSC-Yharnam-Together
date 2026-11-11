@@ -52,7 +52,7 @@ std::optional<Span> GpuMemory::ResolveInPlace(std::uint64_t va, std::uint64_t si
 }
 
 std::optional<Span> GpuMemory::ResolvePrefix(std::uint64_t va, std::uint64_t size) const {
-    if (!translate || size == 0) {
+    if (!translate || size == 0 || !AddressRangeFits(va, size)) {
         return std::nullopt;
     }
     std::uint64_t phys = 0, map_end = 0;
@@ -63,7 +63,9 @@ std::optional<Span> GpuMemory::ResolvePrefix(std::uint64_t va, std::uint64_t siz
     if (!source) {
         return std::nullopt;
     }
-    const std::uint64_t limit = std::min(size, source->base + source->size - phys);
+    // A valid lookup proves phys >= source->base and within source->size.
+    // Do not add base+size: untrusted source ranges may approach UINT64_MAX.
+    const std::uint64_t limit = std::min(size, source->size - (phys - source->base));
     // The mapping may be split (protection changes): the next pieces must continue it in
     // physical memory.
     std::uint64_t covered = map_end - va;
@@ -80,8 +82,8 @@ std::optional<Span> GpuMemory::ResolvePrefix(std::uint64_t va, std::uint64_t siz
 }
 
 Resolution GpuMemory::Resolve(std::uint64_t va, std::uint64_t size) const {
-    if (size == 0) {
-        return {};
+    if (size == 0 || !AddressRangeFits(va, size)) {
+        return {}; // reject wrapped vertex/texture addresses before a GPU bind
     }
     const std::uint64_t first = va >> block_shift;
     const std::uint64_t end = ((va + size - 1) >> block_shift) + 1;
@@ -92,7 +94,8 @@ Resolution GpuMemory::Resolve(std::uint64_t va, std::uint64_t size) const {
                 auto it = mirrors.upper_bound(va);
                 if (it != mirrors.begin()) {
                     const MemorySource& mirror = (--it)->second;
-                    if (va >= mirror.base && va + size <= mirror.base + mirror.size) {
+                    if (va >= mirror.base && va - mirror.base < mirror.size &&
+                        size <= mirror.size - (va - mirror.base)) {
                         return {Resolution::Kind::Mirror,
                                 Span{&mirror, va - mirror.base, va, size}};
                     }
@@ -140,7 +143,9 @@ std::vector<MemorySource> GpuMemory::MirrorsIn(std::uint64_t start, std::uint64_
         --it;
     }
     for (; it != mirrors.end() && it->first < end; ++it) {
-        if (it->second.base + it->second.size > start) {
+        if (it->second.size != 0 &&
+            (start <= it->second.base ||
+             start - it->second.base < it->second.size)) {
             out.push_back(it->second);
         }
     }
