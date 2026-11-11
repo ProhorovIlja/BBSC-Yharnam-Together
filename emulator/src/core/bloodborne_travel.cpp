@@ -1643,10 +1643,14 @@ void GiveBackPhantomKeyItems() {
     // switching hunters in one process could interpret a prior hunter's
     // transient phantom inventory as goods to grant to this one.
     static BloodborneCoop::PhantomInventoryScope inventory_scope;
+    // B75: a void-return item grant MUST NOT be retried blindly. Only a
+    // subsequent own-inventory observation can retire this in-memory debt.
+    static BloodborneCoop::PhantomReturnAttemptGate return_attempt;
     const int current_slot = character_slot.load(std::memory_order_relaxed);
     const u64 current_generation =
         deferred_reward_character_generation.load(std::memory_order_relaxed);
     if (inventory_scope.Observe(current_slot, current_generation)) {
+        return_attempt.Reset(); // never carry an attempted grant to another hunter
         phantom_list = 0;
         first_look.clear();
         last_look.clear();
@@ -1695,16 +1699,28 @@ void GiveBackPhantomKeyItems() {
     }
     const std::vector<HeldGoods> to_return =
         PhantomKeyItemsToGiveBack(first_look, last_look, HeldKeyGoods());
-    // B74: the native trade helper is void and quietly returns when hooks
-    // are absent; it also drops the give when MapItemMan is absent during
-    // loads. Until BOTH are available, keep the last phantom observations
-    // and retry this transition on a later game-thread tick instead of
-    // erasing the only in-process evidence of earned key items.
-    if (!BloodborneCoop::PhantomReturnMayRetireSnapshot(
-            to_return.size(), to_return.empty() || TradeItemsReadyToGive())) {
+    // B75: a successful MapItemMan readiness probe is not proof that the
+    // native GiveItems (void return) actually added or saved the goods.
+    // After ONE request we keep the phantom snapshot and refuse a second
+    // automatic grant until a later own-list read observes no items missing.
+    const bool grant_ready = to_return.empty() ||
+        (!return_attempt.Requested() && TradeItemsReadyToGive());
+    if (!BloodborneCoop::PhantomReturnMayRetireSnapshot(to_return.size(), grant_ready)) {
+        return; // unready, or prior grant ambiguous: no destructive reset
+    }
+    if (return_attempt.ObservedInOwnInventory(to_return.size())) {
+        // Inventory observation only, NOT durable save ACK. B68-B73 journal
+        // remains offline until the save transaction protocol is verified.
+        phantom_list = 0;
+        return_attempt.Reset();
         return;
     }
-    phantom_list = 0;
+    if (!return_attempt.MayRequest(to_return.size(), grant_ready)) {
+        return;
+    }
+    // Latch BEFORE calling the game: reentrancy or a later tick may see an
+    // ambiguous in-flight grant, and must never issue it a second time.
+    return_attempt.MarkRequested();
     for (const HeldGoods& held : to_return) {
         const TradeItem item{BloodborneCoop::TradeItemKind::Goods, held.goods,
                              static_cast<u32>(held.count)};
