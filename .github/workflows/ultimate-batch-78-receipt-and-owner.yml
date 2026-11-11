@@ -1,0 +1,106 @@
+name: Ultimate B78 confirmed second-lane receipt and exact retail save slot ownership
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/phantom_inventory_scope.h'
+      - 'emulator/src/core/phantom_key_ledger_file.h'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'emulator/tests/bloodborne/test_phantom_inventory_scope.cpp'
+      - 'emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp'
+      - 'tools/re/tests/test_phantom_multisession_ledger.py'
+      - 'docs/ULTIMATE_BATCH_78.md'
+      - '.github/workflows/ultimate-batch-78-receipt-and-owner.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit actual return lifecycle and strict persistent retail owner contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          travel=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf8')
+          scope=Path('emulator/src/core/phantom_inventory_scope.h').read_text(encoding='utf8')
+          journal=Path('emulator/src/core/phantom_key_ledger_file.h').read_text(encoding='utf8')
+          test=Path('emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp').read_text(encoding='utf8')
+          fn=travel.split('void GiveBackPhantomKeyItems() {',1)[1].split('// See LampsToRelight',1)[0]
+          second=fn.split('if (phantom_list == 0) {',1)[1]
+          assert 'bool AcknowledgeObservedHome(std::size_t missing_items) noexcept' in scope
+          ack=scope.split('bool AcknowledgeObservedHome(',1)[1].split('\n    }',1)[0]
+          assert ack.index('if (missing_items != 0) return false;') < ack.index('requested_ = false;')
+          assert second.index('return_attempt.AcknowledgeObservedHome(subsequent_missing->size())') < second.index('subsequent_phantom_debt.GaveBack();')
+          assert second.index('subsequent_phantom_debt.GaveBack();') < second.index('subsequent_tracking = false;')
+          assert 'return_attempt.MarkRequested(); // before every native void grant' in second
+          assert 'r.slot >= 10' in journal
+          assert '*nslot >= 10' in journal
+          assert 'r.slot >= 64' not in journal and '*nslot >= 64' not in journal
+          assert 'unsupported_slot : {10u, 11u, 63u, 64u, 1024u}' in test
+          assert 'CreateNewRevision(' not in fn and 'ScanLatest(' not in fn
+          doc=Path('docs/ULTIMATE_BATCH_78.md').read_text(encoding='utf8').lower()
+          assert 'not a disk savedata acknowledgement' in doc
+          print('B78_SECOND_RECEIPT_OWNER_BOUNDARY_SOURCE_PASS')
+          PY
+      - name: Exact production ledger source extraction and savedata boundary
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tools/re/tests -p 'test_phantom_multisession_ledger.py' -v
+          python3 -m unittest discover -s tools/re/tests -p 'test_phantom_return_readiness.py' -v
+  actual-production-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang compile/run production key journal and real receipt policy
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp \
+              -o "/tmp/b78-journal-${compiler}"
+            timeout 30s "/tmp/b78-journal-${compiler}"
+            "$compiler" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              emulator/tests/bloodborne/test_phantom_inventory_scope.cpp \
+              -o "/tmp/b78-grant-${compiler}"
+            timeout 30s "/tmp/b78-grant-${compiler}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC native compile/run of exact production file and owner header
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp /Fe:"${{ runner.temp }}\b78-journal.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b78-journal.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_inventory_scope.cpp /Fe:"${{ runner.temp }}\b78-grant.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b78-grant.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Scope
+        shell: bash
+        run: echo B78_SYNTHETIC_TEST_FILES_ONLY_NO_REAL_SAVEDATA_OR_FORNEX
