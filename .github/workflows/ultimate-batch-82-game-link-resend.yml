@@ -36,8 +36,12 @@ jobs:
           gtest=Path('emulator/tests/bloodborne/test_bloodborne_game_link.cpp').read_text(encoding='utf8')
           assert '#include <unordered_set>' in h
           assert 'std::unordered_set<u32> emitted_reliable;' in f
-          assert 'emitted_reliable.insert(out.seq);' in f
+          assert 'bool emitted_indexed = false;' in f
+          assert 'if (!emitted_indexed)' in f
+          assert 'emitted_reliable.insert(sent.seq);' in f
           assert 'emitted_reliable.insert(seq).second' in f
+          assert f.index('if (now_ms - out.sent_ms < out.wait_ms)') < f.index('if (!emitted_indexed)')
+          assert f.index('if (!emitted_indexed)') < f.index('emitted_reliable.insert(seq).second')
           assert 'std::ranges::none_of(entries' not in f
           assert 'entries.push_back({out.packet_class, out.seq, out.packet});' in f
           assert 'fresh.clear();' in f
