@@ -12,6 +12,17 @@ using BloodborneCoop::PhantomReturnAttemptGate;
 using BloodborneCoop::ValidSaveCharacterScope;
 
 int main() {
+    // B80: a rapid rejoin BEFORE any native GiveItems attempt can overwrite
+    // the first earned items, not just a post-grant ambiguous receipt.
+    using BloodborneCoop::PreserveFirstPhantomOnRejoin;
+    assert(!PreserveFirstPhantomOnRejoin(false, false, false, true, false));
+    assert(!PreserveFirstPhantomOnRejoin(false, false, true, false, true));
+    assert(!PreserveFirstPhantomOnRejoin(false, false, true, true, false));
+    assert(PreserveFirstPhantomOnRejoin(false, false, true, true, true));
+    assert(PreserveFirstPhantomOnRejoin(false, true, true, true, false));
+    assert(PreserveFirstPhantomOnRejoin(true, false, false, false, false));
+    assert(PreserveFirstPhantomOnRejoin(true, true, true, true, true));
+
     // B75: readiness is necessary to request once; native void-return is
     // never a save ACK, so another tick must not repeat an ambiguous grant.
     PhantomReturnAttemptGate receipt;
