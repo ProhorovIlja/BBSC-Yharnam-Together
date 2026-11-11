@@ -13,7 +13,6 @@
 #include <fstream>
 #include <iterator>
 #include <optional>
-#include <vector>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -180,7 +179,11 @@ inline ScanResult ScanRevisionsUnlocked(const std::filesystem::path& root, unsig
     const std::string prefix = "slot" + std::to_string(slot) + "-" +
                                std::string(fingerprint) + "-r";
     std::optional<Revision> newest;
-    std::vector<std::uint64_t> sequences;
+    // At most 32768 retained revisions per hunter. Fixed-size 4KiB
+    // bitset gives O(number of revision files) validation with no heap
+    // allocations, sorting or quadratic duplicate searches.
+    std::array<std::uint64_t, 512> seen{};
+    std::uint64_t count = 0;
     bool blocked = false;
     for (fs::directory_iterator it{root, err}, end; !err && it != end;
          it.increment(err)) {
@@ -200,21 +203,26 @@ inline ScanResult ScanRevisionsUnlocked(const std::filesystem::path& root, unsig
         // A deleted intermediate revision or a forged massive sequence
         // creates an ambiguous history: NEVER use a stale previously-paid
         // debt or implicitly fill a gap.
-        if (item->sequence == 0 || item->sequence > 32768 ||
-            sequences.size() == 32768 ||
-            std::find(sequences.begin(), sequences.end(), item->sequence) != sequences.end()) {
+        if (item->sequence == 0 || item->sequence > 32768 || count >= 32768) {
             blocked = true;
             break;
         }
-        sequences.push_back(item->sequence);
+        const auto offset = item->sequence - 1;
+        auto& word = seen[offset / 64];
+        const auto mask = std::uint64_t{1} << (offset % 64);
+        if ((word & mask) != 0) {
+            blocked = true;
+            break;
+        }
+        word |= mask;
+        ++count;
         if (!newest || item->sequence > newest->sequence) newest = item;
     }
     if (err || blocked) return {};
     if (!newest) return {ScanStatus::Empty, std::nullopt};
-    std::sort(sequences.begin(), sequences.end());
-    for (std::size_t i = 0; i < sequences.size(); ++i) {
-        if (sequences[i] != i + 1) return {};
-    }
+    // All seen sequences are unique positive integers; if the maximum
+    // equals count, those integers must be precisely 1, 2, ..., count.
+    if (newest->sequence != count) return {};
     return {ScanStatus::Ready, std::move(newest)};
 }
 } // namespace detail
