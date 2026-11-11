@@ -755,7 +755,56 @@ std::vector<s32>& GuestPickedFlags() {
     return *guest_picked;
 }
 
+// B88: marker lives alongside the per-slot pickup progress journal. An
+// unlabeled old/legacy journal cannot authorize applying those flags to a
+// new process's possibly different hunter. We keep that journal unchanged.
+std::filesystem::path GuestPickupOwnerFile() {
+    return Common::FS::GetUserPath(Common::FS::PathType::UserDir) /
+           SlotFileName("pickup_owner", Coop::character_slot.load());
+}
+
+std::string ReadGuestPickupOwnerName() {
+    std::ifstream file{GuestPickupOwnerFile(), std::ios::binary};
+    std::string line;
+    std::getline(file, line);
+    return TitleLoadCharacterName(false, line);
+}
+
+bool GuestPickupOwnerMatches() {
+    return PickupOwnerNameMatches(ReadGuestPickupOwnerName(),
+                                  SettledOwnCharacterNameForPickupOwner());
+}
+
 void SaveGuestProgress(std::span<const s32> flags) {
+    if (flags.empty()) {
+        // The earlier new-hunter detector has archived the old lists. Clear
+        // the owner marker too; do NOT grant the next hunter these pickups.
+        if (!ReplaceGuestMetadataFile(GuestProgressFile(), "") ||
+            !ReplaceGuestMetadataFile(GuestPickupOwnerFile(), "")) {
+            LOG_WARNING(Debug, "Bloodborne party: could not reset guest pickup owner metadata");
+        }
+        return;
+    }
+    const std::string active = SettledOwnCharacterNameForPickupOwner();
+    if (active.empty()) {
+        return; // unknown/possibly stale character identity: no write
+    }
+    const std::string recorded = ReadGuestPickupOwnerName();
+    if (recorded.empty()) {
+        // Only enroll a genuinely NEW journal. A pre-B88 journal containing
+        // pickups remains intact and quarantined for future verified migration.
+        std::ifstream file{GuestProgressFile(), std::ios::binary};
+        const std::string existing{std::istreambuf_iterator<char>{file}, {}};
+        if (!ParseFlagList(existing).empty()) {
+            return;
+        }
+        if (!ReplaceGuestMetadataFile(GuestPickupOwnerFile(), active + "\n")) {
+            LOG_WARNING(Debug, "Bloodborne party: cannot bind new pickup progress to this hunter");
+            return;
+        }
+    } else if (!PickupOwnerNameMatches(recorded, active)) {
+        return; // another (named) hunter in this slot: preserve old progress
+    }
     if (!ReplaceGuestMetadataFile(GuestProgressFile(), FormatFlagList(flags))) {
         LOG_WARNING(Debug, "Bloodborne party: guest pickup progress update failed; old file kept");
     }
@@ -777,6 +826,12 @@ namespace {
 
 // Sets the guest's remembered pickups that are not set yet; returns how many it set.
 size_t SetGuestPickedFlags() {
+    // B88: never replay a pre-existing/unbound journal or a prior hunter's
+    // journal. Check BEFORE the first game-native flag write on all paths
+    // (active session, load, and own world); no item lot is granted here.
+    if (!GuestPickupOwnerMatches()) {
+        return 0;
+    }
     std::scoped_lock lock{guest_picked_mutex};
     using SetFlag = void PS4_SYSV_ABI (*)(u64, s32, bool);
     size_t set = 0;
