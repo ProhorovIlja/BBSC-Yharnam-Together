@@ -104,7 +104,7 @@ int main() {
     assert(!fs::exists(root / (Name(cleared) + ".pending")));
     assert(!fs::exists(root / ".writer.lock"));
     assert(ScanLatest(root, 3, identity).latest == std::optional{second});
-    Revision third{3, identity, 3, "4114 1 1\\n4000 1 2\\n4110 1 1\\n"};
+    Revision third{3, identity, 3, "4114 1 1\n4000 1 2\n4110 1 1\n"};
     assert(CreateNewRevision(root, third));
     assert(ReadReady(root / (Name(third) + ".ready")) == std::optional{third});
     assert(ScanLatest(root, 3, identity).latest == std::optional{third});
@@ -115,7 +115,7 @@ int main() {
     // Do not delete or rewrite that record on encountering it.
     const fs::path tomb_root = root / "isolated-unproven-tombstone";
     assert(fs::create_directory(tomb_root));
-    Revision tomb1{0, identity, 1, "4114 1 1\\n"};
+    Revision tomb1{0, identity, 1, "4114 1 1\n"};
     Revision tomb2{0, identity, 2, ""};
     assert(CreateNewRevision(tomb_root, tomb1));
     assert(!CreateNewRevision(tomb_root, tomb2));
@@ -129,7 +129,7 @@ int main() {
     assert(ReadReady(fake_ready) == std::optional{tomb2}); // inspect only
     assert(ScanLatest(tomb_root, 0, identity).status == ScanStatus::Blocked);
     assert(ScanLatest(tomb_root, 0, identity).latest == std::nullopt);
-    assert(!CreateNewRevision(tomb_root, Revision{0, identity, 3, "4000 1 1\\n"}));
+    assert(!CreateNewRevision(tomb_root, Revision{0, identity, 3, "4000 1 1\n"}));
     assert(ReadReady(tomb_root / (Name(tomb1) + ".ready")) == std::optional{tomb1});
     assert(!fs::exists(tomb_root / ".writer.lock"));
 
