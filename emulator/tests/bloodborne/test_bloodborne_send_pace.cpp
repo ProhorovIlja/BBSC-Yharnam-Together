@@ -60,6 +60,53 @@ TEST(SendPace, ObjectsNotSeenForAWhileAreForgotten) {
     EXPECT_EQ(pace.Size(), 1u);
 }
 
+// B89: with >512 active map objects/events, Forget used to scan both
+// unordered_maps at EVERY Allow/AllowRate call. At 120 FPS and hundreds of
+// condition groups, this could become the actual CPU hot path. Sweep at most
+// four times per second while still expiring objects after five idle seconds.
+TEST(SendPace, ManyActiveObjectsNeverTriggerPerEventFullMapScan) {
+    SendPace pace;
+    for (u64 object = 1; object <= 600; ++object) {
+        ASSERT_TRUE(pace.Allow(object, At(0us), 166ms));
+    }
+    const auto first = pace.Sweeps();
+    EXPECT_EQ(first, 1u);
+    for (int frame = 0; frame < 2000; ++frame) {
+        // All checks on an active key within one 120 FPS frame interval.
+        (void)pace.Allow(1, At(100ms), 166ms);
+        (void)pace.AllowRate(0x1000000u, At(100ms), EventSyncPerSecond);
+    }
+    EXPECT_EQ(pace.Sweeps(), first)
+        << "a busy draw/event stream must not scan the entire large map on each packet";
+    EXPECT_EQ(pace.Size(), 601u);
+    // Time passes; the bounded cleanup may now scan but no old key expires
+    // until 5 seconds, so no packet fairness or pacing behavior changes.
+    EXPECT_FALSE(pace.Allow(1, At(350ms), 166ms));
+    EXPECT_EQ(pace.Sweeps(), first + 1);
+    EXPECT_EQ(pace.Size(), 601u);
+    // Map left / player disconnected: stale entries are still reclaimed.
+    ASSERT_TRUE(pace.Allow(0x123456789, At(10s), 166ms));
+    EXPECT_EQ(pace.Sweeps(), first + 2);
+    EXPECT_EQ(pace.Size(), 1u);
+}
+
+TEST(SendPace, LargeEventRateTablePurgeAlsoAmortized) {
+    SendPace pace;
+    for (u64 event = 1; event <= 800; ++event) {
+        ASSERT_TRUE(pace.AllowRate(event, At(0us), EventSyncPerSecond));
+    }
+    const auto sweeps = pace.Sweeps();
+    EXPECT_EQ(sweeps, 1u);
+    for (int frame = 1; frame <= 120; ++frame) {
+        const auto now = At(std::chrono::microseconds{frame * 1'000});
+        (void)pace.AllowRate(1, now, EventSyncPerSecond);
+    }
+    EXPECT_EQ(pace.Sweeps(), sweeps);
+    EXPECT_EQ(pace.Size(), 800u);
+    EXPECT_TRUE(pace.AllowRate(900, At(7s), EventSyncPerSecond));
+    EXPECT_EQ(pace.Size(), 1u);
+}
+
 // The player state counter (CS ChrSync, +0xC8): the game sends when the value it loads is 1 or
 // less. Held back, it loads 2: the count goes on to 1 and the game asks again next frame.
 TEST(SendPace, CountdownCounterIsHeldAtOneFrameLeft) {
