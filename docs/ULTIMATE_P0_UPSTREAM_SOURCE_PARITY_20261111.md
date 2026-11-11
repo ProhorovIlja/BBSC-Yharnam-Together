@@ -1,5 +1,9 @@
 # 2026-11-11 P0 co-op world/save regression source parity — exact upstream patches versus Ultimate
 
+## Update: B87 (2026-11-11), after the original B85 parity audit
+
+The original table below accurately reflects **B85** source status, not the latest branch. B87 [Draft #154](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/154) now adds the missing official [YT #566](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/pull/566) active-session pickup reapplication before baseline to `KeepGuestProgress`, with slot/generation owner guard, scoped in-memory cache and C++ test/CI. The independent no-open-prompt and empty-chest causes under P0 #73 are **not yet resolved**, and a new hunter using the *same slot in a new process* still needs a durable identity check. Host home-world #554 full live migration, #553 game-rig acceptance, phantom item #548 save ACK and related P0s remain separate.
+
 This is a code-path comparison performed after B85, **not** a claim of game-rig pass or integrated repair. Candidate sources are merged official Yharnam Together pull requests and the **actual current Ultimate B85 source**. Read with [global source census](ULTIMATE_GLOBAL_SOURCE_SWEEP_20261111_B84.md), [B85](ULTIMATE_BATCH_85.md), and the [canonical user requirement ledger](ULTIMATE_CROSS_CHAT_REQUIREMENTS_MASTER.md). No raw private game files, saves, credentials or screenshots copied to public GitHub.
 
 | Official source / observed upstream fix | Actual Ultimate B85 source audit (2026-11-11) | Disposition and safety gate |
