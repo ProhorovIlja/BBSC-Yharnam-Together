@@ -46,7 +46,8 @@ jobs:
           assert part.index('!inventory_scope.Usable()') < part.index('GetLocalPlayer()')
           assert 'deferred_reward_character_generation.load(' in part
           assert 'character_slot.load(' in part
-          assert 'slot_ >= 0 && slot_ < 10 && generation_ != 0' in scope
+          assert 'return ValidSaveCharacterScope(slot_, generation_);' in scope
+          assert 'slot >= 0 && slot < 10 && generation != 0' in scope
           assert 'EXPECT_EQ(std::ranges::find(CharacterSlotFiles' in tests
           assert 'static PhantomKeyItemLedger ledger;' not in part
           assert 'ScanLatest(' in fs and 'CreateNewRevision(' in fs
