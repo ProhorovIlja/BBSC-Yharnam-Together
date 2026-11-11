@@ -224,6 +224,16 @@ inline ScanResult ScanRevisionsUnlocked(const std::filesystem::path& root, unsig
             blocked = true;
             break;
         }
+        // B79: a zero-debt tombstone means "the hunter's items are safely
+        // saved". No actual disk-save acknowledgement or stable savedata
+        // identity exists in the client yet. A legacy/synthetic committed
+        // tombstone must therefore BLOCK replay/recovery, not silently
+        // erase outstanding debt. ReadReady/Decode remain available for
+        // diagnostics; no confirmed-retirement reader exists yet.
+        if (item->debt.empty()) {
+            blocked = true;
+            break;
+        }
         // A deleted intermediate revision or a forged massive sequence
         // creates an ambiguous history: NEVER use a stale previously-paid
         // debt or implicitly fill a gap.
@@ -272,7 +282,12 @@ inline ScanResult ScanLatest(const std::filesystem::path& root, unsigned slot,
 
 inline bool CreateNewRevision(const std::filesystem::path& root, const Revision& r) {
     namespace fs = std::filesystem;
-    if (!Valid(r)) return false;
+    // B79: refuse an optimistic paid/empty record until a VERIFIED
+    // game-save disk ACK and immutable hunter identity can authorize the
+    // retirement. In-memory HeldKeyGoods equality, slot-only metadata or
+    // a native void-return GiveItems invocation are NOT that ACK. Keep
+    // this writer offline; do not expose a boolean "acknowledged" bypass.
+    if (!Valid(r) || r.debt.empty()) return false;
     std::error_code err;
     if (!fs::is_directory(fs::symlink_status(root, err)) || err) return false;
     const auto lock = root / ".writer.lock";
