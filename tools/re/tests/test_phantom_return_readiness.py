@@ -60,11 +60,11 @@ class PhantomReturnReadiness(unittest.TestCase):
         self.assertIn("subsequent_phantom_debt.LookAtPhantom(list, seen)", phantom_branch)
         self.assertIn("reported_pending_rejoin_list", phantom_branch)
         self.assertLess(phantom_branch.index("subsequent_phantom_debt.LookAtPhantom"),
-                        phantom_branch.index("last_look = HeldKeyGoods();"))
-        self.assertLess(phantom_branch.index("MayUpdatePhantomSnapshot"),
+                        phantom_branch.index("last_look = observed;"))
+        self.assertLess(phantom_branch.index("PreserveFirstPhantomOnRejoin"),
                         phantom_branch.index("phantom_list = list;"))
         self.assertLess(phantom_branch.index("return;\n        }"),
-                        phantom_branch.index("last_look = HeldKeyGoods();"))
+                        phantom_branch.index("last_look = observed;"))
         self.assertIn("subsequent_phantom_debt.LookAtOwn(list, home)", fn)
         self.assertIn("if (!subsequent_missing) return;", fn)
         self.assertIn("subsequent_phantom_debt.GaveBack();", fn)
