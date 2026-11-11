@@ -811,6 +811,11 @@ void BufferCache::LayerProcessIdle() {
         for (u64 block = a; block < b;) {
             const u64 group = (block << block_shift) >> USE_GROUP_BITS;
             const u64 group_end = std::min(b, ((group + 1) << USE_GROUP_BITS) >> block_shift);
+            // B93: invalid/high guest memory or a nonadvancing block boundary
+            // must never index outside the renderer's finite use table.
+            if (group >= group_use.size() || group_end <= block) {
+                break;
+            }
             if (now - group_use[group] >= VramIdleSeconds()) {
                 idle.emplace_back(block, group_end);
             }
@@ -824,9 +829,17 @@ void BufferCache::LayerProcessIdle() {
 }
 
 void BufferCache::NoteDirectUse(VAddr address, u64 size) {
+    // B93: empty ranges previously underflowed address+size-1. At VA=0 that
+    // touched EVERY VRAM-idle group, marking never-used blocks as recently
+    // active and adding potentially enormous needless work. An uninitialized
+    // table would also underflow size()-1 and dereference out of bounds.
+    const auto groups = BbLayer::GpuMemory::GroupRangeForBytes(
+        address, size, USE_GROUP_BITS, layer_group_use.size());
+    if (!groups) {
+        return;
+    }
     const u32 now = BbStats::coarse_second.load(std::memory_order_relaxed);
-    const u64 last = std::min<u64>((address + size - 1) >> USE_GROUP_BITS, layer_group_use.size() - 1);
-    for (u64 group = address >> USE_GROUP_BITS; group <= last; ++group) {
+    for (u64 group = groups->first; group <= groups->second; ++group) {
         if (layer_group_use[group] != now) {
             layer_group_use[group] = now;
         }
@@ -944,6 +957,11 @@ void BufferCache::LayerYieldToImages(u32 now) {
             for (u64 block = a; block < b;) {
                 const u64 group = (block << block_shift) >> USE_GROUP_BITS;
                 const u64 group_end = std::min(b, ((group + 1) << USE_GROUP_BITS) >> block_shift);
+                // B93: a corrupt/unmapped guest range must not dereference
+                // beyond the finite direct-use table or loop without progress.
+                if (group >= layer_group_use.size() || group_end <= block) {
+                    break;
+                }
                 const u32 last = layer_group_use[group];
                 if (now - last >= idle_seconds) {
                     stale.emplace_back(last, block, group_end);
