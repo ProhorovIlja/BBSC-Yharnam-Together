@@ -31,11 +31,11 @@ Specific forks identified for source-level comparison:
 
 Two connected Google Drive accounts were searched read-only for project histories, BBSC, Yharnam, screenshots and port compatibility: **gungrain@gmail.com** and the second connected project account. Writes performed ONLY on the explicitly requested **gungrain** account.
 
-- [Canonical gungrain 01-HISTORY-MD](https://drive.google.com/drive/folders/1DxqwI8w0syys2FDf_g85K3o-TKf7PH4l): **30** previous archive items before this turn, and [user's current 2026-11-11 source archive uploaded and read back](https://drive.google.com/file/d/1WJE5Is6_75W1jo0jPrX0JdYJ-gkVlEAb/view?usp=drivesdk).
-- [Private Discord bug screenshots folder](https://drive.google.com/drive/folders/19VUliAa9O1Tkqw66s7V9dgrDHbDKNjB1) contains **7 PNGs** plus technical intake and SHA256/readme manifests. Captured themes: world progress, TLS/SSL, anti-cheat, missing textures and server governance; keep private and only cite titles in public.
-- Another [Screenshots folder](https://drive.google.com/drive/folders/1RUR5EXDEYx8PB_V9Biug1tVNRG-K4o2I) contains **4 PNGs** named 1–4. Their correspondence to particular historical user screenshots was NOT established. Other folders named screenshots were found, but some are unrelated source code/marketing imagery.
+- Canonical gungrain `01-HISTORY-MD` (private Drive folder): **30** previous archive items before this turn, and user's current 2026-11-11 source archive uploaded and read back (private Drive).
+- Private Discord bug screenshots folder contains **7 PNGs** plus technical intake and SHA256/readme manifests. Captured themes: world progress, TLS/SSL, anti-cheat, missing textures and server governance; keep private and only cite titles in public.
+- Another Screenshots folder contains **4 PNGs** named 1–4. Their correspondence to particular historical user screenshots was NOT established. Other folders named screenshots were found, but some are unrelated source code/marketing imagery.
 - Connected second Drive contains a separate Bloodborne HANDOFF, preserved older chat archives and multiple native Google Docs, including launcher, compatibility, website, upload-order, and latency references.
-- [Canonical requirements](ULTIMATE_CROSS_CHAT_REQUIREMENTS_MASTER.md), [historical source manifest](ULTIMATE_CROSS_CHAT_SOURCE_MANIFEST.md), [bug backlog](ULTIMATE_BUG_ISSUE_BACKLOG.md), [B83 source compatibility](ULTIMATE_BATCH_83.md), and [gungrain Ultimate Doc B54+](https://docs.google.com/document/d/14FIeFh7MZiKjImFCyS-8QAtfcf1Iq39wd4gQ6iZII9Y/edit) retain the context. **Do not claim every image from every chat is uploaded** without per-message image/hash mapping.
+- [Canonical requirements](ULTIMATE_CROSS_CHAT_REQUIREMENTS_MASTER.md), [historical source manifest](ULTIMATE_CROSS_CHAT_SOURCE_MANIFEST.md), [bug backlog](ULTIMATE_BUG_ISSUE_BACKLOG.md), [B83 source compatibility](ULTIMATE_BATCH_83.md), and gungrain Ultimate Doc B54+ (private Drive) retain the context. **Do not claim every image from every chat is uploaded** without per-message image/hash mapping.
 
 ## Reviewed external candidate matrix: no first-hit transplant
 
