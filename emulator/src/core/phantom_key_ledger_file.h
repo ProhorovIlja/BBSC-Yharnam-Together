@@ -231,11 +231,19 @@ inline ScanResult ScanLatest(const std::filesystem::path& root, unsigned slot,
                              std::string_view fingerprint) {
     namespace fs = std::filesystem;
     std::error_code err;
-    // A dangling or unreadable lock is NOT equivalent to an unlocked file.
-    const auto lock_status = fs::symlink_status(root / ".writer.lock", err);
-    if ((err && err != std::errc::no_such_file_or_directory) ||
-        lock_status.type() != fs::file_type::not_found) return {};
-    return detail::ScanRevisionsUnlocked(root, slot, fingerprint);
+    if (!fs::is_directory(fs::symlink_status(root, err)) || err) return {};
+    // A check for an existing lock followed by an unlocked scan has a TOCTOU
+    // race: another writer may create .pending AFTER the check but BEFORE
+    // this reader lists revisions, leading to stale debt replay.
+    // Use the SAME exclusive cooperative lock for readers and writers.
+    // This is only for offline recovery, NOT a per-frame game-thread scan.
+    const auto lock = root / ".writer.lock";
+    err.clear();
+    if (!fs::create_directory(lock, err) || err) return {};
+    const ScanResult result = detail::ScanRevisionsUnlocked(root, slot, fingerprint);
+    err.clear();
+    if (!fs::remove(lock, err) || err) return {};
+    return result;
 }
 
 inline bool CreateNewRevision(const std::filesystem::path& root, const Revision& r) {
