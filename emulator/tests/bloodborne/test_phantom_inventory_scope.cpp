@@ -7,9 +7,29 @@
 
 using BloodborneCoop::PhantomInventoryScope;
 using BloodborneCoop::PhantomReturnMayRetireSnapshot;
+using BloodborneCoop::PhantomReturnAttemptGate;
 using BloodborneCoop::ValidSaveCharacterScope;
 
 int main() {
+    // B75: readiness is necessary to request once; native void-return is
+    // never a save ACK, so another tick must not repeat an ambiguous grant.
+    PhantomReturnAttemptGate receipt;
+    assert(!receipt.Requested());
+    assert(!receipt.MayRequest(1, false));
+    assert(receipt.MayRequest(1, true));
+    assert(!receipt.MayRequest(0, true));
+    assert(receipt.ObservedInOwnInventory(0));
+    assert(!receipt.ObservedInOwnInventory(1));
+    receipt.MarkRequested();
+    assert(receipt.Requested());
+    assert(!receipt.MayRequest(1, true));
+    assert(!receipt.MayRequest(1, false));
+    assert(!receipt.ObservedInOwnInventory(1));
+    assert(receipt.ObservedInOwnInventory(0));
+    receipt.Reset(); // only after an observed home-inventory match / owner switch
+    assert(!receipt.Requested());
+    assert(receipt.MayRequest(5, true));
+
     // B74: while MapItemMan has not yet come back from a scene load,
     // a transition to the own inventory must retain the phantom observations.
     assert(PhantomReturnMayRetireSnapshot(0, false));
