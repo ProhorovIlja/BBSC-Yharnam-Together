@@ -798,10 +798,19 @@ bool SaveGuestProgress(std::span<const s32> flags) {
     if (recorded.empty()) {
         // Only enroll a truly empty journal. Even malformed pre-B88 data
         // must be preserved, NOT silently re-owned by a new hunter.
-        std::ifstream file{GuestProgressFile(), std::ios::binary};
+        const auto progress_file = GuestProgressFile();
+        std::error_code check_error;
+        const bool existed = std::filesystem::exists(progress_file, check_error);
+        if (check_error) {
+            return false; // cannot prove there is no older journal
+        }
+        std::ifstream file{progress_file, std::ios::binary};
+        if (existed && !file.is_open()) {
+            return false; // file exists but cannot be inspected
+        }
         const std::string existing{std::istreambuf_iterator<char>{file}, {}};
-        if (!existing.empty()) {
-            return false; // legacy/unbound journal: preserve for manual migration
+        if (file.bad() || !existing.empty()) {
+            return false; // unreadable or legacy/unbound journal stays quarantined
         }
         if (!ReplaceGuestMetadataFile(GuestPickupOwnerFile(), active + "\n")) {
             LOG_WARNING(Debug, "Bloodborne party: cannot bind new pickup progress to this hunter");
