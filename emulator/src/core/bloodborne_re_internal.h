@@ -967,6 +967,8 @@ void StartTeamLobby();
 bool HoldTitleLoadForTeam(u32 slot, bool fresh = false);
 // A save file opened (NoteSaveFileOpened): the game's character name is the save's soon after.
 void NoteSaveOpenedForName();
+// B88: current game character name only after its own opened save settled.
+std::string SettledOwnCharacterNameForPickupOwner();
 // The title menu is up again: the next load asks the team again.
 void TeamBackAtTitle();
 // The rig's quit-title: how often the title menu came up, and whether the lobby (its state as it
