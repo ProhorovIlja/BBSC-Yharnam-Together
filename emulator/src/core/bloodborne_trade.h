@@ -56,6 +56,10 @@ enum class ItemPopup { Shown, Silent };
 void AddTradeItems(std::span<const TradeItem> items, ItemPopup popup = ItemPopup::Shown);
 // Whether AddTradeItems can (the game's functions it calls are the ones it knows).
 bool TradeItemsCanBeAdded();
+// B74: a stronger check for game-thread key-item restoration. The trading
+// hooks alone are not enough: during loading MapItemMan can be unavailable,
+// and AddTradeItems then discards a void-return grant request without an item.
+bool TradeItemsReadyToGive();
 // An item's name for the other member's boxes (the port's, from the game's own text): the name it
 // has, else the namer's (SetTradeItemNamer), else nothing.
 std::string TradeItemName(const TradeItem& item);
