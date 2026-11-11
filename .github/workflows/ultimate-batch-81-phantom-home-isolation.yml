@@ -1,0 +1,113 @@
+name: Ultimate B81 true hunter inventory vs phantom list unload boundary
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_team.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_team.cpp'
+      - 'tools/re/tests/test_phantom_multisession_ledger.py'
+      - '.github/workflows/ultimate-batch-81-phantom-home-isolation.yml'
+      - 'docs/ULTIMATE_BATCH_81.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-source-order-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prove real ledger cannot mark a phantom pointer as confirmed hunter inventory
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('emulator/src/core/bloodborne_team.cpp').read_text(encoding='utf8')
+          m=s.split('std::optional<std::vector<HeldGoods>> PhantomKeyItemLedger::LookAtOwn(',1)[1].split('void PhantomKeyItemLedger::GaveBack()',1)[0]
+          assert m.index('if (phantom_list != 0)') < m.index('own_look = std::move(held);')
+          assert m.index('return std::nullopt;') < m.index('own_look = std::move(held);')
+          assert m.index('own_look = std::move(held);') < m.index('OwedKeyItemsToGive(carried, own_look)')
+          tests=Path('emulator/tests/bloodborne/test_bloodborne_team.cpp').read_text(encoding='utf8')
+          assert 'StillPhantomListDoesNotReplaceConfirmedHomeInventory' in tests
+          assert 'TrueHomeListMayRefreshOwnInventoryAfterPhantomReload' in tests
+          assert 'std::vector<HeldGoods>{{4114, 1}}' in tests
+          assert 'std::vector<HeldGoods>{{4114, 1}, {4103, 1}}' in tests
+          assert 'CreateNewRevision(' not in m and 'ScanLatest(' not in m
+          docs=Path('docs/ULTIMATE_BATCH_81.md').read_text(encoding='utf8').lower()
+          assert 'not a disk save acknowledgement' in docs
+          print('B81_REAL_HUNTER_HOME_LIST_BOUNDARY_SOURCE_PASS')
+          PY
+  execute-actual-production-ledger-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang execute actual source-extracted ledger unload/rejoin tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            CXX="$cxx" python3 -m unittest discover -s tools/re/tests -p 'test_phantom_multisession_ledger.py' -v
+          done
+  execute-actual-production-ledger-msvc:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: MSVC compile and execute source-extracted production ledger
+        shell: pwsh
+        run: |
+          $env:CXX = 'cl'
+          python -m unittest discover -s tools/re/tests -p 'test_phantom_multisession_ledger.py' -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  real-game-source-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install actual game source dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libprotobuf-dev libfmt-dev libgtest-dev libspdlog-dev \
+            nlohmann-json3-dev libcpp-httplib-dev libboost-dev
+      - name: Actual C++23 syntax/API compile game team, travel, trade and GTest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 -- emulator/externals/spdlog emulator/externals/fmt
+          test -f emulator/externals/spdlog/include/spdlog/spdlog.h
+          test -f emulator/externals/fmt/include/fmt/base.h
+          mkdir -p "${RUNNER_TEMP}/b81-proto"
+          protoc -I server/coop --cpp_out="${RUNNER_TEMP}/b81-proto" server/coop/coop.proto
+          for src in emulator/src/core/bloodborne_team.cpp \
+                     emulator/src/core/bloodborne_travel.cpp \
+                     emulator/src/core/bloodborne_trade.cpp \
+                     emulator/tests/bloodborne/test_bloodborne_team.cpp; do
+            echo "B81_ACTUAL_GAME_SOURCE $src"
+            g++ -std=c++23 -fsyntax-only -Wall -Wextra \
+              -I emulator/externals/fmt/include -I emulator/externals/spdlog/include \
+              -I emulator/src -I server -I "${RUNNER_TEMP}/b81-proto" "$src"
+          done
+      - name: No user saves, game binaries or servers accessed
+        shell: bash
+        run: echo B81_SOURCE_TESTS_ONLY_NO_FORNEX_NO_PLAYER_SAVES_NO_RELEASE
