@@ -738,6 +738,42 @@ TEST(PhantomKeyItems, TheGuestsOwnKeyItemsGoInThePhantomsList) {
     EXPECT_TRUE(PhantomKeyItemsToGiveBack(phantom, last_look, own).empty());
 }
 
+// B77: while one native void-return grant is pending for an earlier
+// phantom, preserve later phantom rewards in a SEPARATE ledger across multiple
+// re-joins. The real game callback uses this exact production ledger class;
+// GaveBack must not be called until a subsequent home inventory observation.
+TEST(PhantomKeyItems, PendingFirstGrantRetainsNewGainsAcrossThreePhantomLists) {
+    PhantomKeyItemLedger secondary;
+    EXPECT_TRUE(secondary.LookAtPhantom(0xA000, {}).empty());
+    EXPECT_TRUE(secondary.LookAtPhantom(0xA000, {{4110, 1}}).empty());
+    EXPECT_EQ(secondary.Owed(), (std::vector<OwedKeyItem>{{4110, 1, 1}}));
+    // A second phantom appears before we returned home; the first item
+    // continues to be owed while a second new badge is gained.
+    (void)secondary.LookAtPhantom(0xB000, {});
+    EXPECT_TRUE(secondary.LookAtPhantom(0xB000, {{4000, 1}}).empty());
+    (void)secondary.LookAtPhantom(0xC000, {});
+    EXPECT_TRUE(secondary.LookAtPhantom(0xC000, {{4103, 1}}).empty());
+    EXPECT_EQ(secondary.Owed(),
+              (std::vector<OwedKeyItem>{{4110, 1, 1}, {4000, 1, 1}, {4103, 1, 1}}));
+    // Character type may have changed before the game's phantom key list
+    // was swapped: a same-pointer look must not acknowledge a home inventory.
+    EXPECT_EQ(secondary.LookAtOwn(0xC000, {{4103, 1}}), std::nullopt);
+    const auto missed = secondary.LookAtOwn(0xD000, {});
+    ASSERT_TRUE(missed);
+    EXPECT_EQ(*missed,
+              (std::vector<HeldGoods>{{4110, 1}, {4000, 1}, {4103, 1}}));
+    // A successful native void-return call has no guaranteed save ACK.
+    // The debt remains until a later real own-list observation shows it.
+    EXPECT_EQ(secondary.Owed(),
+              (std::vector<OwedKeyItem>{{4110, 1, 1}, {4000, 1, 1}, {4103, 1, 1}}));
+    const auto now_held = secondary.LookAtOwn(
+        0xD000, {{4110, 1}, {4000, 1}, {4103, 1}});
+    ASSERT_TRUE(now_held);
+    EXPECT_TRUE(now_held->empty());
+    secondary.GaveBack();
+    EXPECT_TRUE(secondary.Owed().empty());
+}
+
 // B68: merged upstream #548 phantom earned-goods tests (restart and list transitions).
 TEST(PhantomKeyItems, WhatWasGainedComesBackAfterTheGameStartsAgain) {
     PhantomKeyItemLedger first_run;
