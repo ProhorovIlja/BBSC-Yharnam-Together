@@ -1020,6 +1020,16 @@ bool ShouldReplayGuestPickupsInSession(bool in_session, int current_slot, u64 cu
             (observed_slot == current_slot && observed_generation == current_generation));
 }
 
+// B88: a persisted pickup journal has a separate, explicit owner name.
+// A character name is a useful cross-process mismatch check, NOT a unique
+// hunter ID: two hunters may have exactly the same name. Without a verified
+// marker, replay must fail closed instead of importing an older slot's loot.
+bool PickupOwnerNameMatches(std::string_view recorded, std::string_view active) {
+    return !recorded.empty() && recorded.size() <= 64 && recorded == active &&
+           recorded.find('\n') == std::string_view::npos &&
+           recorded.find('\r') == std::string_view::npos;
+}
+
 TeamJoin::Action TeamJoin::Tick(const Frame& frame) {
     if (!frame.host) {
         if (frame.matching_state == MatchingStateSummonedGuest && frame.session_members <= 1) {
