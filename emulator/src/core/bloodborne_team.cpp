@@ -999,6 +999,13 @@ bool KeptChangeYieldsToTeam(s32 flag, std::optional<s64> kept_ms, s64 now_ms,
            (!kept_ms || now_ms - *kept_ms >= KeptChangeReportMs);
 }
 
+// B86, adapted from merged Yharnam Together #553 (GPL-2.0-or-later).
+// Kept host-world flags must not leak into a guest's solo save.
+// Native per-character items, pickups and gestures still belong to that character.
+bool KeptChangeStaysWithTeam(s32 flag, bool team_mode, bool plays_in_team) {
+    return team_mode && !plays_in_team && IsWorldFlag(flag);
+}
+
 TeamJoin::Action TeamJoin::Tick(const Frame& frame) {
     if (!frame.host) {
         if (frame.matching_state == MatchingStateSummonedGuest && frame.session_members <= 1) {
