@@ -5,6 +5,9 @@ on:
       - 'bbport/gpu/cp/cp_decoder.cpp'
       - 'bbport/gpu/cp/cp_decoder.h'
       - 'bbport/tests/test_cp_decoder.cpp'
+      - 'bbport/tests/test_send_pace_hot_path.cpp'
+      - 'emulator/src/core/bloodborne_send_pace.h'
+      - 'emulator/tests/bloodborne/test_bloodborne_send_pace.cpp'
       - '.github/workflows/ultimate-batch-89-pm4-bounds.yml'
       - 'docs/ULTIMATE_BATCH_89.md'
       - 'docs/ULTIMATE_PERFORMANCE_GRAPHICS_NETWORK_SOURCE_AUDIT_20261111.md'
@@ -53,6 +56,16 @@ jobs:
             timeout 40s "$RUNNER_TEMP/b89-pm4"
           done
           echo B89_GPU_PM4_DECODER_GCC_CLANG_PASS
+      - name: Linux GCC and Clang exercise actual co-op SendPace hot path
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -I emulator/src \
+              bbport/tests/test_send_pace_hot_path.cpp -o "$RUNNER_TEMP/b89-send-pace"
+            timeout 30s "$RUNNER_TEMP/b89-send-pace"
+          done
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
       - name: Windows MSVC compile and run actual graphics CP decoder
@@ -64,3 +77,30 @@ jobs:
           & "$env:RUNNER_TEMP\b89-pm4.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Write-Host "B89_GPU_PM4_DECODER_MSVC_PASS"
+      - name: Windows MSVC execute real co-op SendPace hot-path regression
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator\src bbport\tests\test_send_pace_hot_path.cpp /Fe:"$env:RUNNER_TEMP\b89-send-pace.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP\b89-send-pace.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "B89_SEND_PACE_MSVC_PASS"
+  game-native-send-pace-gtests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install GoogleTest (game-free actual emulator header)
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgtest-dev
+      - name: Run all existing and new SendPace GoogleTests
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O1 -Wall -Wextra -pthread -I emulator/src \
+            emulator/tests/bloodborne/test_bloodborne_send_pace.cpp \
+            -lgtest_main -lgtest -o "$RUNNER_TEMP/b89-send-pace-gtest"
+          timeout 60s "$RUNNER_TEMP/b89-send-pace-gtest" --gtest_filter='SendPace.*' --gtest_color=no
+          echo B89_REAL_EMULATOR_SEND_PACE_GTEST_PASS
