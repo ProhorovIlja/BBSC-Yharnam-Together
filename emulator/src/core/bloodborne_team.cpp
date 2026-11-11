@@ -1006,6 +1006,20 @@ bool KeptChangeStaysWithTeam(s32 flag, bool team_mode, bool plays_in_team) {
     return team_mode && !plays_in_team && IsWorldFlag(flag);
 }
 
+// B87: reapply the active hunter's remembered pickups after a crash/rejoin,
+// but never replay on the FIRST observation of a changed live slot/generation.
+// At process startup no previous hunter has been observed; a valid slot can
+// replay from its existing persisted metadata. A known owner switch waits for
+// a new tick after ResetGuestPickupObservationIfOwnerChanged resets its
+// baseline and ForgetSlotIfNewCharacter has handled new-character metadata.
+// This does not constitute a durable cross-process character fingerprint.
+bool ShouldReplayGuestPickupsInSession(bool in_session, int current_slot, u64 current_generation,
+                                       int observed_slot, u64 observed_generation) {
+    return in_session && current_slot >= 0 && current_generation != 0 &&
+           (observed_slot < 0 ||
+            (observed_slot == current_slot && observed_generation == current_generation));
+}
+
 TeamJoin::Action TeamJoin::Tick(const Frame& frame) {
     if (!frame.host) {
         if (frame.matching_state == MatchingStateSummonedGuest && frame.session_members <= 1) {
