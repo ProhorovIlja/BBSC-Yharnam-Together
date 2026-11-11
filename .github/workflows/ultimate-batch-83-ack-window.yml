@@ -1,0 +1,105 @@
+name: Ultimate B83 reject future ACKs in native game link without losing control packets
+on:
+  pull_request:
+    paths:
+      - 'server/coop/game_link.h'
+      - 'server/tests/test_game_link_resend.cpp'
+      - 'emulator/tests/bloodborne/test_bloodborne_game_link.cpp'
+      - '.github/workflows/ultimate-batch-83-ack-window.yml'
+      - 'docs/ULTIMATE_BATCH_83.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-protocol-invariant:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Only acknowledge flushed reliable sequences, including after restart
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h=Path('server/coop/game_link.h').read_text(encoding='utf8')
+          tests=Path('server/tests/test_game_link_resend.cpp').read_text(encoding='utf8')
+          emulator=Path('emulator/tests/bloodborne/test_bloodborne_game_link.cpp').read_text(encoding='utf8')
+          flush=h.split('std::vector<GameFrame> Flush(s64 now_ms) {',1)[1].split('// A frame from the member:',1)[0]
+          receive=h.split('std::vector<std::vector<u8>> Receive(const GameFrame& frame, s64 now_ms) {',1)[1].split('size_t Unacked() const',1)[0]
+          restart=h.split('void RestartStreams(std::optional<s64> old_heard_ms) {',1)[1].split('void TakeUnreliable(',1)[0]
+          assert 'sent_reliable_end = out.seq + 1;' in flush
+          assert flush.index('sent_reliable_end = out.seq + 1;') < flush.index('unacked.emplace(out.seq')
+          assert 'frame.peer_instance == instance && frame.ack <= sent_reliable_end' in receive
+          assert receive.index('frame.ack <= sent_reliable_end') < receive.index('unacked.lower_bound(frame.ack)')
+          assert receive.index('unacked.erase(unacked.begin(), acked)') < receive.index('std::vector<std::vector<u8>> delivered')
+          assert 'sent_reliable_end = 0;' in restart
+          assert 'u32 sent_reliable_end = 0;' in h
+          assert 'FutureAckBeforeFlushDoesNotRetireReliableState' in tests
+          assert 'FutureAckNeverDiscardsPreviouslySentOrQueuedJoinData' in emulator
+          assert 'FutureAckDoesNotDiscardInboundReliableData' in emulator
+          assert 'std::ranges::none_of(entries' not in flush
+          assert 'emitted_reliable.insert(seq).second' in flush
+          doc=Path('docs/ULTIMATE_BATCH_83.md').read_text(encoding='utf8')
+          assert 'NOT an authenticated savedata acknowledgement' in doc
+          print('B83_ACTUAL_CLIENT_SERVER_ACK_WINDOW_CONTRACT_PASS')
+          PY
+  execute-production-game-link:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Linux GCC and Clang compile/run shared C++20 network reliability
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+              -I server server/tests/test_game_link_resend.cpp \
+              -o "/tmp/b83-${cxx}"
+            timeout 40s "/tmp/b83-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Windows MSVC compile/run actual GameLinkPeer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iserver server/tests/test_game_link_resend.cpp /Fe:"${{ runner.temp }}\b83.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b83.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  full-native-game-link-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install existing real-game transport test dependencies
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgtest-dev
+      - name: Compile and RUN real emulator GameLink GoogleTests, including restart and loss
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O1 -pthread -I emulator/src -I server \
+            emulator/tests/bloodborne/test_bloodborne_game_link.cpp \
+            -lgtest_main -lgtest -o /tmp/b83-real-gamelink
+          timeout 100s /tmp/b83-real-gamelink --gtest_filter='GameLink.*' --gtest_color=no
+          echo B83_REAL_GAME_LINK_GTEST_PASS_NO_REAL_SAVEDATA_OR_GAME_DUMP

@@ -82,6 +82,47 @@ int EveryEnemyUnreliablePacketIsPreserved() {
     return 0;
 }
 
+int FutureAckBeforeFlushDoesNotRetireReliableState() {
+    GameLinkPeer host{"host", 1};
+    GameLinkPeer guest{"guest", 2};
+    host.Send(PacketClass::Reliable, Packet(0x29, 7), 0);
+    for (const auto& frame : host.Flush(0)) {
+        const auto received = guest.Receive(frame, 0);
+        CHECK(received.size() == 1 && received[0].back() == 7);
+    }
+    (void)guest.Flush(10); // ACK lost
+    host.Send(PacketClass::Reliable, Packet(0x42, 8), 10); // still unsent
+    CHECK(host.Unacked() == 2);
+    const GameFrame impossible{.sender = "guest", .instance = 2,
+                               .peer_instance = 1, .ack = 2, .entries = {}};
+    (void)host.Receive(impossible, 20);
+    CHECK(host.Unacked() == 2);
+    const GameFrame extreme{.sender = "guest", .instance = 2,
+                            .peer_instance = 1, .ack = 0xFFFFFFFFu, .entries = {}};
+    (void)host.Receive(extreme, 30);
+    CHECK(host.Unacked() == 2);
+    const GameFrame valid{.sender = "guest", .instance = 2,
+                          .peer_instance = 1, .ack = 1, .entries = {}};
+    (void)host.Receive(valid, 40);
+    CHECK(host.Unacked() == 1);
+    for (const auto& frame : host.Flush(50)) {
+        const auto delivered = guest.Receive(frame, 50);
+        CHECK(delivered.size() == 1 && delivered[0].back() == 8);
+    }
+    for (const auto& frame : guest.Flush(60)) {
+        (void)host.Receive(frame, 60);
+    }
+    CHECK(host.Unacked() == 0);
+
+    // Invalid ACK does not suppress inbound game data.
+    GameFrame from_new{.sender = "new_guest", .instance = 5,
+                       .peer_instance = 1, .ack = 999, .entries = {}};
+    from_new.entries.push_back({PacketClass::Reliable, 0, Packet(0x42, 9)});
+    const auto received = host.Receive(from_new, 70);
+    CHECK(received.size() == 1 && received[0].back() == 9);
+    return 0;
+}
+
 int FreshPacketsNotRepeatedEvenWithZeroResendDelay() {
     GameLinkPeer::Settings settings;
     settings.resend_ms = 0; // source-policy regression, not a shipped setting
@@ -119,6 +160,7 @@ int IndependentTwoThreeFiveMemberStreams() {
 int main() {
     if (ReliableBacklogResendOrderAndUniqueness()) return 1;
     if (EveryEnemyUnreliablePacketIsPreserved()) return 1;
+    if (FutureAckBeforeFlushDoesNotRetireReliableState()) return 1;
     if (FreshPacketsNotRepeatedEvenWithZeroResendDelay()) return 1;
     if (IndependentTwoThreeFiveMemberStreams()) return 1;
     std::cout << "B82_REAL_GAME_LINK_RETRANSMISSION_PASS\n";

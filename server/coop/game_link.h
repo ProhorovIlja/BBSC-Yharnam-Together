@@ -189,6 +189,9 @@ public:
         for (Outgoing& out : fresh) {
             entries.push_back({out.packet_class, out.seq, out.packet});
             if (out.packet_class == PacketClass::Reliable) {
+                // B83: next_reliable also includes not-yet-flushed
+                // messages. Only sequences actually sent may be ACKed.
+                sent_reliable_end = out.seq + 1;
                 out.sent_ms = now_ms;
                 out.wait_ms = settings.resend_ms;
                 unacked.emplace(out.seq, std::move(out));
@@ -273,7 +276,11 @@ public:
             ack_owed = true;
             return {};
         }
-        if (frame.peer_instance == instance) {
+        // B83: a cumulative ACK beyond the last reliable sequence
+        // actually put on the wire is impossible. Reject its ACK effect
+        // without discarding inbound data or disconnecting the peer.
+        // An unflushed join/world control must never be acknowledged.
+        if (frame.peer_instance == instance && frame.ack <= sent_reliable_end) {
             const auto acked = unacked.lower_bound(frame.ack);
             for (auto out = unacked.begin(); out != acked; ++out) {
                 reliable_bytes -= out->second.packet.size();
@@ -374,6 +381,7 @@ private:
         held_bytes = 0;
         newest_unreliable.clear();
         next_reliable = 0;
+        sent_reliable_end = 0;
         next_unreliable = 0;
         unacked.clear();
         reliable_bytes = 0;
@@ -431,6 +439,7 @@ private:
     std::optional<s64> last_heard_ms;
 
     u32 next_reliable = 0;
+    u32 sent_reliable_end = 0; // highest exclusive seq actually flushed
     u32 next_unreliable = 0;
     std::deque<Outgoing> fresh;
     std::map<u32, Outgoing> unacked;
