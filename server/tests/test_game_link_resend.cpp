@@ -123,6 +123,69 @@ int FutureAckBeforeFlushDoesNotRetireReliableState() {
     return 0;
 }
 
+// B85: a delayed frame for a previous local game must not teach us a
+// phantom remote instance or discard a live world head / unflushed join hello.
+int StaleTargetNeverRestartsValidPeerOrDropsNativeJoin() {
+    GameLinkPeer host{"host", 1};
+    GameLinkPeer guest{"guest", 2};
+    host.Send(PacketClass::Reliable, Packet(0x29, 7), 0);
+    const auto first = host.Flush(0);
+    CHECK(first.size() == 1);
+    CHECK(guest.Receive(first[0], 0).size() == 1);
+    (void)guest.Flush(1); // world-head ACK lost
+
+    const GameFrame known{.sender = "guest", .instance = 2,
+                          .peer_instance = 1, .ack = 0, .entries = {}};
+    CHECK(host.Receive(known, 10).empty());
+    host.Send(PacketClass::Reliable, Packet(0x42, 8), 11); // not yet emitted
+    CHECK(host.Unacked() == 2);
+    CHECK(host.Restarts() == 0);
+    GameFrame stale{.sender = "guest", .instance = 999,
+                    .peer_instance = 123, .ack = 999, .entries = {}};
+    stale.entries.push_back({PacketClass::Reliable, 0, Packet(0x42, 99)});
+    CHECK(host.Receive(stale, 20).empty());
+    CHECK(host.Unacked() == 2);
+    CHECK(host.Restarts() == 0);
+
+    const GameFrame legitimate{.sender = "guest", .instance = 2,
+                               .peer_instance = 1, .ack = 1, .entries = {}};
+    CHECK(host.Receive(legitimate, 30).empty());
+    CHECK(host.Unacked() == 1);
+    CHECK(host.Restarts() == 0);
+    for (const auto& frame : host.Flush(40)) {
+        CHECK(frame.peer_instance == 2);
+        const auto received = guest.Receive(frame, 40);
+        CHECK(received.size() == 1 && received[0].back() == 8);
+    }
+    for (const auto& frame : guest.Flush(50)) {
+        (void)host.Receive(frame, 50);
+    }
+    CHECK(host.Unacked() == 0);
+    CHECK(host.Restarts() == 0);
+    return 0;
+}
+
+// Even before our first valid remote instance arrives, a stale-target
+// datagram must not seed the peer identity used in response headers.
+int StaleTargetBeforeHandshakeCannotSeedPeerInstance() {
+    GameLinkPeer host{"host", 1};
+    const GameFrame stale{.sender = "guest", .instance = 999,
+                          .peer_instance = 123, .ack = 0, .entries = {}};
+    CHECK(host.Receive(stale, 10).empty());
+    const auto response = host.Flush(10);
+    CHECK(response.size() == 1);
+    CHECK(response[0].peer_instance == 0);
+    CHECK(host.Restarts() == 0);
+    const GameFrame genuine{.sender = "guest", .instance = 2,
+                            .peer_instance = 1, .ack = 0, .entries = {}};
+    CHECK(host.Receive(genuine, 20).empty());
+    CHECK(host.Restarts() == 0);
+    const auto next = host.Flush(1020);
+    CHECK(next.size() == 1);
+    CHECK(next[0].peer_instance == 2);
+    return 0;
+}
+
 int FreshPacketsNotRepeatedEvenWithZeroResendDelay() {
     GameLinkPeer::Settings settings;
     settings.resend_ms = 0; // source-policy regression, not a shipped setting
@@ -202,6 +265,8 @@ int main() {
     if (FutureAckBeforeFlushDoesNotRetireReliableState()) return 1;
     if (FreshPacketsNotRepeatedEvenWithZeroResendDelay()) return 1;
     if (IndependentTwoThreeFiveMemberStreams()) return 1;
+    if (StaleTargetNeverRestartsValidPeerOrDropsNativeJoin()) return 1;
+    if (StaleTargetBeforeHandshakeCannotSeedPeerInstance()) return 1;
     if (VariableSenderFrameBudgetTracksActualWireEncoding()) return 1;
     std::cout << "B82_REAL_GAME_LINK_RETRANSMISSION_PASS\n";
     return 0;
