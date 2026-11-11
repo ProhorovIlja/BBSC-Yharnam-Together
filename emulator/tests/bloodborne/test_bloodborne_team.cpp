@@ -738,6 +738,38 @@ TEST(PhantomKeyItems, TheGuestsOwnKeyItemsGoInThePhantomsList) {
     EXPECT_TRUE(PhantomKeyItemsToGiveBack(phantom, last_look, own).empty());
 }
 
+// B80: when the first guest list gained a badge and the user rapidly
+// joins another phantom BEFORE any native return, preserve that first debt.
+// The second lane may observe the SAME badge again: the home-list receipt
+// from the first must prevent a second native grant for that duplicate.
+TEST(PhantomKeyItems, RapidPreGrantRejoinPreservesFirstAndDedupsSecondLaneGoods) {
+    const std::vector<HeldGoods> first_before{};
+    const std::vector<HeldGoods> first_after{{4114, 1}};
+    EXPECT_EQ(PhantomKeyItemsGained(first_before, first_after),
+              (std::vector<OwedKeyItem>{{4114, 1, 1}}));
+
+    PhantomKeyItemLedger subsequent;
+    EXPECT_TRUE(subsequent.LookAtPhantom(0xB000, {}).empty());
+    EXPECT_TRUE(subsequent.LookAtPhantom(0xB000, {{4114, 1}, {4000, 1}}).empty());
+    (void)subsequent.LookAtPhantom(0xC000, {});
+    EXPECT_TRUE(subsequent.LookAtPhantom(0xC000, {{4103, 1}}).empty());
+    EXPECT_EQ(subsequent.Owed(),
+              (std::vector<OwedKeyItem>{{4103, 1, 1}, {4114, 1, 1}, {4000, 1, 1}}));
+    const auto first_missing = PhantomKeyItemsToGiveBack(first_before, first_after, {});
+    EXPECT_EQ(first_missing, (std::vector<HeldGoods>{{4114, 1}}));
+    const std::vector<HeldGoods> home_after_first{{4114, 1}};
+    const auto second_missing = subsequent.LookAtOwn(0xD000, home_after_first);
+    ASSERT_TRUE(second_missing);
+    EXPECT_EQ(*second_missing, (std::vector<HeldGoods>{{4103, 1}, {4000, 1}}));
+    EXPECT_EQ(subsequent.Owed().size(), 3u); // debt retained until own-list receipt
+    const auto all_home = subsequent.LookAtOwn(0xD000,
+                                               {{4114, 1}, {4000, 1}, {4103, 1}});
+    ASSERT_TRUE(all_home);
+    EXPECT_TRUE(all_home->empty());
+    subsequent.GaveBack();
+    EXPECT_TRUE(subsequent.Owed().empty());
+}
+
 // B77: while one native void-return grant is pending for an earlier
 // phantom, preserve later phantom rewards in a SEPARATE ledger across multiple
 // re-joins. The real game callback uses this exact production ledger class;

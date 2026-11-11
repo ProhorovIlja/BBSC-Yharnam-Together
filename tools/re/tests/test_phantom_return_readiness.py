@@ -46,15 +46,25 @@ class PhantomReturnReadiness(unittest.TestCase):
         # Rejoin guard must run BEFORE throttle and BEFORE any mutation of
         # last_look, first_look or phantom_list for a new guest list.
         phantom_branch = fn.split("if (ReadValue<s32>(player, 0x78) == PhantomType)", 1)[1]
-        self.assertIn("subsequent_tracking || !return_attempt.MayUpdatePhantomSnapshot()", phantom_branch)
+        self.assertIn("PreserveFirstPhantomOnRejoin(", phantom_branch)
+        self.assertIn("!PhantomKeyItemsGained(first_look, last_look).empty()", phantom_branch)
+        self.assertIn("return_attempt.Requested()", phantom_branch)
+        self.assertIn("const std::vector<HeldGoods> own_topups", phantom_branch)
+        self.assertIn("if (!own_topups.empty() && !TradeItemsReadyToGive())", phantom_branch)
+        self.assertLess(phantom_branch.index("if (!own_topups.empty() && !TradeItemsReadyToGive())"),
+                        phantom_branch.index("phantom_list = list;"))
+        self.assertLess(phantom_branch.index("if (!own_topups.empty() && !TradeItemsReadyToGive())"),
+                        phantom_branch.index("first_look = observed;"))
+        self.assertLess(phantom_branch.index("if (!own_topups.empty() && !TradeItemsReadyToGive())"),
+                        phantom_branch.index("last_look = observed;"))
         self.assertIn("subsequent_phantom_debt.LookAtPhantom(list, seen)", phantom_branch)
         self.assertIn("reported_pending_rejoin_list", phantom_branch)
         self.assertLess(phantom_branch.index("subsequent_phantom_debt.LookAtPhantom"),
-                        phantom_branch.index("last_look = HeldKeyGoods();"))
-        self.assertLess(phantom_branch.index("MayUpdatePhantomSnapshot"),
+                        phantom_branch.index("last_look = observed;"))
+        self.assertLess(phantom_branch.index("PreserveFirstPhantomOnRejoin"),
                         phantom_branch.index("phantom_list = list;"))
         self.assertLess(phantom_branch.index("return;\n        }"),
-                        phantom_branch.index("last_look = HeldKeyGoods();"))
+                        phantom_branch.index("last_look = observed;"))
         self.assertIn("subsequent_phantom_debt.LookAtOwn(list, home)", fn)
         self.assertIn("if (!subsequent_missing) return;", fn)
         self.assertIn("subsequent_phantom_debt.GaveBack();", fn)

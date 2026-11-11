@@ -51,7 +51,7 @@ class LiveMultiSessionLedger(unittest.TestCase):
             self.assertIn(marker, body, marker)
         phantom = body.split("if (ReadValue<s32>(player, 0x78) == PhantomType) {", 1)[1]
         self.assertLess(phantom.index("subsequent_phantom_debt.LookAtPhantom(list, seen)"),
-                        phantom.index("last_look = HeldKeyGoods();"))
+                        phantom.index("last_look = observed;"))
         own = body.split("std::optional<std::vector<HeldGoods>> subsequent_missing;", 1)[1]
         self.assertLess(own.index("subsequent_phantom_debt.LookAtOwn(list, home)"),
                         own.index("if (phantom_list == 0)"))
@@ -132,6 +132,26 @@ int main() {
     // Another hunter's process must never inherit the old in-memory tracker.
     ledger.Load({});
     assert(ledger.Owed().empty());
+    // B80: initial guest has already earned a key when a rapid rejoin
+    // occurs BEFORE its first native grant. The same key can appear
+    // again in a later phantom; receipt of the first must deduplicate it.
+    const std::vector<HeldGoods> first_earned{{4114, 1}};
+    const auto first_debt = PhantomKeyItemsGained({}, first_earned);
+    assert((first_debt == std::vector<OwedKeyItem>{{4114,1,1}}));
+    PhantomKeyItemLedger second_lane;
+    assert(second_lane.LookAtPhantom(0xAA00, {}).empty());
+    assert(second_lane.LookAtPhantom(0xAA00, {{4114,1},{4000,1}}).empty());
+    (void)second_lane.LookAtPhantom(0xBB00, {});
+    assert(second_lane.LookAtPhantom(0xBB00, {{4103,1}}).empty());
+    // The FIRST grant has been observed in the hunter's own inventory.
+    const auto still_missing = second_lane.LookAtOwn(0xCC00, {{4114,1}});
+    assert(still_missing.has_value());
+    assert((*still_missing == std::vector<HeldGoods>{{4103,1},{4000,1}}));
+    const auto fully_observed = second_lane.LookAtOwn(0xCC00,
+                                                      {{4114,1},{4000,1},{4103,1}});
+    assert(fully_observed && fully_observed->empty());
+    second_lane.GaveBack();
+    assert(second_lane.Owed().empty());
     return 0;
 }
 '''
