@@ -1,0 +1,90 @@
+name: Ultimate B79 no unverified item debt tombstones or fake savedata acknowledgement
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/phantom_key_ledger_file.h'
+      - 'emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp'
+      - 'docs/ULTIMATE_BATCH_79.md'
+      - '.github/workflows/ultimate-batch-79-save-ack-retirement.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  savedata-ack-source-audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Never retire journal debt on in-RAM receipt or slot-only identity
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          journal=Path('emulator/src/core/phantom_key_ledger_file.h').read_text(encoding='utf8')
+          tests=Path('emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp').read_text(encoding='utf8')
+          game=Path('emulator/src/core/bloodborne_travel.cpp').read_text(encoding='utf8')
+          save=Path('emulator/src/core/bloodborne_re.cpp').read_text(encoding='utf8')
+          scan=journal.split('inline ScanResult ScanRevisionsUnlocked(',1)[1].split('inline ScanResult ScanLatest(',1)[0]
+          writer=journal.split('inline bool CreateNewRevision(',1)[1]
+          assert 'if (item->debt.empty()) {' in scan
+          assert scan.index('if (item->debt.empty()) {') < scan.index('item->sequence == 0')
+          assert 'if (!Valid(r) || r.debt.empty()) return false;' in writer
+          assert writer.index('if (!Valid(r) || r.debt.empty()) return false;') < writer.index('fs::create_directory(lock')
+          assert 'assert(!CreateNewRevision(root, cleared));' in tests
+          assert 'assert(ReadReady(fake_ready) == std::optional{tomb2})' in tests
+          assert 'ScanLatest(tomb_root, 0, identity).status == ScanStatus::Blocked' in tests
+          assert 'assert(!fs::exists(root / ".writer.lock"));' in tests
+          assert 'void NoteSaveFileOpened(std::string_view guest_path)' in save
+          hook=save.split('void NoteSaveFileOpened(std::string_view guest_path)',1)[1].split('\n}',1)[0]
+          assert 'CharacterSlotOfSavePath(guest_path)' in hook
+          assert 'character_slot.exchange(*slot)' in hook
+          assert 'CreateNewRevision(' not in game and 'ScanLatest(' not in game
+          assert 'std::ofstream' not in game.split('void GiveBackPhantomKeyItems() {',1)[1].split('// See LampsToRelight',1)[0]
+          doc=Path('docs/ULTIMATE_BATCH_79.md').read_text(encoding='utf8').lower()
+          assert 'cannot prove a disk save acknowledgement' in doc
+          print('B79_NO_FALSE_DISK_SAVE_ACK_SOURCE_PASS')
+          PY
+  actual-offline-ledger-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: GCC and Clang strict C++20 production journal and tombstone policy
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for cxx in g++ clang++; do
+            "$cxx" -std=c++20 -O2 -Wall -Wextra -Werror -pedantic \
+              -I emulator/src emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp \
+              -o "/tmp/b79-${cxx}"
+            timeout 30s "/tmp/b79-${cxx}"
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: MSVC strict C++20 actual offline journal and synthetic legacy tombstone
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cl /nologo /std:c++20 /EHsc /W4 /Iemulator/src emulator/tests/bloodborne/test_phantom_key_ledger_file.cpp /Fe:"${{ runner.temp }}\b79.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "${{ runner.temp }}\b79.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Evidence boundary
+        shell: bash
+        run: echo B79_OFFLINE_ONLY_BLOCKS_UNVERIFIED_TOMBSTONES_NO_GAME_SAVES_NO_FORNEX

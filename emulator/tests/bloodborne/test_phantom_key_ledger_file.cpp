@@ -93,12 +93,45 @@ int main() {
     assert(ScanLatest(root, 3, identity).latest == std::optional{second});
     assert(ReadReady(ready1) == std::optional{first});
 
-    // An explicit tombstone is a committed entry, not "file went missing".
+    // B79: without a verified game-save disk ACK, the offline API cannot
+    // infer "paid and saved" from an in-RAM inventory observation. Deny
+    // tombstone publishing BEFORE taking the lock or making a directory.
     Revision cleared{3, identity, 3, ""};
-    assert(CreateNewRevision(root, cleared));
-    assert(ReadReady(root / (Name(cleared) + ".ready")) == std::optional{cleared});
-    assert(ScanLatest(root, 3, identity).latest == std::optional{cleared});
+    assert(Valid(cleared));  // old wire bytes still decode for diagnosis
+    assert(Decode(Encode(cleared)) == std::optional{cleared});
+    assert(!CreateNewRevision(root, cleared));
+    assert(!fs::exists(root / (Name(cleared) + ".ready")));
+    assert(!fs::exists(root / (Name(cleared) + ".pending")));
+    assert(!fs::exists(root / ".writer.lock"));
+    assert(ScanLatest(root, 3, identity).latest == std::optional{second});
+    Revision third{3, identity, 3, "4114 1 1\n4000 1 2\n4110 1 1\n"};
+    assert(CreateNewRevision(root, third));
+    assert(ReadReady(root / (Name(third) + ".ready")) == std::optional{third});
+    assert(ScanLatest(root, 3, identity).latest == std::optional{third});
     assert(ReadReady(ready1) == std::optional{first});
+
+    // A legacy/fabricated empty .ready record must never be silently
+    // interpreted as a durable save-confirmed receipt by the scanner.
+    // Do not delete or rewrite that record on encountering it.
+    const fs::path tomb_root = root / "isolated-unproven-tombstone";
+    assert(fs::create_directory(tomb_root));
+    Revision tomb1{0, identity, 1, "4114 1 1\n"};
+    Revision tomb2{0, identity, 2, ""};
+    assert(CreateNewRevision(tomb_root, tomb1));
+    assert(!CreateNewRevision(tomb_root, tomb2));
+    const fs::path fake_ready = tomb_root / (Name(tomb2) + ".ready");
+    assert(fs::create_directory(fake_ready));
+    {
+        std::ofstream out{fake_ready / "ledger.txt", std::ios::binary};
+        out << Encode(tomb2);
+        assert(out.good());
+    }
+    assert(ReadReady(fake_ready) == std::optional{tomb2}); // inspect only
+    assert(ScanLatest(tomb_root, 0, identity).status == ScanStatus::Blocked);
+    assert(ScanLatest(tomb_root, 0, identity).latest == std::nullopt);
+    assert(!CreateNewRevision(tomb_root, Revision{0, identity, 3, "4000 1 1\n"}));
+    assert(ReadReady(tomb_root / (Name(tomb1) + ".ready")) == std::optional{tomb1});
+    assert(!fs::exists(tomb_root / ".writer.lock"));
 
     // Crash / previous writer still active: do not steal a stale lock.
     assert(fs::create_directory(root / ".writer.lock"));
@@ -118,8 +151,8 @@ int main() {
     }
 
     assert(CreateNewRevision(root, later));
-    // A writer may NEVER skip a sequence or create an older paid record
-    // after a tombstone. This is checked inside the exclusive writer lock.
+    // A writer may NEVER skip a sequence or create an older confirmed
+    // record after a third revision. The writer checks this under its lock.
     assert(!CreateNewRevision(root, first));
     assert(!CreateNewRevision(root, cleared));
     Revision skipped{3, identity, 9, "4114 1 1\n"};
