@@ -1,0 +1,5 @@
+# V49 release-aware install and download pages
+
+[Private staging kit](https://drive.google.com/file/d/11zRo19Ml9OMRRXlsmDTBP_4rfxL3e0LG/view). Run stage_release_docs.py with the verified V48 staging tree and a new sibling destination. V49 adds current stable release metadata and release notes to /download and /docs/install using the existing same-origin feed and validated GitHub fallback. It retains the coordinated installer, portable and checksum updates. Unavailable release metadata leaves a neutral GitHub link. The stage script inventories hard-coded version strings across exported HTML without rewriting instructions, historical version references or other products' version numbers.
+
+Future procedure changes require versioned upstream instructions or a reviewed site change; a GitHub release tag alone does not prove that old steps still work. No new timer, client change, production deploy or Caddy reload. Python/JS syntax and local staging fixture checked; production HTML not validated by this batch.
