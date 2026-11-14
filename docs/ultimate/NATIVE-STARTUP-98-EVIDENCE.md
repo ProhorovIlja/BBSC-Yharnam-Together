@@ -1,5 +1,7 @@
 # Corrected native startup: first 98 constructor returns
 
+Continuation: [first 105 returns and class inheritance](NATIVE-STARTUP-105-EVIDENCE.md).
+
 The owner-only Linux x86-64 continuation now returns from constructors 1–98 in
 their corrected order. This extends the [1–90 evidence](NATIVE-STARTUP-90-EVIDENCE.md)
 using the same pinned owner-supplied decrypted CUSA03173 / 01.09 image. It is an

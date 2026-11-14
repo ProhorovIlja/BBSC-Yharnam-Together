@@ -49,6 +49,12 @@ production. The native executable's subsequent file/module access still needs
 an OS trace and an ABI audit. Assets remain required. Runtime writes belong in
 `BB_NATIVE_USER_DIR`, never the immutable build generation.
 
+The resolved cache, asset and writable-user directories must be disjoint. Equal
+or nested roots are rejected before the user directory is created or a process
+is started. This prevents a configuration from directing runtime writes into
+prepared artifacts or source assets. It is a path-configuration check, not an OS
+write sandbox; trusted native code must still honor the writable-user directory.
+
 The reviewed retail profile registry intentionally remains empty. This API is
 not exposed as a working game launch option, and does not change today's loader
 path. Windows/macOS game execution and first-run GUI integration remain unproven.

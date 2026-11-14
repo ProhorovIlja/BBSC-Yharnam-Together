@@ -233,6 +233,26 @@ def _root(path):
     return path.resolve()
 
 
+def _overlap(left, right):
+    for parent, child in ((left, right), (right, left)):
+        if child.is_relative_to(parent):
+            return True
+        try:
+            info = parent.stat()
+        except FileNotFoundError:
+            continue
+        # realpath need not normalize spelling on a case-insensitive volume.
+        # Compare existing ancestors by filesystem identity as well as spelling.
+        for candidate in (child, *child.parents):
+            try:
+                other = candidate.stat()
+            except FileNotFoundError:
+                continue
+            if (info.st_dev, info.st_ino) == (other.st_dev, other.st_ino):
+                return True
+    return False
+
+
 def verify_build(folder, selection=None, dependencies=None):
     folder = Path(folder)
     if folder.is_symlink() or not folder.is_dir():
@@ -340,8 +360,9 @@ def launch(cache, assets, user, selection=None, dependencies=None):
     OS file/module tracing and ABI/import closure are mandatory release gates.
     Cache contents must not be writable by untrusted concurrent processes.
     """
-    with _lock(_root(cache)):
-        ready = current(cache, selection, dependencies)
+    root = _root(cache)
+    with _lock(root):
+        ready = current(root, selection, dependencies)
         target = {'win32': 'windows-x64', 'linux': 'linux-x64', 'darwin': 'macos-arm64'}.get(sys.platform)
         import platform
         machine = platform.machine().lower()
@@ -352,6 +373,11 @@ def launch(cache, assets, user, selection=None, dependencies=None):
         if not assets.is_dir():
             _reject('invalid_asset_root')
         user = Path(user).resolve()
+        # Runtime output must not invalidate its own prepared bundle or modify
+        # source assets. Check all resolved roots before creating user data.
+        for left, right in ((root, assets), (root, user), (assets, user)):
+            if _overlap(left, right):
+                _reject('overlapping_runtime_directories')
         user.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ)
         for key in ('BB_GAME_DIR', 'BB_EBOOT', 'BB_ELF', 'BB_PROBE'):

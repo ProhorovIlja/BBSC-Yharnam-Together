@@ -241,6 +241,31 @@ class PreparedNative(unittest.TestCase):
                 pn.launch(self.cache, self.root, self.root / 'user')
             spawn.assert_not_called()
 
+    def test_launch_rejects_overlapping_cache_assets_and_user_before_writing(self):
+        self.selection['target'] = {'linux': 'linux-x64', 'win32': 'windows-x64',
+                                    'darwin': 'macos-arm64'}[sys.platform]
+        ready = self.prepare()
+        assets = self.root / 'assets'
+        assets.mkdir()
+        (assets / 'nested').mkdir()
+        user = self.root / 'user'
+        forbidden = ready['folder'] / 'writable'
+        cases = ((assets, forbidden), (assets, self.cache), (assets, self.root),
+                 (self.cache, user), (ready['folder'], user), (assets, assets),
+                 (assets, assets / 'writable'), (assets / 'nested', assets))
+        alias = self.root / 'ASSETS'
+        if alias.exists():
+            cases += ((assets, alias / 'writable'),)
+        for asset_path, user_path in cases:
+            with self.subTest(assets=asset_path, user=user_path):
+                with patch.object(pn.subprocess, 'Popen') as spawn:
+                    with self.assertRaisesRegex(pn.PreparationError, 'overlapping_runtime_directories'):
+                        pn.launch(self.cache, asset_path, user_path, self.selection, self.deps)
+                    spawn.assert_not_called()
+        self.assertFalse(forbidden.exists())
+        self.assertFalse(user.exists())
+        self.assertFalse((assets / 'writable').exists())
+
     def test_actual_host_launch_after_preparation_input_removed(self):
         target = {'linux': 'linux-x64', 'darwin': 'macos-arm64', 'win32': 'windows-x64'}.get(sys.platform)
         compiler = shutil.which('cl' if sys.platform == 'win32' else 'cc')
