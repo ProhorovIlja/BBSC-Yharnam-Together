@@ -360,7 +360,21 @@ def launch(cache, assets, user, selection=None, dependencies=None):
     OS file/module tracing and ABI/import closure are mandatory release gates.
     Cache contents must not be writable by untrusted concurrent processes.
     """
-    root = _root(cache)
+    root = Path(cache)
+    if root.is_symlink():
+        _reject('linked_cache_root')
+    root = root.resolve(strict=True)
+    if not root.is_dir():
+        _reject('invalid_cache_root')
+    assets = Path(assets).resolve(strict=True)
+    if not assets.is_dir():
+        _reject('invalid_asset_root')
+    user = Path(user).resolve()
+    # Validate before even creating a cache lock: a rejected launch must not
+    # leave directories or lock files inside the owner's source asset tree.
+    for left, right in ((root, assets), (root, user), (assets, user)):
+        if _overlap(left, right):
+            _reject('overlapping_runtime_directories')
     with _lock(root):
         ready = current(root, selection, dependencies)
         target = {'win32': 'windows-x64', 'linux': 'linux-x64', 'darwin': 'macos-arm64'}.get(sys.platform)
@@ -369,15 +383,6 @@ def launch(cache, assets, user, selection=None, dependencies=None):
         if (ready['manifest']['selection']['target'] != target
                 or machine not in ({'arm64', 'aarch64'} if target == 'macos-arm64' else {'x86_64', 'amd64'})):
             _reject('wrong_launch_platform')
-        assets = Path(assets).resolve(strict=True)
-        if not assets.is_dir():
-            _reject('invalid_asset_root')
-        user = Path(user).resolve()
-        # Runtime output must not invalidate its own prepared bundle or modify
-        # source assets. Check all resolved roots before creating user data.
-        for left, right in ((root, assets), (root, user), (assets, user)):
-            if _overlap(left, right):
-                _reject('overlapping_runtime_directories')
         user.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ)
         for key in ('BB_GAME_DIR', 'BB_EBOOT', 'BB_ELF', 'BB_PROBE'):

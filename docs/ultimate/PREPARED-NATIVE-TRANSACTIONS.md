@@ -51,7 +51,9 @@ an OS trace and an ABI audit. Assets remain required. Runtime writes belong in
 
 The resolved cache, asset and writable-user directories must be disjoint. Equal
 or nested roots are rejected before the user directory is created or a process
-is started. This prevents a configuration from directing runtime writes into
+is started, and before a cache lock file is created. Launch requires an existing
+prepared cache and never creates a missing cache directory. This prevents a
+configuration from directing runtime writes into
 prepared artifacts or source assets. It is a path-configuration check, not an OS
 write sandbox; trusted native code must still honor the writable-user directory.
 

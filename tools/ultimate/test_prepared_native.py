@@ -236,10 +236,33 @@ class PreparedNative(unittest.TestCase):
 
     def test_launch_wrong_platform_fails_before_spawn(self):
         self.prepare()
+        assets = self.root / 'assets'
+        assets.mkdir()
         with patch.object(pn.sys, 'platform', 'unsupported'), patch.object(pn.subprocess, 'Popen') as spawn:
             with self.assertRaisesRegex(pn.PreparationError, 'wrong_launch_platform'):
-                pn.launch(self.cache, self.root, self.root / 'user')
+                pn.launch(self.cache, assets, self.root / 'user')
             spawn.assert_not_called()
+
+    def test_rejected_launch_does_not_create_cache_or_lock_inside_assets(self):
+        assets = self.root / 'assets'
+        assets.mkdir()
+        missing_cache = assets / 'missing-cache'
+        user = self.root / 'user'
+        with self.assertRaises((pn.PreparationError, FileNotFoundError)):
+            pn.launch(missing_cache, assets, user)
+        self.assertFalse(missing_cache.exists())
+        self.selection['target'] = {'linux': 'linux-x64', 'win32': 'windows-x64',
+                                    'darwin': 'macos-arm64'}[sys.platform]
+        cache = assets / 'existing-cache'
+        pn.prepare(cache, self.selection, self.deps, self.build)
+        lock = cache / '.prepare.lock'
+        lock.unlink()
+        with patch.object(pn.subprocess, 'Popen') as spawn:
+            with self.assertRaisesRegex(pn.PreparationError, 'overlapping_runtime_directories'):
+                pn.launch(cache, assets, user, self.selection, self.deps)
+            spawn.assert_not_called()
+        self.assertFalse(lock.exists())
+        self.assertFalse(user.exists())
 
     def test_launch_rejects_overlapping_cache_assets_and_user_before_writing(self):
         self.selection['target'] = {'linux': 'linux-x64', 'win32': 'windows-x64',
