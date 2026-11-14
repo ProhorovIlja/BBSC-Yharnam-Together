@@ -5,22 +5,22 @@ Seamless co-op for **Bloodborne** on PC, in the spirit of
 make a team, share one world, join each other without bells, signs or Insight, and keep playing
 together through lamp trips, deaths, boss fights and chalice dungeons.
 
-**Website, download and guides: <https://bloodborne.seamlesscoop.dev>**
+**Website, download and guides: <https://seamlesshunt.com>**
 
-**New here? Follow the [easy setup guide](https://bloodborne.seamlesscoop.dev/docs/install).**
+**New here? Follow the [easy setup guide](https://seamlesshunt.com/docs/install).**
 
 | [Trailer](https://www.youtube.com/watch?v=MBlRNpzBqmo) | [Gameplay showcase 1](https://youtu.be/2p2LF5YfhRM) | [Gameplay showcase 2](https://youtu.be/JzaeJXrHaFE) |
 | :---: | :---: | :---: |
 | [![Trailer](https://img.youtube.com/vi/MBlRNpzBqmo/hqdefault.jpg)](https://www.youtube.com/watch?v=MBlRNpzBqmo) | [![Gameplay showcase 1](https://img.youtube.com/vi/2p2LF5YfhRM/hqdefault.jpg)](https://youtu.be/2p2LF5YfhRM) | [![Gameplay showcase 2](https://img.youtube.com/vi/JzaeJXrHaFE/hqdefault.jpg)](https://youtu.be/JzaeJXrHaFE) |
 
-- [Download](https://bloodborne.seamlesscoop.dev/download): the newest release
-- [Install and set up](https://bloodborne.seamlesscoop.dev/docs/install): the setup, the
+- [Download](https://seamlesshunt.com/download): the newest release
+- [Install and set up](https://seamlesshunt.com/docs/install): the setup, the
   launcher's Co-op page, reaching the host
-- [Playing together](https://bloodborne.seamlesscoop.dev/docs/play): teams, the party
+- [Playing together](https://seamlesshunt.com/docs/play): teams, the party
   list, going down, giving items
-- [How it works](https://bloodborne.seamlesscoop.dev/docs/architecture) and
-  [the server netcode](https://bloodborne.seamlesscoop.dev/docs/netcode)
-- [Build from source](https://bloodborne.seamlesscoop.dev/docs/build)
+- [How it works](https://seamlesshunt.com/docs/architecture) and
+  [the server netcode](https://seamlesshunt.com/docs/netcode)
+- [Build from source](https://seamlesshunt.com/docs/build)
 
 It runs on **Bloodborne PC**, the native Windows port of the PS4 game (the game's own code runs on
 your CPU, its graphics go through Vulkan; there is no emulator in between). The co-op server and
@@ -104,11 +104,11 @@ expect rough edges and keep backups of your saves. New builds come out as GitHub
 ## Play it
 
 The illustrated version of this is the
-[install guide](https://bloodborne.seamlesscoop.dev/docs/install).
+[install guide](https://seamlesshunt.com/docs/install).
 
 1. Download the setup `.exe` from the
-   [download page](https://bloodborne.seamlesscoop.dev/download) (or the
-   [releases page](https://github.com/Amanises-Yharnam-Together/BBSC-Yharnam-Together/releases)) and run it. Everyone in a
+   [download page](https://seamlesshunt.com/download) (or the
+   [releases page](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/releases)) and run it. Everyone in a
    team, the host included, uses the same release.
 2. Open **Bloodborne Seamless Co-op** (the launcher) and go to its **Co-op** page: your Bloodborne
    folder (**Find it for me**, **Browse…** or **Install from PKG…**), the host's IP address (the
@@ -122,7 +122,7 @@ The illustrated version of this is the
 5. Everyone must reach the host's PC: the same VPN (Radmin VPN, Tailscale, ZeroTier) or the host's
    public IP with ports forwarded: TCP 31313, 31315, 20443 and **UDP 31314**. The UDP port carries
    every game's co-op traffic (the games never talk to each other directly), so it must be open.
-   New to VPNs? The [Radmin VPN guide](https://bloodborne.seamlesscoop.dev/docs/radmin) walks through it.
+   New to VPNs? The [Radmin VPN guide](https://seamlesshunt.com/docs/radmin) walks through it.
 
 Requirements: Windows 10 (1903 or later) or 11, 64-bit, and a Vulkan 1.3 graphics card with a
 current driver. Everything else is in the setup. Tested with CUSA03173 (the European Game of the
