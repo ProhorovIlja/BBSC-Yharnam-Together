@@ -33,15 +33,18 @@ public:
         clear_probe();
         if (!clock_ok || !value.valid()) {
             binding_.reset();
+            allowed_ = false;
             return false;
         }
         // Endpoint rebinding must not reset the replay windows. A new
         // authenticated session/epoch/connection does reset them.
-        if (!binding_ || value.room != binding_->room || value.session != binding_->session ||
-            value.epoch != binding_->epoch || value.local_connection != binding_->local_connection ||
-            value.peer_connection != binding_->peer_connection) {
+        if (!replay_scope_ || value.room != replay_scope_->room || value.session != replay_scope_->session ||
+            value.epoch != replay_scope_->epoch || value.local_connection != replay_scope_->local_connection ||
+            value.peer_connection != replay_scope_->peer_connection) {
             last_seq_ = {};
+            allowed_ = false; // A different authenticated peer needs fresh consent.
         }
+        replay_scope_ = value;
         binding_ = value;
         return true;
     }
@@ -103,11 +106,15 @@ public:
         return true;
     }
 
-    void disconnect() { binding_.reset(); clear_probe(); }
+    void disconnect() { binding_.reset(); allowed_ = false; clear_probe(); }
 
 private:
     struct Probe { std::uint64_t serial; ProbeNonce nonce; std::uint64_t started; };
     std::optional<PathBinding> binding_;
+    // Keep the stream's identity after losing the active transport binding.
+    // Otherwise rebinding that same session would admit captured old packets.
+    // The authenticated wire layer must reject rollback to a retired scope.
+    std::optional<PathBinding> replay_scope_;
     std::optional<Probe> pending_;
     std::optional<std::uint64_t> verified_at_, last_time_;
     std::array<std::optional<std::uint32_t>, 2> last_seq_{};

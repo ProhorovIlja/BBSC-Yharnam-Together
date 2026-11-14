@@ -70,6 +70,12 @@ Unknown traffic is unavailable. Authenticated visual sequence windows are shared
 across relay/direct, retained on endpoint rebinding and reset only for a newly
 authenticated session/epoch/connection. Each visual stream has its own sequence.
 
+The replay scope survives invalid binding attempts and transport disconnects.
+Rebinding the same authenticated scope cannot reset its sequence window. Those
+failures revoke direct permission; a different authenticated peer also starts
+relay-only until fresh consent. The wire layer must reject rollback to a retired
+scope and renegotiate an epoch before recreating a policy object for a stream.
+
 The wire layer must perform authentication, supply CSPRNG nonces and canonical
 endpoints, ensure replies arrived over the tested endpoint, and serialize calls.
 No encryption, socket negotiation, NAT traversal or production packet routing is

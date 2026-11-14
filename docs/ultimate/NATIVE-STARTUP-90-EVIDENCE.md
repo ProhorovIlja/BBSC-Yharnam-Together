@@ -1,5 +1,7 @@
 # Corrected native startup: first 90 constructor returns
 
+Continuation: [first 98 returns and prepared-cache integration](NATIVE-STARTUP-98-EVIDENCE.md).
+
 On 2026-11-14, the owner-provided decrypted 1.09 reference image and private V446
 reproducer were checked locally. The image matched the reproducer's pinned hash
 and the separate SFO identified CUSA03173 / 01.09. No retail profile was approved.

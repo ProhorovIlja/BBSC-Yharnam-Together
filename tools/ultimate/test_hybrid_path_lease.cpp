@@ -61,6 +61,8 @@ int main() {
     CHECK(p.bind(a, 3023));
     CHECK(!p.acknowledge(b, 5, nonce, 3024));
     CHECK(!p.challenge(a, 5, nonce, 3025));
+    CHECK(!p.challenge(a, 6, nonce, 3025));
+    p.allow_direct(true);
     CHECK(p.challenge(a, 6, nonce, 3026));
     CHECK(p.acknowledge(a, 6, nonce, 3027));
     CHECK(p.route(Traffic::PoseSnapshot, true, true, 3026) == Route::Relay); // Regression.
@@ -80,5 +82,32 @@ int main() {
     CHECK(high.bind(b, max));
     CHECK(high.accept_visual(b, Traffic::PoseSnapshot, 0, Route::Relay, true, max));
     CHECK(!high.accept_visual(a, Traffic::PoseSnapshot, 1, Route::Relay, true, max));
+
+    // Invalid binds and transport disconnects cannot erase a still-current
+    // authenticated stream's history or carry permission into a different peer.
+    HybridPathLease reconnect;
+    CHECK(reconnect.bind(a, 1));
+    reconnect.allow_direct(true);
+    CHECK(reconnect.accept_visual(a, Traffic::PoseSnapshot, 50, Route::Relay, true, 2));
+    CHECK(!reconnect.bind({}, 3));
+    CHECK(reconnect.bind(a, 4));
+    CHECK(!reconnect.accept_visual(a, Traffic::PoseSnapshot, 50, Route::Relay, true, 5));
+    CHECK(!reconnect.challenge(a, 1, nonce, 6));
+    reconnect.allow_direct(true);
+    CHECK(reconnect.challenge(a, 1, nonce, 7));
+    reconnect.disconnect();
+    CHECK(reconnect.bind(a, 8));
+    CHECK(!reconnect.accept_visual(a, Traffic::PoseSnapshot, 49, Route::Relay, true, 9));
+    CHECK(!reconnect.challenge(a, 2, nonce, 10));
+    CHECK(reconnect.accept_visual(a, Traffic::PoseSnapshot, 51, Route::Relay, true, 11));
+    reconnect.allow_direct(true);
+    b = a; ++b.peer_connection;
+    CHECK(reconnect.bind(b, 12));
+    CHECK(!reconnect.challenge(b, 2, nonce, 13));
+    CHECK(reconnect.accept_visual(b, Traffic::PoseSnapshot, 0, Route::Relay, true, 14));
+    reconnect.allow_direct(true);
+    CHECK(reconnect.challenge(b, 2, nonce, 15));
+    CHECK(reconnect.acknowledge(b, 2, nonce, 16));
+    CHECK(reconnect.route(Traffic::PoseSnapshot, true, true, 17) == Route::Direct);
     std::cout << checks << " hybrid path checks passed\n";
 }
