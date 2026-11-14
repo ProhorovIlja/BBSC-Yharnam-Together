@@ -49,11 +49,21 @@ constexpr Result Match(Search q, Room r) {
     // Discovery has no map filter. Admission waits for a safe destination/transition.
     return r.safe_arrival ? Result::Eligible : Result::UnsafeArrival;
 }
-constexpr bool DuelMayStart(U accepted_a, U accepted_b, U defenders, bool host_approved,
-                            bool safe_arena, bool hostile_present_or_reserved) {
-    return host_approved && safe_arena && !hostile_present_or_reserved && defenders <= 5 &&
-           accepted_a >= 1 && accepted_a <= 2 && accepted_a == accepted_b &&
-           accepted_a + accepted_b <= defenders;
+enum class DuelFormat { OneVsOne, TwoVsTwo, ThreeVsTwo };
+
+// Counts are from the server's frozen, distinct, consenting non-hostile roster.
+// A declined or missing seat does not silently change the proposed format.
+constexpr bool DuelMayStart(DuelFormat format, U accepted_a, U accepted_b, U defenders,
+                            bool host_approved, bool safe_arena, bool hostile_present_or_reserved) {
+    if (!host_approved || !safe_arena || hostile_present_or_reserved || defenders > 5 ||
+        accepted_a > defenders || accepted_b > defenders - accepted_a) return false;
+    switch (format) {
+    case DuelFormat::OneVsOne: return accepted_a == 1 && accepted_b == 1;
+    case DuelFormat::TwoVsTwo: return accepted_a == 2 && accepted_b == 2;
+    case DuelFormat::ThreeVsTwo:
+        return (accepted_a == 3 && accepted_b == 2) || (accepted_a == 2 && accepted_b == 3);
+    }
+    return false;
 }
 
 constexpr Network world{Scope::Worldwide, 1, 0};
@@ -82,11 +92,19 @@ static_assert(Match({Action::Invade, remote, 81, true}, open) == Result::Level);
 static_assert(Match({Action::Invade, remote, 50, true}, {world, 50, 3, true, false, true}) == Result::Closed);
 static_assert(Match({Action::Join, remote, 50, true}, loading) == Result::UnsafeArrival);
 static_assert(Match({Action::Join, remote, 50, false}, open) == Result::Incompatible);
-static_assert(DuelMayStart(1, 1, 2, true, true, false));
-static_assert(DuelMayStart(2, 2, 5, true, true, false));
-static_assert(!DuelMayStart(2, 2, 3, true, true, false));
-static_assert(!DuelMayStart(1, 2, 5, true, true, false));
-static_assert(!DuelMayStart(1, 1, 2, false, true, false));
-static_assert(!DuelMayStart(1, 1, 2, true, false, false));
-static_assert(!DuelMayStart(1, 1, 2, true, true, true));
+static_assert(DuelMayStart(DuelFormat::OneVsOne, 1, 1, 2, true, true, false));
+static_assert(DuelMayStart(DuelFormat::TwoVsTwo, 2, 2, 5, true, true, false));
+static_assert(!DuelMayStart(DuelFormat::TwoVsTwo, 2, 2, 3, true, true, false));
+static_assert(!DuelMayStart(DuelFormat::OneVsOne, 1, 2, 5, true, true, false));
+static_assert(!DuelMayStart(DuelFormat::OneVsOne, 1, 1, 2, false, true, false));
+static_assert(!DuelMayStart(DuelFormat::OneVsOne, 1, 1, 2, true, false, false));
+static_assert(!DuelMayStart(DuelFormat::OneVsOne, 1, 1, 2, true, true, true));
+static_assert(DuelMayStart(DuelFormat::ThreeVsTwo, 3, 2, 5, true, true, false));
+static_assert(DuelMayStart(DuelFormat::ThreeVsTwo, 2, 3, 5, true, true, false));
+static_assert(!DuelMayStart(DuelFormat::ThreeVsTwo, 2, 2, 5, true, true, false));
+static_assert(!DuelMayStart(DuelFormat::ThreeVsTwo, 3, 2, 4, true, true, false));
+static_assert(!DuelMayStart(DuelFormat::ThreeVsTwo, 3, 2, 5, true, true, true));
+static_assert(!DuelMayStart(DuelFormat::ThreeVsTwo, 3, 2, 5, true, false, false));
+static_assert(!DuelMayStart(DuelFormat::TwoVsTwo, 3, 2, 5, true, true, false));
+static_assert(!DuelMayStart(DuelFormat::ThreeVsTwo, UINT32_MAX, 2, 5, true, true, false));
 } // namespace ultimate::bells
