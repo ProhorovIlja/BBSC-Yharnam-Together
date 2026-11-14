@@ -1,0 +1,56 @@
+name: Ultimate preparation and path policy
+
+on:
+  push:
+    branches: ['development/ultimate-native-preparation-*']
+    paths: ['tools/ultimate/**', '.github/workflows/ultimate-preparation.yml']
+  pull_request:
+    paths: ['tools/ultimate/**', '.github/workflows/ultimate-preparation.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ultimate-preparation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Preparation, intake and exact profile tests
+        run: python -m unittest discover -s tools/ultimate -p "test_*.py" -v
+      - name: Existing hybrid acceptance model
+        run: python tools/ultimate/ultimate_hybrid_policy.py
+      - name: Compile and run C++ policy (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ -std=c++20 -Wall -Wextra -Werror -pedantic tools/ultimate/test_hybrid_path_lease.cpp -o "$RUNNER_TEMP/path-policy"
+          "$RUNNER_TEMP/path-policy"
+          c++ -std=c++20 -Wall -Wextra -Werror -pedantic tools/ultimate/ultimate_invasion_reservation.cpp -o "$RUNNER_TEMP/invasion-policy"
+          "$RUNNER_TEMP/invasion-policy"
+      - name: Compile and run C++ policy (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cl /nologo /std:c++20 /W4 /WX /EHsc tools\ultimate\test_hybrid_path_lease.cpp /Fe:%RUNNER_TEMP%\path-policy.exe
+          if errorlevel 1 exit /b 1
+          %RUNNER_TEMP%\path-policy.exe
+          if errorlevel 1 exit /b 1
+          cl /nologo /std:c++20 /W4 /WX /EHsc tools\ultimate\ultimate_invasion_reservation.cpp /Fe:%RUNNER_TEMP%\invasion-policy.exe
+          if errorlevel 1 exit /b 1
+          %RUNNER_TEMP%\invasion-policy.exe
