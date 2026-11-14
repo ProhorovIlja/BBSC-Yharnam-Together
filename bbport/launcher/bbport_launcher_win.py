@@ -2516,14 +2516,35 @@ class WindowChrome:
     def drag(self, event):
         """A press on the title bar (or the empty top of the side column, or around the co-op settings):
         the window follows the pointer while the button is held (drag_move, bound beside it)."""
-        self.grab = None if self.restore else (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
+        self.grab = None
+        self.native_grab = None
+        if self.restore:
+            return
+        self.grab = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
+        if self.applied and sys.platform == 'win32':
+            try:
+                from ctypes.wintypes import POINT, RECT
+                win = ctypes.windll.user32
+                hwnd, pointer, rect = ctypes.c_void_p(self.hwnd()), POINT(), RECT()
+                if win.GetCursorPos(ctypes.byref(pointer)) and win.GetWindowRect(hwnd, ctypes.byref(rect)):
+                    # Use the same Win32 coordinate space for cursor and frame, including monitors left of primary.
+                    self.native_grab = (win, hwnd, pointer, pointer.x - rect.left, pointer.y - rect.top)
+            except (AttributeError, OSError, ValueError, self.ui.tk.TclError):
+                pass
 
     def drag_move(self, event):
-        if self.grab:
-            self.root.geometry(f'+{event.x_root - self.grab[0]}+{event.y_root - self.grab[1]}')
+        if not self.grab:
+            return
+        if self.native_grab is not None:
+            win, hwnd, pointer, dx, dy = self.native_grab
+            if win.GetCursorPos(ctypes.byref(pointer)) and win.SetWindowPos(
+                    hwnd, None, pointer.x - dx, pointer.y - dy, 0, 0, 0x0215):
+                # NOSIZE | NOZORDER | NOACTIVATE | NOOWNERZORDER
+                return
+        self.root.geometry(f'+{event.x_root - self.grab[0]}+{event.y_root - self.grab[1]}')
 
     def drag_end(self, _event=None):
-        self.grab = None
+        self.grab = self.native_grab = None
 
     def bind_drag(self, widget):
         widget.bind('<ButtonPress-1>', self.drag, add='+')
