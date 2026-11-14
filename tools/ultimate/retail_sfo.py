@@ -17,7 +17,7 @@ def identify(data: bytes) -> tuple[str, str]:
     for i in range(count):
         entry = 20 + 16 * i
         key, = struct.unpack_from('<H', data, entry)
-        fmt, = struct.unpack_from('>H', data, entry + 2)
+        fmt, = struct.unpack_from('<H', data, entry + 2)
         length, capacity, offset = struct.unpack_from('<III', data, entry + 4)
         start = keys + key
         end = data.find(b'\0', start, values)
