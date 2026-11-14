@@ -24,6 +24,7 @@ class Profiles(unittest.TestCase):
         profiles = self.read(json.dumps({'schema': 1, 'profiles': [self.profile]}))
         first = select(self.report, 'windows-x64', profiles)
         self.assertEqual(first['status'], 'profile_selected_not_prepared')
+        self.assertEqual(first['target'], 'windows-x64')
         self.assertEqual(first, select(self.report, 'windows-x64', profiles))
         profiles[0]['recipe_sha256'] = 'c' * 64
         self.assertNotEqual(first['selection_key'], select(self.report, 'windows-x64', profiles)['selection_key'])

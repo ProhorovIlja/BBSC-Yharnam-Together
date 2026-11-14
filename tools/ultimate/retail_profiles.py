@@ -59,7 +59,8 @@ def select(report, target, profiles):
     key = json.dumps([1, p['id'], target, report['title_id'], report['app_ver'], report['eboot'],
                       p['recipe_sha256']], sort_keys=True, separators=(',', ':')).encode('ascii')
     return {'schema': 1, 'status': 'profile_selected_not_prepared', 'profile': p['id'],
-            'recipe_sha256': p['recipe_sha256'], 'selection_key': hashlib.sha256(key).hexdigest()}
+            'target': target, 'recipe_sha256': p['recipe_sha256'],
+            'selection_key': hashlib.sha256(key).hexdigest()}
 
 
 def main():
