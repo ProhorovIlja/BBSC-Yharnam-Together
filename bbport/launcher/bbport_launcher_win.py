@@ -2615,6 +2615,9 @@ class Sidebar:
         self.gem = c.create_polygon(0, 0, 0, 0, 0, 0, fill=ACCENT_HI, outline='', tags='txt')
         self.band = [c.create_rectangle(0, 0, 0, 0, outline='', fill=BG, tags='band') for _i in range(14)]
         self.band_lines = [c.create_line(0, 0, 0, 0, fill=BG, tags='band') for _i in range(2)]
+        self.online_count = c.create_text(
+            0, 0, text='Seamless Hunt: — Hunters online' if COOP_INSTALL else '',
+            font=ui.fonts['small_bold'], fill=GOLD, tags='txt')
         self.menu_font = ui.fonts['menu']
         self.items, self.marks = {}, {}
         for name, title in entries:
@@ -2727,6 +2730,7 @@ class Sidebar:
         c.coords(self.rule[0], mid - half, y, mid - px(9), y)
         c.coords(self.rule[1], mid + px(9), y, mid + half, y)
         c.coords(self.gem, *diamond(mid, y, px(5)))
+        c.coords(self.online_count, mid, px(247))
         self.place_entries()
         self.breathe(0.5)
         c.tag_raise('city')
@@ -3485,6 +3489,43 @@ class Launcher:
         self.refresh_game_line()
         self.refresh_status()
         threading.Thread(target=self.load_news, daemon=True).start()
+        if COOP_INSTALL:
+            self.root.after(1000, self.poll_seamless_hunt_count)
+
+    def poll_seamless_hunt_count(self):
+        """Public site snapshot only; never send account information or block Tk."""
+        if self.root.state() in ('iconic', 'withdrawn'):
+            self.root.after(30000, self.poll_seamless_hunt_count)
+            return
+
+        def show(count):
+            value = '—' if count is None else str(count)
+            self.side.canvas.itemconfigure(self.side.online_count, text=f'Seamless Hunt: {value} Hunters online')
+            self.root.after(30000 if count is not None else 60000, self.poll_seamless_hunt_count)
+
+        def fetch():
+            from datetime import datetime, timezone
+            url = 'https://seamlesshunt.com/sh-areas-v83.json'
+            count = None
+            try:
+                request = urllib.request.Request(url, headers={'Accept': 'application/json', 'Cache-Control': 'no-cache'})
+                with urllib.request.urlopen(request, timeout=4) as response:
+                    raw = response.read(131073) if response.geturl() == url and response.status == 200 else b''
+                data = json.loads(raw) if 0 < len(raw) <= 131072 else None
+                if isinstance(data, dict) and data.get('schema') == 1:
+                    stamp = data.get('updated_at')
+                    if isinstance(stamp, str):
+                        updated = datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+                        if updated.tzinfo is not None:
+                            age = (datetime.now(timezone.utc) - updated).total_seconds()
+                            total = data.get('total')
+                            if -30 <= age < 120 and type(total) is int and 0 <= total <= 100000:
+                                count = total
+            except (OSError, ValueError, OverflowError):
+                pass
+            self.ui_calls.put(lambda: show(count))
+
+        threading.Thread(target=fetch, name='seamless-hunt-count', daemon=True).start()
 
     def build_footer(self, main):
         """The bottom bar: the ready check as icons (their lines as tooltips) and the co-op server's
