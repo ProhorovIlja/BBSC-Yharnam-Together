@@ -36,6 +36,7 @@
 #include "bbcoop.h"
 #include "bbcoop/discord_activity.h"
 #include "bbcoop/discord_presence_policy.h"
+#include "bbcoop/build_archetype.h"
 #include "common/logging/log.h"
 #include "core/bloodborne_party.h"
 #include "core/bloodborne_re.h"
@@ -306,6 +307,18 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
         snapshot.location = "Team lobby";
     }
     snapshot.session_started_unix = started;
+    if (panel.local_level >= 4 && panel.local_level <= 544) {
+        snapshot.level = panel.local_level;
+    }
+    if (panel.local_stats_valid) {
+        const auto& a = panel.local_offensive_stats;
+        if (const auto mask = BbHunterBuild::Mask({a[0], a[1], a[2], a[3]})) {
+            snapshot.build = BbHunterBuild::DiscordShort(*mask);
+        }
+    }
+    snapshot.boss_fighting = panel.local_boss_fight;
+    snapshot.boss = panel.local_boss_name;
+    snapshot.boss_started_unix = panel.local_boss_started_unix;
     snapshot.host = lobby.in_team && lobby.leader;
     snapshot.guest = lobby.in_team && !lobby.leader;
     snapshot.members = lobby.member_count;
@@ -333,8 +346,15 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
     if (const char* show_area = std::getenv("BB_DISCORD_SHOW_AREA")) {
         privacy.show_location = std::strcmp(show_area, "1") == 0;
     }
-    // This branch has no validated local level, attributes or encounter
-    // snapshot yet. Leave them unknown rather than deriving them from peers.
+    if (const char* value = std::getenv("BB_DISCORD_SHOW_LEVEL")) {
+        privacy.show_level = std::strcmp(value, "1") == 0;
+    }
+    if (const char* value = std::getenv("BB_DISCORD_SHOW_BUILD")) {
+        privacy.show_build = std::strcmp(value, "1") == 0;
+    }
+    if (const char* value = std::getenv("BB_DISCORD_SHOW_BOSS")) {
+        privacy.show_boss = std::strcmp(value, "1") == 0;
+    }
     const auto shown = DiscordActivity::Describe(
         snapshot, privacy, DiscordActivity::PresenceLayout::ReferenceCard);
     std::string activity = "{\"details\":" + Json(shown.details) + ",\"state\":" +
@@ -405,6 +425,11 @@ DWORD WINAPI DiscordThread(LPVOID) {
         }
         Core::Bloodborne::PartyPanel panel;
         Core::Bloodborne::ReadPartyPanel(panel); // also copies the cached snapshot while solo
+        const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (!DiscordActivity::GameSnapshotFresh(panel.rpc_snapshot_steady_ms, now_ms)) {
+            panel = {};
+        }
         static bbcoop_lobby lobby; // large: kept off this thread's stack
         if (bbcoop_lobby_view(&lobby) == 0) {
             lobby = {};
