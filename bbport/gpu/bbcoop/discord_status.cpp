@@ -314,7 +314,7 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
         const auto& a = panel.local_offensive_stats;
         if (const auto mask = BbHunterBuild::Mask({a[0], a[1], a[2], a[3]})) {
             snapshot.build = *mask == (BbHunterBuild::Strength | BbHunterBuild::Skill)
-                                 ? "Quality" : BbHunterBuild::DiscordShort(*mask);
+                                 ? "Quality" : BbHunterBuild::DiscordCardLabel(*mask);
         }
     }
     snapshot.boss_fighting = panel.local_boss_fight;
