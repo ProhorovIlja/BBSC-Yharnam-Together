@@ -83,5 +83,85 @@ class PatchesCrashGuardsTest(unittest.TestCase):
                 self.assertFalse(offset < end and start < offset + len(data), site['name'])
 
 
+def original_with_lod(start, end):
+    data = (crash_guards.LOD_CLAIM_BYTES if start == crash_guards.LOD_CLAIM else
+            crash_guards.EVENT_CASE_BYTES if start == crash_guards.EVENT_CASE else b'')
+    return (data + bytes(end - start))[:end - start]
+
+
+class LodClaimTests(unittest.TestCase):
+    def test_exact_span_and_bounded_atomic_claim(self):
+        offset, code = crash_guards.lod_claim_code()
+        self.assertEqual(offset, crash_guards.LOD_CLAIM)
+        self.assertEqual(offset + len(code), crash_guards.LOD_CLAIM_END)
+        self.assertEqual(len(code), 93)
+        bound = code.index(bytes.fromhex('483b84dfa8000000'))
+        claim = code.index(bytes.fromhex('f00fb18cb700010000'))
+        self.assertLess(bound, claim)
+        self.assertEqual(code[bound + 8], 0x73)
+        self.assertEqual(code[claim - 3:claim], bytes.fromhex('8d4801'))
+
+    def test_original_bytes_are_required(self):
+        crash_guards.check_lod_original(original_with_lod)
+        with self.assertRaises(ValueError):
+            crash_guards.check_lod_original(lambda start, end: bytes(end - start))
+
+    def test_jump_targets_decode_at_instruction_boundaries(self):
+        offset, code = crash_guards.lod_claim_code()
+        plain = [bytes.fromhex(h) for h in (
+            '4531ff', '83f903', '89ce', '488d1c76', '8b84b700010000', '483b84dfa8000000',
+            '8d4801', 'f00fb18cb700010000', '4c8b8cdfb0000000', '4c69d0d0030000',
+            '4b8d1411', '91', '8d4e01', '90')]
+        jumps = []
+        boundaries = set()
+        at = 0
+        while at < len(code):
+            boundaries.add(offset + at)
+            known = next((p for p in plain if code.startswith(p, at)), None)
+            if known:
+                at += len(known)
+            elif code[at] in (0x77, 0x73, 0x75, 0xEB):
+                destination = offset + at + 2 + struct.unpack_from('b', code, at + 1)[0]
+                jumps.append((code[at], destination))
+                at += 2
+            elif code[at] == 0xE9:
+                jumps.append((0xE9, target((offset, code), at, 5)))
+                at += 5
+            else:
+                self.fail(f'Unexpected instruction at +{at:#x}')
+        allowed = boundaries | {crash_guards.LOD_CLAIM_END, crash_guards.LOD_ALL_FULL}
+        for _, destination in jumps:
+            self.assertIn(destination, allowed)
+        self.assertIn((0xE9, crash_guards.LOD_ALL_FULL), jumps)
+        self.assertIn((0x75, offset + code.index(bytes.fromhex('8b84b700010000'))), jumps)
+        self.assertIn((0xEB, crash_guards.LOD_CLAIM_END), jumps)
+
+    def test_both_guards_preserve_the_existing_cave_and_coop_sites(self):
+        named = patches.crash_guards(original_with_lod, SEGMENTS, {})
+        self.assertEqual([(offset, data) for _, offset, data in named],
+                         crash_guards.code_writes() + [crash_guards.lod_claim_code()])
+        self.assertEqual(crash_guards.code_writes()[0][0], 0x50D98C0)
+        self.assertEqual(patches.coop_conflicts(named), [])
+        self.assertEqual(patches.build_check_names([name for name, _, _ in named])[0], [])
+        for _, offset, data in named:
+            for site in patches.load_coop_sites()['sites']:
+                self.assertFalse(offset < site['offset'] + len(site['original']) + 48
+                                 and site['offset'] - 48 < offset + len(data), site['name'])
+
+    def test_mismatched_lod_keeps_the_existing_online_guard(self):
+        named = patches.crash_guards(original, SEGMENTS, {})
+        self.assertEqual([(offset, data) for _, offset, data in named], crash_guards.code_writes())
+
+    def test_mismatched_event_keeps_the_in_place_lod_guard(self):
+        def lod_only(start, end):
+            return original_with_lod(start, end) if start == crash_guards.LOD_CLAIM else bytes(end-start)
+        named = patches.crash_guards(lod_only, SEGMENTS, {})
+        self.assertEqual([(offset, data) for _, offset, data in named], [crash_guards.lod_claim_code()])
+
+    def test_switch_and_incompatible_layout_refuse_all_guards(self):
+        self.assertEqual(patches.crash_guards(original_with_lod, SEGMENTS, {'BB_CRASH_GUARDS':'0'}), [])
+        self.assertEqual(patches.crash_guards(original_with_lod, [(0,0x1000)], {}), [])
+
+
 if __name__ == '__main__':
     unittest.main()
