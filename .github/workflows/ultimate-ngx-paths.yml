@@ -1,0 +1,24 @@
+name: Ultimate NGX path compatibility
+on:
+  pull_request:
+    paths:
+      - bbport/gpu/shim/bbport_ngx_paths.h
+      - bbport/gpu/shadps4/video_core/renderer_vulkan/vk_dlss.cpp
+      - tools/ultimate/ngx-path-tests/**
+      - .github/workflows/ultimate-ngx-paths.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  paths:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S tools/ultimate/ngx-path-tests -B build-paths
+      - run: cmake --build build-paths --config Release --parallel 2
+      - run: ctest --test-dir build-paths -C Release --output-on-failure --verbose
