@@ -2751,23 +2751,47 @@ std::filesystem::path PersonalWorldFile(int slot) {
 
 std::string ReadWholeFile(const std::filesystem::path& path) {
     std::ifstream file{path, std::ios::binary};
-    return std::string{std::istreambuf_iterator<char>{file}, {}};
+    if (!file) {
+        return {};
+    }
+    try {
+        return std::string{std::istreambuf_iterator<char>{file}, {}};
+    } catch (const std::ios_base::failure&) {
+        // An unreadable backup (including a directory at the file path) is not an empty world.
+        return {};
+    }
 }
 
 // Written whole beside it, then moved over it: a crash leaves the old file or the new one.
-void WriteWholeFile(const std::filesystem::path& path, const std::string& text) {
+bool WriteWholeFile(const std::filesystem::path& path, const std::string& text) {
     std::filesystem::path partial = path;
     partial += ".part";
     {
         std::ofstream file{partial, std::ios::binary | std::ios::trunc};
-        file << text;
+        if (!file) {
+            LOG_ERROR(Debug, "Co-op team world: could not open {} for writing", partial.string());
+            return false;
+        }
+        file.write(text.data(), static_cast<std::streamsize>(text.size()));
+        file.flush();
+        const bool written = static_cast<bool>(file);
+        file.close();
+        if (!written || !file) {
+            // A failed write must never publish an empty or truncated replacement.
+            std::error_code cleanup;
+            std::filesystem::remove(partial, cleanup);
+            LOG_ERROR(Debug, "Co-op team world: could not finish writing {}", partial.string());
+            return false;
+        }
     }
     std::error_code error;
     std::filesystem::rename(partial, path, error);
     if (error) {
         LOG_ERROR(Debug, "Co-op team world: could not write {}: {}", path.string(),
                   error.message());
+        return false;
     }
+    return true;
 }
 
 // The worlds this slot's save made (HomeWorlds); none: no list yet (a save from before it, or one
@@ -2878,18 +2902,31 @@ bool PutOwnWorldBack(int slot, std::string_view why) {
 // This save's own world aside (its slot's file), in the blocks of `store` the file has not yet: a
 // block the file has already (a save that held a team's before) keeps what the file says.
 // team_mutex held.
-void KeepOwnWorldAside(int slot, const WorldStore& store) {
+bool KeepOwnWorldAside(int slot, const WorldStore& store) {
     if (store.blocks.empty()) {
-        return;
+        return true;
     }
     // A world kept aside from here on has a list beside it (an empty one for a save that made
     // no world): only a save from before the lists has the one without the other.
     std::error_code error;
-    if (!std::filesystem::exists(PersonalWorldFile(slot), error) &&
-        !std::filesystem::exists(HomeWorldFile(slot), error)) {
-        WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds({}));
+    const bool own_exists = std::filesystem::exists(PersonalWorldFile(slot), error);
+    if (error) {
+        return false;
     }
-    WorldFlags own = ParseWorldFlags(ReadWholeFile(PersonalWorldFile(slot))).value_or(WorldFlags{});
+    const bool home_exists = std::filesystem::exists(HomeWorldFile(slot), error);
+    if (error) {
+        return false;
+    }
+    if (!own_exists && !home_exists &&
+        !WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds({}))) {
+        return false;
+    }
+    auto parsed = ParseWorldFlags(ReadWholeFile(PersonalWorldFile(slot)));
+    if (own_exists && !parsed) {
+        LOG_ERROR(Debug, "Co-op team world: slot {}'s own backup is unreadable; join deferred", slot);
+        return false;
+    }
+    WorldFlags own = parsed.value_or(WorldFlags{});
     std::vector<FlagBlockBits> new_blocks;
     for (const FlagBlockBits& block : store.blocks) {
         if (!std::binary_search(own.blocks.begin(), own.blocks.end(), block.id)) {
@@ -2897,18 +2934,21 @@ void KeepOwnWorldAside(int slot, const WorldStore& store) {
         }
     }
     if (new_blocks.empty()) {
-        return;
+        return true;
     }
     const WorldFlags added = CaptureWorldFlags(store.store.flags_per_block, new_blocks);
     own.blocks.insert(own.blocks.end(), added.blocks.begin(), added.blocks.end());
     own.on.insert(own.on.end(), added.on.begin(), added.on.end());
     std::sort(own.blocks.begin(), own.blocks.end());
     std::sort(own.on.begin(), own.on.end());
-    WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(own));
+    if (!WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(own))) {
+        return false;
+    }
     LOG_INFO(Debug,
              "Co-op team world: slot {}'s own world kept aside ({} more blocks, {} flags on "
              "in all)",
              slot, added.blocks.size(), own.on.size());
+    return true;
 }
 
 } // namespace
@@ -3064,8 +3104,8 @@ void ApplyTeamWorldOnLoad(bool trip) {
         // its first; its game then played the host's world as a phantom and saved it, so its
         // later trip kept the host's world aside as its own. Alone again, or in a new world of
         // its own, its own progress was gone. Its own world goes aside here, before the join.
-        if (!team_host) {
-            KeepOwnWorldAside(slot, *store);
+        if (!team_host && !KeepOwnWorldAside(slot, *store)) {
+            return; // Retry on the next load; the guest must keep its own flags meanwhile.
         }
         // The host whose save makes it has the team's world already: its later loads never take
         // the server's copy back over it, a report up to 10 s old (rig 2026-10-20, boss-refight:
@@ -3168,8 +3208,8 @@ void ApplyTeamWorldOnLoad(bool trip) {
     // world: its own world is that one.
     // Before the team's lamps go in below (Lisara 2026-11-12: her own world must be as it was,
     // without the lamps of the world she visited).
-    if (*team_take == TeamWorldTake::Aside) {
-        KeepOwnWorldAside(slot, *store);
+    if (*team_take == TeamWorldTake::Aside && !KeepOwnWorldAside(slot, *store)) {
+        return; // No team lamp or world flag may overwrite an unprotected personal world.
     }
     if (!team_host) {
         // Every load of a guest (its join's reload and its trips give it its own saved world

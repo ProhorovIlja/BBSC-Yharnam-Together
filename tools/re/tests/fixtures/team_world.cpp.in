@@ -198,6 +198,53 @@ bool TitleJoinRelightsOwnAndTeamLampsFromTheirSeparateSources() {
     CHECK(ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)))->on == std::vector<s32>{8});
     return true;
 }
+bool FailedBackupDefersExistingWorldAndCanRetry() {
+    Reset(false, true);
+    auto partial = PersonalWorldFile(0); partial += ".part";
+    std::filesystem::create_directory(partial);
+    std::ofstream{partial / "blocker"} << "fixture";
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8)); CHECK(!EventFlagOn(9)); CHECK(!team_world_taken);
+    CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+    std::filesystem::remove_all(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!EventFlagOn(8)); CHECK(EventFlagOn(9)); CHECK(team_world_taken);
+    CHECK(ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)))->on == std::vector<s32>{8});
+    return true;
+}
+bool FailedBackupDefersAnUncreatedWorld() {
+    Reset();
+    auto partial = HomeWorldFile(0); partial += ".part";
+    std::filesystem::create_directory(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8)); CHECK(!EventFlagOn(9)); CHECK(!team_world_taken);
+    CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+    return true;
+}
+bool MalformedOrUnreadableBackupNeverBecomesAnEmptyOwnWorld() {
+    for (bool directory : {false, true}) {
+        Reset(false, true);
+        if (directory) std::filesystem::create_directory(PersonalWorldFile(0));
+        else std::ofstream{PersonalWorldFile(0)} << "broken-backup";
+        ApplyTeamWorldOnLoad(false);
+        CHECK(EventFlagOn(8)); CHECK(!EventFlagOn(9)); CHECK(!team_world_taken);
+        if (!directory) CHECK(ReadWholeFile(PersonalWorldFile(0)) == "broken-backup");
+    }
+    return true;
+}
+bool FailedBackupExtensionPreservesThePreviousCompleteBackup() {
+    Reset(false, true);
+    WriteWholeFile(PersonalWorldFile(0), FormatWorldFlags({{8}, {1}}));
+    const std::string before = ReadWholeFile(PersonalWorldFile(0));
+    memory[2] = {0x80}; team_world->flags = {{9, 17}, {1, 2}};
+    auto partial = PersonalWorldFile(0); partial += ".part";
+    std::filesystem::create_directory(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8)); CHECK(EventFlagOn(16));
+    CHECK(!EventFlagOn(9)); CHECK(!EventFlagOn(17)); CHECK(!team_world_taken);
+    CHECK(ReadWholeFile(PersonalWorldFile(0)) == before);
+    return true;
+}
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -208,8 +255,12 @@ int main() {
                       BecomingANewHostRestoresOwnBlocksBeforeRegisteringHome,
                       ARepeatLoadKeepsTheOriginalBackup,
                       OwnFlagsFollowTheSlotAndDisappearWithTheBackup,
-                      TitleJoinRelightsOwnAndTeamLampsFromTheirSeparateSources}) if (!test()) ++failed;
+                      TitleJoinRelightsOwnAndTeamLampsFromTheirSeparateSources,
+                      FailedBackupDefersExistingWorldAndCanRetry,
+                      FailedBackupDefersAnUncreatedWorld,
+                      MalformedOrUnreadableBackupNeverBecomesAnEmptyOwnWorld,
+                      FailedBackupExtensionPreservesThePreviousCompleteBackup}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (6 - failed) << "/6 passed\n";
+    std::cout << "World preservation scenarios: " << (10 - failed) << "/10 passed\n";
     return failed ? 1 : 0;
 }
