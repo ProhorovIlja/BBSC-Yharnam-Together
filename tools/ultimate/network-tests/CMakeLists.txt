@@ -40,3 +40,7 @@ execute_process(COMMAND "${Python3_EXECUTABLE}"
 add_executable(team_world_preservation "${CMAKE_BINARY_DIR}/team_world_fixture.cpp")
 add_test(NAME team_world_preservation COMMAND team_world_preservation)
 set_tests_properties(team_world_preservation PROPERTIES TIMEOUT 30)
+
+add_executable(progression_policy_test "../../../emulator/tests/bloodborne/test_progression_policy.cpp")
+target_compile_features(progression_policy_test PRIVATE cxx_std_20)
+add_test(NAME progression_policy COMMAND progression_policy_test)
