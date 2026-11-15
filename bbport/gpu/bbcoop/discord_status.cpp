@@ -313,7 +313,8 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
     if (panel.local_stats_valid) {
         const auto& a = panel.local_offensive_stats;
         if (const auto mask = BbHunterBuild::Mask({a[0], a[1], a[2], a[3]})) {
-            snapshot.build = BbHunterBuild::DiscordShort(*mask);
+            snapshot.build = *mask == (BbHunterBuild::Strength | BbHunterBuild::Skill)
+                                 ? "Quality" : BbHunterBuild::DiscordShort(*mask);
         }
     }
     snapshot.boss_fighting = panel.local_boss_fight;
@@ -355,8 +356,11 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
     if (const char* value = std::getenv("BB_DISCORD_SHOW_BOSS")) {
         privacy.show_boss = std::strcmp(value, "1") == 0;
     }
+    const char* layout = std::getenv("BB_DISCORD_REFERENCE_LAYOUT");
     const auto shown = DiscordActivity::Describe(
-        snapshot, privacy, DiscordActivity::PresenceLayout::ReferenceCard);
+        snapshot, privacy, layout && std::strcmp(layout, "0") == 0
+                               ? DiscordActivity::PresenceLayout::StatusFirst
+                               : DiscordActivity::PresenceLayout::ReferenceCard);
     std::string activity = "{\"details\":" + Json(shown.details) + ",\"state\":" +
                            Json(shown.state);
     if (shown.start > 0) {
