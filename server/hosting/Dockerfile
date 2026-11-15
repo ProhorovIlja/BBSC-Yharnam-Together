@@ -104,7 +104,7 @@ RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
            && cmake --build build --target bbload $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
            && LD_LIBRARY_PATH=/opt/qt/lib QT_PLUGIN_PATH=/opt/qt/plugins python3 loadtest/run_load.py \
               --shadnet build/shadnet --bbload build/bbload --players 6 --team-size 3 --seconds 10 \
-              --port 32014 --require-all-playing; \
+              --port 32014 --match-local-build --require-all-playing; \
        fi \
     && mkdir -p /bin-out && strip -o /bin-out/shadnet build/shadnet
 COPY server/hosting/collect-runtime.sh /usr/local/bin/
