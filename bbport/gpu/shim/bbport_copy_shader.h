@@ -87,4 +87,3 @@ constexpr bool ShouldReport(std::uint64_t count) {
 }
 
 } // namespace BbCopyShader
-

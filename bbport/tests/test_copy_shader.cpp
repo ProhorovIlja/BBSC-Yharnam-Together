@@ -157,4 +157,3 @@ int main() {
     std::printf("copy shader: all passed\n");
     return 0;
 }
-
