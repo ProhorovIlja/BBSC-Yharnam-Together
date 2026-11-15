@@ -49,7 +49,9 @@ elseif (BB_PGO STREQUAL "use")
                         -fprofile-correction -Wno-missing-profile -Wno-coverage-mismatch)
 endif()
 
-find_package(Vulkan REQUIRED)
+# FSR 4.1.1 queries VK_VALVE_shader_mixed_float_dot_product in both C and Hpp.
+# The emulator's independent Vulkan-Headers pin predates that declaration.
+find_package(Vulkan 1.4.347 REQUIRED)
 find_package(fmt REQUIRED)
 find_package(absl CONFIG REQUIRED)
 option(BB_USE_BUNDLED_BOOST "Use the repository-pinned Boost headers" OFF)

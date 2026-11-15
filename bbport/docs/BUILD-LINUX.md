@@ -4,7 +4,7 @@ The GPU library and the loader need a C++23 compiler, CMake 3.24 or newer,
 Ninja, pkg-config, a C11 compiler and a matching host development SDK. Building
 the library alone is not proof that the loader links or that a game boots.
 
-Required host development packages provide Vulkan headers/loader, SDL3, X11,
+Required host development packages provide a Vulkan loader, SDL3, X11,
 xxHash, Abseil (with its CMake config), FFmpeg (avformat, avcodec, avutil,
 swscale, swresample), protobuf and
 protoc, nlohmann_json, OpenSSL and zlib. Use packages matching the host's ABI;
@@ -18,7 +18,7 @@ From the repository root, initialize the recorded revisions:
 git submodule update --init --recursive --jobs 3 \
   emulator/externals/fmt emulator/externals/ext-boost \
   emulator/externals/robin-map emulator/externals/zydis \
-  emulator/externals/glslang emulator/externals/vulkan-headers \
+  emulator/externals/glslang bbport/gpu/third_party/vulkan-headers \
   emulator/externals/vma bbport/gpu/third_party/fsr-vulkan \
   bbport/gpu/third_party/imgui bbport/gpu/third_party/magic_enum \
   bbport/gpu/third_party/miniz bbport/gpu/third_party/xbyak \
@@ -43,6 +43,15 @@ When enabled it uses the pinned submodule's `Boost::headers` target, including
 the nested library include directories; adding only its root include path is
 insufficient. Initialize that submodule explicitly even if other GPU
 submodules already exist.
+
+The GPU has its own Vulkan-Headers pin, v1.4.347 at
+`387259ecf4b0fe0cfac161b1d0b0a74e42796710`. The helper installs it into the
+prefix. GPU configuration requires headers 1.4.347 or newer because the FSR
+4.1.1 capability checks use `VK_VALVE_shader_mixed_float_dot_product`. The
+emulator's separate 1.4.330 pin does not provide that C/Hpp declaration. Do not
+silently remove that upscaler path to make old headers compile. This build-time
+minimum does not require Vulkan 1.4.347 device support; runtime feature checks
+still decide which paths a driver can execute.
 
 The helper builds glslang without its optional SPIRV-Tools optimizer and HLSL
 frontend. It still compiles the current GLSL host shaders to SPIR-V. This

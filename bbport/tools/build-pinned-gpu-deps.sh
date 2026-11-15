@@ -17,7 +17,8 @@ if [[ ! $jobs =~ ^[1-9][0-9]*$ ]]; then
 fi
 for source in emulator/externals/fmt emulator/externals/robin-map \
     emulator/externals/zydis emulator/externals/zydis/dependencies/zycore \
-    emulator/externals/glslang emulator/externals/ext-boost; do
+    emulator/externals/glslang emulator/externals/ext-boost \
+    bbport/gpu/third_party/vulkan-headers; do
     if [[ ! -f "$repo/$source/CMakeLists.txt" ]]; then
         echo "Missing $source; initialize the pinned submodules first (see docs/BUILD-LINUX.md)." >&2
         exit 1
@@ -32,6 +33,8 @@ build_dependency() {
     cmake --build "$build_root/$name" --parallel "$jobs"
     cmake --install "$build_root/$name"
 }
+build_dependency vulkan-headers bbport/gpu/third_party/vulkan-headers \
+    -DVULKAN_HEADERS_ENABLE_TESTS=OFF -DVULKAN_HEADERS_ENABLE_MODULE=OFF
 build_dependency fmt emulator/externals/fmt -DFMT_TEST=OFF -DFMT_DOC=OFF -DFMT_INSTALL=ON
 build_dependency robin-map emulator/externals/robin-map
 # Zydis' installed config needs Zycore's package config as well as its archive.
