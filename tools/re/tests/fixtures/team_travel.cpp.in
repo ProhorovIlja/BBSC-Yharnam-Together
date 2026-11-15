@@ -39,6 +39,7 @@ class TeamTravel {
 };
 }
 namespace Core::Bloodborne {
+// TRAVEL_VOTE_IMPLEMENTATION
 bool IsParamOfType(std::span<const u8>, std::string_view) { return false; }
 std::optional<u64> FindParamRow(std::span<const u8>, s32) { return std::nullopt; }
 namespace Coop {
