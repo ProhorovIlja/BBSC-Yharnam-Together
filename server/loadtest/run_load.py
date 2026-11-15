@@ -9,6 +9,7 @@ players (bbload) against it, the server's CPU and memory sampled every second.
 Splits the players over --processes bbload processes (one thread each), prints one JSON line
 with the players' numbers (relay delay, losses, join times) and the server's (CPU, memory)."""
 import argparse
+from contextlib import ExitStack
 import json
 import os
 import shutil
@@ -52,6 +53,28 @@ def threads(pid):
     return len(os.listdir(f"/proc/{pid}/task"))
 
 
+def stop_child(child):
+    if child.poll() is None:
+        child.terminate()
+        try:
+            child.wait(5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+    if child.stdout is not None:
+        child.stdout.close()
+
+
+def worker_result(child, deadline):
+    output, _ = child.communicate(timeout=max(0.01, deadline - time.monotonic()))
+    if child.returncode:
+        raise RuntimeError(f"bbload exited with status {child.returncode}")
+    rows = [json.loads(line) for line in output.splitlines() if line.startswith("{")]
+    if len(rows) != 1 or not isinstance(rows[0], dict) or rows[0].get("games", 0) < 1:
+        raise RuntimeError("bbload did not return exactly one nonempty results row")
+    return rows[0]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--shadnet", required=True)
@@ -69,7 +92,26 @@ def main():
     parser.add_argument("--attack-delay", type=float, default=20, help="seconds before it")
     args = parser.parse_args()
 
+    if (args.team_size < 1 or args.players < args.team_size or args.seconds < 2
+            or min(args.ramp_ms, args.processes, args.attack_delay) < 0
+            or not 1025 <= args.port <= 65534):
+        parser.error("invalid workload, duration, process count or test port")
     home = tempfile.mkdtemp(prefix="shadnet-load-")
+    try:
+        with ExitStack() as cleanup:
+            summary = run(args, home, cleanup)
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+        print(f"load test failed: {error}; diagnostic folder: {home}", file=sys.stderr)
+        return 1
+    print(json.dumps(summary))
+    if args.keep:
+        print("server folder:", home, file=sys.stderr)
+    else:
+        shutil.rmtree(home, ignore_errors=True)
+    return 0
+
+
+def run(args, home, cleanup):
     for name in ("worlds.cfg", "scoreboards.cfg"):
         shutil.copy(os.path.join(SERVER, name), home)
     cfg = {
@@ -90,13 +132,13 @@ def main():
             f.write(f"{key}={value}\n")
 
     env = dict(os.environ, SHADNET_HOME=home)
-    log = open(os.path.join(home, "shadnet.log"), "w")
+    log = cleanup.enter_context(open(os.path.join(home, "shadnet.log"), "w"))
     server = subprocess.Popen([os.path.abspath(args.shadnet)], cwd=home, env=env, stdout=log,
                               stderr=subprocess.STDOUT)
+    cleanup.callback(stop_child, server)
     time.sleep(1.5)
     if server.poll() is not None:
-        print("shadnet did not start; log in", home, file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"shadNet exited during startup: {server.returncode}")
 
     samples = []
     stop = threading.Event()
@@ -105,14 +147,14 @@ def main():
         hz = os.sysconf("SC_CLK_TCK")
         last = cpu_ticks(server.pid)
         last_main = thread_ticks(server.pid)
-        last_t = time.time()
+        last_t = time.monotonic()
         while not stop.wait(1.0):
             try:
                 now = cpu_ticks(server.pid)
                 main_now = thread_ticks(server.pid)
             except FileNotFoundError:
                 return
-            t = time.time()
+            t = time.monotonic()
             samples.append({"cpu": (now - last) / hz / (t - last_t) * 100.0,
                             "main": (main_now - last_main) / hz / (t - last_t) * 100.0,
                             "rss_mb": rss_mb(server.pid), "threads": threads(server.pid)})
@@ -122,10 +164,16 @@ def main():
     sampler = threading.Thread(target=sample, daemon=True)
     sampler.start()
 
+    def stop_sampler():
+        stop.set()
+        sampler.join(timeout=2)
+
+    cleanup.callback(stop_sampler)
     teams = max(1, args.players // args.team_size)
     processes = args.processes or max(1, (teams * args.team_size + 149) // 150)
     per = [teams // processes + (1 if i < teams % processes else 0) for i in range(processes)]
     loads = []
+    deadline = time.monotonic() + args.seconds + teams * args.ramp_ms / 1000 + 30
     for index, count in enumerate(per):
         if count == 0:
             continue
@@ -133,33 +181,29 @@ def main():
                    str(count), "--team-size", str(args.team_size), "--seconds",
                    str(args.seconds), "--ramp-ms", str(args.ramp_ms * processes), "--tag",
                    f"lt{index}"] + args.extra.split()
-        loads.append(subprocess.Popen(command, stdout=subprocess.PIPE,
-                                      stderr=open(os.path.join(home, f"bbload{index}.log"), "w"),
-                                      text=True))
+        worker_log = cleanup.enter_context(open(os.path.join(home, f"bbload{index}.log"), "w"))
+        load = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=worker_log, text=True)
+        cleanup.callback(stop_child, load)
+        loads.append(load)
     attack_result = {}
     if args.attack:
-        time.sleep(args.attack_delay)
+        time.sleep(min(args.attack_delay, max(0, deadline - time.monotonic())))
         attack = subprocess.run([sys.executable, os.path.join(HERE, "attack.py"), "--port",
                                  str(args.port)] + args.attack.split(), capture_output=True,
-                                text=True)
+                                text=True, timeout=max(0.01, deadline - time.monotonic()))
         for line in attack.stdout.splitlines():
             if line.startswith("{"):
                 attack_result = json.loads(line)
-        if not attack_result:
-            print("attack.py:", attack.stdout, attack.stderr, file=sys.stderr)
-    results = []
-    for load in loads:
-        out, _ = load.communicate()
-        for line in out.splitlines():
-            if line.startswith("{"):
-                results.append(json.loads(line))
-    stop.set()
+        if attack.returncode or not attack_result:
+            raise RuntimeError("attack.py failed or did not produce a results row")
+    results = [worker_result(load, deadline) for load in loads]
+    stop_sampler()
+    if server.poll() is not None or not samples:
+        raise RuntimeError("shadNet stopped early or no server resource samples were collected")
+    if sum(row["games"] for row in results) != teams * args.team_size:
+        raise RuntimeError("simulator results do not cover the scheduled players")
     udp_drops = udp_rcvbuf_errors() - drops_before
-    server.terminate()
-    try:
-        server.wait(10)
-    except subprocess.TimeoutExpired:
-        server.kill()
+    stop_child(server)
 
     # Steady state: the samples after every game played (the last two thirds of the run).
     steady = samples[len(samples) // 3:] or samples
@@ -207,12 +251,11 @@ def main():
     if summary["packets_sent"]:
         summary["delivered_pct"] = round(100.0 * summary["packets_received"] /
                                          summary["packets_sent"], 2)
-    print(json.dumps(summary))
-    if args.keep:
-        print("server folder:", home, file=sys.stderr)
-    else:
-        shutil.rmtree(home, ignore_errors=True)
+    summary["requested_players"] = args.players
+    summary["scheduled_players"] = teams * args.team_size
+    summary["server_samples"] = len(samples)
+    return summary
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
