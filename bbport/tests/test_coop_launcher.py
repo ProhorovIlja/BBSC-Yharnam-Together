@@ -1603,6 +1603,30 @@ class ConsoleTextTests(unittest.TestCase):
             with mock.patch.object(coop.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=b'\x98\xff')):
                 self.assertFalse(coop.firewall_ready(install, False))
 
+    def test_firewall_requires_the_exact_application_field(self):
+        install = Path('C:/Games/Yharnam Together')
+        app = str(install / 'bin' / 'bb-probe.exe')
+        with mock.patch.object(coop.sys, 'platform', 'win32'):
+            for raw, expected in (
+                (None, False), (b'', False),
+                (f'Program: {app}.bak\r\n'.encode(), False),
+                (f'Program: "{app}"\r\n'.encode('utf-8-sig'), True),
+                (f'Программа: {app}\r\n'.encode('utf-16'), True),
+            ):
+                with self.subTest(raw=raw), mock.patch.object(
+                    coop.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=raw)
+                ):
+                    self.assertEqual(coop.firewall_ready(install, False), expected)
+
+    def test_host_firewall_does_not_accept_an_empty_rule_response(self):
+        install = Path('C:/Games/Yharnam Together')
+        game = mock.Mock(returncode=0, stdout=f'Program: {install / "bin" / "bb-probe.exe"}\n')
+        empty = mock.Mock(returncode=0, stdout=None)
+        with mock.patch.object(coop.sys, 'platform', 'win32'), mock.patch.object(
+            coop.subprocess, 'run', side_effect=[game, empty]
+        ):
+            self.assertFalse(coop.firewall_ready(install, True))
+
     def test_no_windows_firewall_elsewhere(self):
         # Linux and the rest have no Windows Firewall to ask (their own, ufw or firewalld, the player
         # opens by hand): PLAY and Start server go on without netsh.
