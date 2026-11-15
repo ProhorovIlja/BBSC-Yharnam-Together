@@ -1,0 +1,42 @@
+name: Ultimate GX LOD atomic claim
+on:
+  pull_request:
+    paths:
+      - bbport/scripts/crash_guards.py
+      - bbport/scripts/patches.py
+      - bbport/scripts/code_cave.py
+      - bbport/tests/test_crash_guards.py
+      - bbport/tests/lod_claim_harness.cpp
+      - tools/ultimate/lod-tests/**
+      - .github/workflows/ultimate-lod-claim.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lod-claim-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  guard:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Byte validation, branch targets, cave and independent guard integration
+        run: python -m unittest discover -s bbport/tests -p test_crash_guards.py -v
+      - name: Existing patch pipeline regression tests
+        run: python -m unittest discover -s bbport/tests -p test_patches.py -v
+      - name: Existing Quit and Rebirth cave allocation checks
+        run: python -m unittest discover -s bbport/tests -p test_code_caves.py -v
+      - name: Configure actual machine-code harness
+        run: cmake -S tools/ultimate/lod-tests -B build-lod
+      - name: Build
+        run: cmake --build build-lod --config Release --parallel 2
+      - name: Execute actual x86-64 loop (explicit skip on arm64)
+        run: ctest --test-dir build-lod -C Release --output-on-failure --verbose

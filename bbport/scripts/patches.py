@@ -755,20 +755,31 @@ def frame_rate_fixes(names, image_bytes, segments, env=os.environ):
 
 def crash_guards(image_bytes, segments, env=os.environ):
     """[(name, offset, data)]: the crash guards (crash_guards.py, from Supermedo's bloodborne_pc
-    f1999924: the game's own unchecked pointers that crashed players), at any frame rate. Skipped
-    when the site holds other code or the code segment's last page is not free; BB_CRASH_GUARDS=0
-    turns them off."""
+    f1999924 and the Linux fork's atomic LOD slot claim), at any frame rate. Each guard requires
+    its exact original bytes; mismatches skip only that guard. The existing code-segment layout
+    gate and BB_CRASH_GUARDS=0 apply to both."""
     if env.get('BB_CRASH_GUARDS')=='0':
         return []
     sys.path.insert(0,str(Path(__file__).resolve().parent))
     import code_cave, crash_guards as guards
     try:
         code_cave.check_segments(segments)
-        guards.check_original(image_bytes)
     except ValueError as error:
         print(f'Patches: {error}; crash guards skipped')
         return []
-    return [('Crash guards',offset,data) for offset,data in guards.code_writes()]
+    named=[]
+    try:
+        guards.check_original(image_bytes)
+        named += [('Crash guards',offset,data) for offset,data in guards.code_writes()]
+    except ValueError as error:
+        print(f'Patches: {error}; online-event guard skipped')
+    try:
+        guards.check_lod_original(image_bytes)
+        offset,data=guards.lod_claim_code()
+        named.append(('Crash guards',offset,data))
+    except ValueError as error:
+        print(f'Patches: {error}; GX LOD claim guard skipped')
+    return named
 
 
 def report_coop_conflicts(conflicts, out=sys.stderr):
