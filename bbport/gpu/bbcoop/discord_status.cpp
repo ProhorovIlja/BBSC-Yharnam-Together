@@ -35,6 +35,7 @@
 
 #include "bbcoop.h"
 #include "bbcoop/discord_activity.h"
+#include "bbcoop/discord_presence_policy.h"
 #include "common/logging/log.h"
 #include "core/bloodborne_party.h"
 #include "core/bloodborne_re.h"
@@ -293,39 +294,57 @@ private:
 
 std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop_lobby& lobby,
                          std::int64_t started) {
-    const bool down = panel.vital == Core::Bloodborne::Vital::Down;
-    const bool dead = panel.vital == Core::Bloodborne::Vital::Dead;
-    const std::string details = panel.map != 0 ? "Hunting in " + std::string{AreaName(panel.map)}
-                                : lobby.in_team ? std::string{"In the team lobby"}
-                                                : std::string{"Preparing the hunt"};
     const int size = lobby.team_size > 0 ? lobby.team_size : BBCOOP_LOBBY_TEAM;
-    std::string state;
-    if (lobby.in_team) {
-        state = "In a team";
-        if (lobby.join == BBCOOP_JOIN_OPEN) {
-            state += " - open to all";
-        } else if (lobby.join == BBCOOP_JOIN_ASK) {
-            state += " - ask to join";
-        }
-    } else {
-        const std::size_t hunters = 1 + panel.members.size();
-        state = hunters > 1 ? fmt::format("Party of {} hunters", hunters) : "Solo hunter";
-    }
-    // Amanises 2026-10-30: a duel under way (team duels, free for all) says so.
     bbcoop_duel duel{};
     bbcoop_duel_view(&duel);
-    if (down) {
-        state += " - downed";
-    } else if (dead) {
-        state += " - fallen";
-    } else if (duel.may_cancel && duel.fighters > 0) {
-        state += " - in a duel";
+    bbcoop_invasion invasion{};
+    bbcoop_invasion_view(&invasion);
+
+    DiscordActivity::PresenceSnapshot snapshot;
+    snapshot.location = AreaName(panel.map);
+    if (panel.map == 0 && lobby.in_team) {
+        snapshot.location = "Team lobby";
     }
-    std::string activity = "{\"details\":" + Json(details) + ",\"state\":" + Json(state);
-    activity += fmt::format(",\"timestamps\":{{\"start\":{}}}", started);
+    snapshot.session_started_unix = started;
+    snapshot.host = lobby.in_team && lobby.leader;
+    snapshot.guest = lobby.in_team && !lobby.leader;
+    snapshot.members = lobby.member_count;
+    snapshot.capacity = size;
+    snapshot.down = panel.vital == Core::Bloodborne::Vital::Down;
+    snapshot.dead = panel.vital == Core::Bloodborne::Vital::Dead;
+    snapshot.spectating = panel.vital == Core::Bloodborne::Vital::Spectate ||
+                          panel.watching.has_value();
+    snapshot.duel = duel.may_cancel && duel.fighters > 0;
+    snapshot.team_duel = snapshot.duel && duel.teams != 0;
+    snapshot.invading = invasion.role == BBCOOP_INVASION_INVADER &&
+                        (invasion.phase == BBCOOP_INVASION_APPROACHING ||
+                         invasion.phase == BBCOOP_INVASION_ACTIVE ||
+                         invasion.phase == BBCOOP_INVASION_RETURNING);
+    snapshot.invasion_searching = invasion.role == BBCOOP_INVASION_INVADER &&
+                                  invasion.phase == BBCOOP_INVASION_SEARCHING;
+
+    const bool has_party = lobby.in_team && lobby.team[0] != '\0' &&
+                           !snapshot.invading && !snapshot.invasion_searching &&
+                           DiscordActivity::ValidPartyCount(snapshot.members, size);
+    // Keep Discord's native party count and join behavior. The formatter must
+    // not also append a textual count when party.size is sent.
+    snapshot.discord_party_counter = has_party;
+    DiscordActivity::PresencePrivacy privacy;
+    if (const char* show_area = std::getenv("BB_DISCORD_SHOW_AREA")) {
+        privacy.show_location = std::strcmp(show_area, "1") == 0;
+    }
+    // This branch has no validated local level, attributes or encounter
+    // snapshot yet. Leave them unknown rather than deriving them from peers.
+    const auto shown = DiscordActivity::Describe(
+        snapshot, privacy, DiscordActivity::PresenceLayout::ReferenceCard);
+    std::string activity = "{\"details\":" + Json(shown.details) + ",\"state\":" +
+                           Json(shown.state);
+    if (shown.start > 0) {
+        activity += fmt::format(",\"timestamps\":{{\"start\":{}}}", shown.start);
+    }
     activity += ",\"assets\":{\"large_image\":\"yharnam\",\"large_text\":" +
-                Json("Yharnam Together") + "}";
-    if (lobby.in_team && lobby.team[0] != '\0') {
+                Json("BBSC: Yharnam Together") + "}";
+    if (has_party) {
         // One party for the whole team (Discord groups its members), and the secret to join it.
         activity += fmt::format(",\"party\":{{\"id\":{},\"size\":[{},{}]}}",
                                 Json(std::string{"yt-"} + lobby.team), lobby.member_count, size);
