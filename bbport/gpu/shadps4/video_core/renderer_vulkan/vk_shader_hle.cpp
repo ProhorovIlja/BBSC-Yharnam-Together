@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
+#include "bbport_copy_shader.h"
+#include "core/memory.h"
 #include "shader_recompiler/info.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
@@ -144,57 +147,58 @@ static bool ExecuteCopyShaderHLE(const Shader::Info& info, const AmdGpu::Compute
     const auto src_buf_sharp = info.buffers[1].GetSharp(info);
     const auto dst_buf_sharp = info.buffers[2].GetSharp(info);
     const auto buf_stride = src_buf_sharp.GetStride();
-    ASSERT(buf_stride == dst_buf_sharp.GetStride());
-
-    struct CopyShaderControl {
-        u32 dst_idx;
-        u32 src_idx;
-        u32 end;
+    // Adapted from Supermedo/bloodborne_pc#155, head b946f03d (GPL-2.0-or-later).
+    // Returning true drops this malformed HLE dispatch; falling back would bind its foreign
+    // destination as GPU-written. The normal translated-shader path below is unchanged.
+    enum Reason { ForeignShape, UnmappedControl, CutRecords, UnmappedBatch };
+    const auto report = [&info](Reason reason) {
+        static std::atomic<u64> counts[4]{};
+        const u64 count = counts[reason].fetch_add(1, std::memory_order_relaxed) + 1;
+        if (BbCopyShader::ShouldReport(count)) {
+            LOG_WARNING(Render_Vulkan, "Copy shader HLE guard: reason {} count {} program {:#x}",
+                        unsigned(reason), count, info.pgm_hash);
+        }
     };
-    static_assert(sizeof(CopyShaderControl) == 12);
-    ASSERT(ctl_buf_sharp.GetStride() == sizeof(CopyShaderControl));
-    const auto ctl_buf = reinterpret_cast<const CopyShaderControl*>(ctl_buf_sharp.base_address);
-
-    static std::vector<vk::BufferCopy> copies;
+    const auto elements = [](const AmdGpu::Buffer& sharp) {
+        return BbCopyShader::Elements{sharp.GetStride(), u32(sharp.data_format),
+                                     u32(sharp.num_format)};
+    };
+    if (!BbCopyShader::ShapeFits(elements(ctl_buf_sharp), elements(src_buf_sharp),
+                                 elements(dst_buf_sharp))) {
+        report(ForeignShape);
+        return true;
+    }
+    const u32 num_controls = std::min<u32>(cs_program.dim_x, ctl_buf_sharp.num_records);
+    auto* memory = Core::Memory::Instance();
+    const auto mapped = [memory](VAddr address, u64 size) {
+        return size <= ~u64{0} - address && memory->ClampRangeSize(address, size) == size;
+    };
+    const u64 control_bytes = u64{num_controls} * sizeof(BbCopyShader::Control);
+    if (!mapped(ctl_buf_sharp.base_address, control_bytes)) {
+        report(UnmappedControl);
+        return true;
+    }
+    // The local renderer can protect GPU-written guest pages. Read through its backing view,
+    // rather than faulting on a raw CPU dereference on the thread needed for the readback.
+    thread_local std::vector<BbCopyShader::Control> controls;
+    controls.resize(num_controls);
+    if (control_bytes) {
+        memory->ReadBacking(ctl_buf_sharp.base_address, controls.data(), control_bytes);
+    }
+    thread_local std::vector<vk::BufferCopy> copies;
     copies.clear();
-    copies.reserve(cs_program.dim_x);
-    // bbport BB_COPY_SHADER_TRACE=1 (diagnostics): the copy shader's buffers, every 2 s.
-    static const bool trace = std::getenv("BB_COPY_SHADER_TRACE") != nullptr;
-    if (trace) {
-        static auto last = std::chrono::steady_clock::now();
-        static u32 calls = 0;
-        ++calls;
-        if (std::chrono::steady_clock::now() - last > std::chrono::seconds(2)) {
-            last = std::chrono::steady_clock::now();
-            u64 bytes = 0, lo = ~0ull, hi = 0;
-            for (u32 i = 0; i < cs_program.dim_x; ++i) {
-                bytes += u64(ctl_buf[i].end + 1) * buf_stride;
-                lo = std::min<u64>(lo, u64(ctl_buf[i].dst_idx) * buf_stride);
-                hi = std::max<u64>(hi, u64(ctl_buf[i].dst_idx + ctl_buf[i].end + 1) * buf_stride);
-            }
-            std::printf("Copy shader: %u calls; this one %u ranges %llu bytes; ctl %#llx size %u; "
-                        "src %#llx size %u stride %u fmt %u/%u; dst %#llx size %u stride %u fmt "
-                        "%u/%u; dst touched %#llx..%#llx; threads %u x %u, user data %u regs\n",
-                        calls, cs_program.dim_x, (unsigned long long)bytes,
-                        (unsigned long long)ctl_buf_sharp.base_address, u32(ctl_buf_sharp.GetSize()),
-                        (unsigned long long)src_buf_sharp.base_address, u32(src_buf_sharp.GetSize()),
-                        u32(buf_stride), u32(src_buf_sharp.GetDataFmt()),
-                        u32(src_buf_sharp.GetNumberFmt()),
-                        (unsigned long long)dst_buf_sharp.base_address, u32(dst_buf_sharp.GetSize()),
-                        u32(dst_buf_sharp.GetStride()), u32(dst_buf_sharp.GetDataFmt()),
-                        u32(dst_buf_sharp.GetNumberFmt()), (unsigned long long)lo,
-                        (unsigned long long)hi, cs_program.num_thread_x.full,
-                        cs_program.num_thread_y.full, u32(info.UserData().size()));
-            calls = 0;
+    copies.reserve(num_controls);
+    bool cut = cs_program.dim_x != num_controls;
+    for (const auto& control : controls) {
+        const auto range = BbCopyShader::Range(control, buf_stride, src_buf_sharp.num_records,
+                                              dst_buf_sharp.num_records);
+        cut |= range.cut;
+        if (range.size) {
+            copies.emplace_back(range.src_offset, range.dst_offset, range.size);
         }
     }
-
-    for (u32 i = 0; i < cs_program.dim_x; i++) {
-        const auto& [dst_idx, src_idx, end] = ctl_buf[i];
-        const u32 local_dst_offset = dst_idx * buf_stride;
-        const u32 local_src_offset = src_idx * buf_stride;
-        const u32 local_size = (end + 1) * buf_stride;
-        copies.emplace_back(local_src_offset, local_dst_offset, local_size);
+    if (cut) {
+        report(CutRecords);
     }
 
     // bbport: 64 KiB instead of 64 MiB. The copies are a few KiB spread over up to 57 MiB, and
@@ -238,6 +242,15 @@ static bool ExecuteCopyShaderHLE(const Shader::Info& info, const AmdGpu::Compute
             dst_offset_max = new_dst_offset_max;
         }
 
+        if (src_offset_min > ~u64{0} - src_buf_sharp.base_address ||
+            dst_offset_min > ~u64{0} - dst_buf_sharp.base_address ||
+            !mapped(src_buf_sharp.base_address + src_offset_min, src_offset_max - src_offset_min) ||
+            !mapped(dst_buf_sharp.base_address + dst_offset_min, dst_offset_max - dst_offset_min)) {
+            report(UnmappedBatch);
+            batch_start = batch_end;
+            continue;
+        }
+
         // Obtain buffers for the total source and destination ranges.
         const auto [src_buf, src_buf_offset] = buffer_cache.ObtainBuffer(
             src_buf_sharp.base_address + src_offset_min, src_offset_max - src_offset_min);
@@ -258,14 +271,13 @@ static bool ExecuteCopyShaderHLE(const Shader::Info& info, const AmdGpu::Compute
         if (!MultiCopy(rasterizer, src_buf, dst_buf, vk_copies)) {
             runtime.CopyBuffer(src_buf, dst_buf, vk_copies);
         }
+        // Track only the bounded, mapped copies actually submitted, including 64-bit offsets.
+        for (const auto& copy : vk_copies) {
+            buffer_cache.MarkRegionAsGpuModified(
+                dst_buf_sharp.base_address + dst_offset_min + (copy.dstOffset - dst_buf_offset),
+                copy.size);
+        }
         batch_start = batch_end;
-    }
-
-    for (u32 i = 0; i < cs_program.dim_x; i++) {
-        const auto& [dst_idx, src_idx, end] = ctl_buf[i];
-        const VAddr dst_addr = dst_buf_sharp.base_address + (dst_idx * buf_stride);
-        const u32 size = (end + 1) * buf_stride;
-        buffer_cache.MarkRegionAsGpuModified(dst_addr, size);
     }
 
     return true;

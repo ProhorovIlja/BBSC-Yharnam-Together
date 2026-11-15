@@ -1,0 +1,29 @@
+name: Ultimate copy shader safety
+on:
+  pull_request:
+    paths:
+      - bbport/gpu/shadps4/video_core/renderer_vulkan/vk_shader_hle.cpp
+      - bbport/gpu/shim/bbport_copy_shader.h
+      - bbport/tests/test_copy_shader.cpp
+      - bbport/tests/copy_hle_harness.cpp
+      - tools/ultimate/copy-tests/**
+      - .github/workflows/ultimate-copy-safety.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpu-copy-safety:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: cmake -S tools/ultimate/copy-tests -B build-copy
+      - run: cmake --build build-copy --config Release --parallel 2
+      - run: ctest --test-dir build-copy -C Release --output-on-failure --verbose
