@@ -20,6 +20,14 @@ add_executable(game_link_restart "${REPO_ROOT}/server/tests/test_game_link_resta
 target_include_directories(game_link_restart PRIVATE "${REPO_ROOT}/server")
 add_test(NAME game_link_restart COMMAND game_link_restart)
 set_tests_properties(game_link_existing game_link_restart PROPERTIES TIMEOUT 30)
+add_executable(game_link_resend "${REPO_ROOT}/server/tests/test_game_link_resend.cpp")
+target_include_directories(game_link_resend PRIVATE "${REPO_ROOT}/server")
+add_test(NAME game_link_resend COMMAND game_link_resend)
+set_tests_properties(game_link_resend PROPERTIES TIMEOUT 30)
+add_executable(game_link_transcript "${CMAKE_CURRENT_LIST_DIR}/wire_transcript.cpp")
+target_include_directories(game_link_transcript PRIVATE "${REPO_ROOT}/server")
+add_test(NAME game_link_transcript COMMAND game_link_transcript)
+set_tests_properties(game_link_transcript PROPERTIES TIMEOUT 30)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 execute_process(COMMAND "${Python3_EXECUTABLE}"
     "${REPO_ROOT}/tools/re/tests/test_team_world_preservation.py"
