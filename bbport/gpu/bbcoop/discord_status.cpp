@@ -177,37 +177,64 @@ public:
                written == frame.size();
     }
 
-    bool Drain(bool wait) {
-        for (;;) {
-            DWORD available = 0;
-            if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) {
+    bool Drain(bool wait_for_ready) {
+        constexpr std::uint32_t MaxBody = 64 * 1024; // Local budget for activity RPC.
+        constexpr unsigned MaxFramesPerPoll = 32;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        for (unsigned frames = 0; frames < MaxFramesPerPoll;) {
+            if (wait_for_ready && std::chrono::steady_clock::now() >= deadline) {
                 Close();
                 return false;
             }
-            if (available < 8 && !wait) {
-                return true;
+            if (header_used < sizeof(header)) {
+                if (!ReadAvailable(reinterpret_cast<char*>(header), sizeof(header), header_used)) {
+                    Close();
+                    return false;
+                }
+                if (header_used == sizeof(header)) {
+                    if (header[1] > MaxBody) {
+                        Close();
+                        return false;
+                    }
+                    body.resize(header[1]);
+                }
             }
-            std::uint32_t header[2]{};
-            DWORD got = 0;
-            if (!ReadFile(pipe, header, 8, &got, nullptr) || got != 8) {
+            if (header_used == sizeof(header) && body_used < header[1] &&
+                !ReadAvailable(body.data(), header[1], body_used)) {
                 Close();
                 return false;
             }
-            std::string body(header[1], '\0');
-            if (header[1] != 0 &&
-                (!ReadFile(pipe, body.data(), header[1], &got, nullptr) || got != header[1])) {
+            if (header_used != sizeof(header) || body_used != header[1]) {
+                if (!wait_for_ready) {
+                    return true;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+
+            const auto opcode = header[0];
+            header_used = body_used = 0;
+            ++frames;
+            if (opcode == 2) {
                 Close();
                 return false;
             }
-            if (header[0] == 2) {
-                Close();
-                return false;
-            }
-            if (header[0] == 3) {
-                Send(4, body); // a ping: its pong
-            } else if (header[0] == 1) {
+            if (opcode == 3) {
+                if (!Send(4, body)) {
+                    Close();
+                    return false;
+                }
+            } else if (opcode == 1) {
                 const std::string event = Field(body, "evt");
-                if (event == "ACTIVITY_JOIN") {
+                if (wait_for_ready) {
+                    if (event == "READY") {
+                        return true;
+                    }
+                    if (event == "ERROR") {
+                        Close();
+                        return false;
+                    }
+                } else if (event == "ACTIVITY_JOIN") {
                     JoinFromDiscord(Field(body, "secret"));
                 } else if (event == "ACTIVITY_JOIN_REQUEST") {
                     NoteJoinRequest(body);
@@ -215,8 +242,12 @@ public:
                     LOG_WARNING(Loader, "Co-op Discord: Discord says {}", Field(body, "message"));
                 }
             }
-            wait = false;
         }
+        if (wait_for_ready) {
+            Close();
+            return false;
+        }
+        return true;
     }
 
     bool Connected() const {
@@ -228,10 +259,36 @@ public:
             CloseHandle(pipe);
             pipe = INVALID_HANDLE_VALUE;
         }
+        header_used = body_used = 0;
+        body.clear();
     }
 
 private:
+    // This thread is the sole reader. Consume only bytes already buffered, retaining partial
+    // frames across polls instead of blocking ReadFile on a peer that stopped mid-frame.
+    bool ReadAvailable(char* dest, DWORD total, DWORD& used) {
+        DWORD available = 0;
+        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) {
+            return false;
+        }
+        if (available == 0) {
+            return true;
+        }
+        const DWORD remaining = total - used;
+        const DWORD amount = available < remaining ? available : remaining;
+        DWORD got = 0;
+        if (!ReadFile(pipe, dest + used, amount, &got, nullptr) || got == 0 || got > amount) {
+            return false;
+        }
+        used += got;
+        return true;
+    }
+
     HANDLE pipe = INVALID_HANDLE_VALUE;
+    std::uint32_t header[2]{};
+    DWORD header_used = 0;
+    DWORD body_used = 0;
+    std::string body;
 };
 
 std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop_lobby& lobby,
