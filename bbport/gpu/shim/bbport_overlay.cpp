@@ -23,6 +23,7 @@
 #include <vector>
 
 #include <SDL3/SDL.h>
+#include "../../src/runtime_key_names.h"
 #include "../bbcoop.h"
 #include "../bbgpu.h"
 #include "bbport_game_art.h"
@@ -8171,11 +8172,11 @@ bool CaptureEvent(const SDL_Event& event) {
             capture.modifier = code;
             return true;
         }
-        return bind("key", modifiers(event.key.mod) + SDL_GetScancodeName(code));
+        return bind("key", modifiers(event.key.mod) + bbport_key_binding_name(code));
     }
     case SDL_EVENT_KEY_UP:
         if (capture.modifier != SDL_SCANCODE_UNKNOWN && event.key.scancode == capture.modifier) {
-            return bind("key", SDL_GetScancodeName(capture.modifier));
+            return bind("key", bbport_key_binding_name(capture.modifier));
         }
         return true;
     case SDL_EVENT_MOUSE_BUTTON_DOWN: {

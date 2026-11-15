@@ -23,8 +23,7 @@ sys.path.insert(0, str(ROOT / 'launcher'))
 import bbport_controls as controls  # noqa: E402
 import bbport_lang  # noqa: E402
 
-if sys.platform == 'win32':
-    import bbport_launcher_win as launcher
+import bbport_launcher_win as launcher  # GUI creation remains inside Launcher; capture tests use stand-ins.
 
 SDL3 = next((p for p in (Path(os.environ.get('MSYS2_ROOT', r'C:\msys64')) / 'clang64' / 'bin' / 'SDL3.dll',
                          ROOT / 'out' / 'SDL3.dll') if p.is_file()), None)
@@ -182,10 +181,13 @@ class KeyNameTests(unittest.TestCase):
         self.assertEqual(controls.tk_key_to_sdl('ntilde', 0xC0, lambda vk: 0x27), ';')  # Spanish layout
         self.assertEqual(controls.tk_key_to_sdl('plus', 0xBB, lambda vk: 0x0D), '=')
 
+    def test_comma_has_a_delimiter_free_runtime_name(self):
+        self.assertEqual(controls.tk_key_to_sdl('comma'), 'Comma')
+        self.assertEqual(controls.tk_key_to_sdl('comma', 0xBC, lambda vk: 0x33), 'Comma')
+        self.assertEqual(controls.split_binding('Ctrl+Comma, F5'), ['Ctrl+Comma', 'F5'])
+
     def test_keys_the_runtime_cannot_bind_are_refused(self):
-        self.assertIsNone(controls.tk_key_to_sdl('comma'))  # bindings are split at commas
         self.assertIsNone(controls.tk_key_to_sdl('Insert'))  # it opens the port's menu in the game
-        self.assertIsNone(controls.tk_key_to_sdl('comma', 0xBC, lambda vk: 0x33))
         self.assertIsNone(controls.tk_key_to_sdl('ntilde'))  # no layout to place it
         self.assertIsNone(controls.tk_key_to_sdl('ISO_Level3_Shift'))
         self.assertIsNone(controls.tk_key_to_sdl('a', 0x41, lambda vk: 0))  # position unknown
@@ -198,7 +200,7 @@ class KeyNameTests(unittest.TestCase):
         names = set(controls.KEYSYMS.values()) | set(controls.SCAN_NAMES.values()) | set(controls.KEYSYM_CHARS.values())
         self.assertGreater(len(names), 100)
         for name in sorted(names):
-            self.assertNotEqual(lib.SDL_GetScancodeFromName(name.encode()), 0, name)
+            self.assertNotEqual(lib.SDL_GetScancodeFromName(controls.SDL_NAME_ALIASES.get(name, name).encode()), 0, name)
 
     def test_the_scan_table_matches_sdl_positions(self):
         # a handful of keys checked against SDL: the name SDL gives the scancode Windows' scan code 0x10 is
@@ -712,7 +714,6 @@ class ButtonIconLaunchTests(unittest.TestCase):
             self.assertIn('menu/common.tpf.dcx', bbport_lang.table(language)[note], language)
 
 
-@unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
 class CaptureTests(unittest.TestCase):
     """The key capture of the Controls page on a stand-in window: what one press writes to the ini, which
     presses are refused, how a modifier becomes a binding, and the single side-button poll chain."""
@@ -798,6 +799,32 @@ class CaptureTests(unittest.TestCase):
             self.press(window, 'Shift_L')
             window.control_mouse(types.SimpleNamespace(type='press', num=3, widget=None))
         self.assertEqual(window.ini['key.r2'], 'Shift+Mouse Right')
+
+    def test_keyboard_capture_keeps_all_modifier_combinations(self):
+        cases = [(set(), 'F5'), ({0xA0}, 'Shift+F5'), ({0xA3}, 'Ctrl+F5'),
+                 ({0xA4}, 'Alt+F5'), ({0xA1, 0xA2}, 'Shift+Ctrl+F5'),
+                 ({0xA0, 0xA5}, 'Shift+Alt+F5'), ({0xA2, 0xA4}, 'Ctrl+Alt+F5'),
+                 ({0xA1, 0xA3, 0xA5}, 'Shift+Ctrl+Alt+F5')]
+        for pressed, expected in cases:
+            with self.subTest(expected=expected):
+                window = self.window()
+                with mock.patch.object(launcher, 'LANG', 'en'), \
+                        mock.patch.object(controls, 'windows_key_down', side_effect=lambda vk: vk in pressed):
+                    window.start_capture('r2', False)
+                    self.press(window, 'F5')
+                self.assertEqual(window.ini['key.r2'], expected)
+                self.assertIsNone(window.capturing)
+
+    def test_keyboard_combo_keeps_physical_layout_and_comma_alternatives(self):
+        window = self.window({'key.cross': 'F5'})
+        with mock.patch.object(launcher, 'LANG', 'en'), \
+                mock.patch.object(controls, 'windows_key_down', side_effect=lambda vk: vk == 0xA2), \
+                mock.patch.object(controls, 'windows_scan', side_effect=lambda vk: {0x41: 0x1E, 0xBC: 0x33}.get(vk, 0)):
+            window.start_capture('cross', True)
+            self.press(window, 'Cyrillic_ef', 0x41)
+            window.start_capture('cross', True)
+            self.press(window, 'comma', 0xBC)
+        self.assertEqual(window.ini['key.cross'], 'F5, Ctrl+A, Ctrl+Comma')
 
     def test_altgr_binds_right_alt_not_the_control_it_sends_first(self):
         """Windows sends a Left Ctrl press, then Right Alt, for AltGr (Tk names them Control_L and Alt_R)."""

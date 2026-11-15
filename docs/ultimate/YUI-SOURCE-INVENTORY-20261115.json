@@ -1,0 +1,164 @@
+{
+  "snapshot_date": "2026-11-15",
+  "account": "yuiamoroll",
+  "repositories_returned": 21,
+  "next_page_empty": true,
+  "scope": "Public default-branch tree inventory, README/root-license checks and selected source examples. No release binary, private repository, branch/fork or full-history exhaustiveness claim; no donor code imported. Source-extension counts include bundled libraries.",
+  "repositories": [
+    {
+      "repository": "yuiamoroll/EldenRingSeamlessCoopRelease",
+      "commit": "60b6769dc1be9ac14ef71582ee6d88025541f27f",
+      "tracked_files": 5,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/DarkSouls2SeamlessCoopRelease",
+      "commit": "7b4eadace0ec70b5fc8da28112c1f711dbe904ba",
+      "tracked_files": 3,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/DarkSouls3SeamlessCoopRelease",
+      "commit": "3d2b6c09fadc77cee8ca3a6d18c124d9481c4923",
+      "tracked_files": 3,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/elden_ring_item_randomiser",
+      "commit": "35879dc741420f1fa707237852ce286c58a94559",
+      "tracked_files": 34,
+      "source_files": 27,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/launch_modded_eldenring",
+      "commit": "4618eaf4c5991b4afad2fc91fa5dd0b262977688",
+      "tracked_files": 12,
+      "source_files": 3,
+      "root_license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "repository": "yuiamoroll/Blue-Sentinel-Release",
+      "commit": "efc022f4b77ddb8212cdd72fc3dc5bdac708dd38",
+      "tracked_files": 2,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/Sekiro-Debug-Patch",
+      "commit": "88d51093deba3c28efdc8063a86823f4363dd027",
+      "tracked_files": 94,
+      "source_files": 40,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/ArmoredCoreVICoopRelease",
+      "commit": "c07e2cb12d0d20f8e7eca89992899f7dbf182e32",
+      "tracked_files": 2,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/DS3-Debug-Patch",
+      "commit": "c41f97959d1153b4f9042345002429460024abdb",
+      "tracked_files": 39,
+      "source_files": 22,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/DarkSouls1SeamlessCoopRelease",
+      "commit": "e2f42e1d9e4ccab1612dc26ccab7b408a2e7d737",
+      "tracked_files": 2,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/NightreignSeamlessCoopRelease",
+      "commit": "052c51c4e19258387ef9192916e0583dc94ef5d3",
+      "tracked_files": 6,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/DS3-Item-Randomiser-OS",
+      "commit": "ae4b17e04aa84103aa99ac035ef1e49080441893",
+      "tracked_files": 89,
+      "source_files": 30,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/SekiroSeamlessCoopRelease",
+      "commit": "b2205916a33e0fa47023cf8f5326973eb7b89935",
+      "tracked_files": 1,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/BlueAcolyteDS2",
+      "commit": "af8c39fb5e32cfaf7c2d6dc975be5e9a6b5b4d0e",
+      "tracked_files": 2,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/DarkSouls-Remastered-PvP-Watchdog",
+      "commit": "de42d7fe5df43ee77840ac43e0887d7344e4dbad",
+      "tracked_files": 3,
+      "source_files": 0,
+      "root_license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "repository": "yuiamoroll/BlueSentinelDS3",
+      "commit": "6129af4ad33c8be151282fcacbb4f3a546a26d1a",
+      "tracked_files": 4,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/Sekiro-Online",
+      "commit": "816f86f6b6e6114f146bb49ed97fcbacd546e832",
+      "tracked_files": 4,
+      "source_files": 0,
+      "root_license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "repository": "yuiamoroll/SeamlessCoopGlobalSyncList",
+      "commit": "2d8a57dfc40cafa5ee59f84e0d4771e2d8f09853",
+      "tracked_files": 3,
+      "source_files": 0,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/Scripts-Data-Exposer-FS",
+      "commit": "0c260682ac0d28bdffd74749a2e45da7695c3e31",
+      "tracked_files": 49,
+      "source_files": 39,
+      "root_license_files": []
+    },
+    {
+      "repository": "yuiamoroll/imgui",
+      "commit": "40fd163a3b760c0fa2201db2e8f2b52966d0c361",
+      "tracked_files": 194,
+      "source_files": 73,
+      "root_license_files": [
+        "LICENSE.txt"
+      ]
+    },
+    {
+      "repository": "yuiamoroll/YuiKeyNexus",
+      "commit": "82981e5ee1e460d13a7492dd43fe4ad9dc499ef4",
+      "tracked_files": 2,
+      "source_files": 0,
+      "root_license_files": []
+    }
+  ]
+}

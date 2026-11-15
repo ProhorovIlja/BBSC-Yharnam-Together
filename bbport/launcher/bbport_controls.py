@@ -141,15 +141,17 @@ KEYSYMS = {
 
 # The typing block by position (SDL scancodes are positions on a US keyboard): set 1 scan codes.
 _ROWS = ((0x02, "1234567890-="), (0x10, "QWERTYUIOP[]"), (0x1E, "ASDFGHJKL;'`"), (0x2B, "\\ZXCVBNM,./"))
-# No comma: the runtime splits a binding at commas, so the key could not be written.
-SCAN_NAMES = {start + i: char for start, row in _ROWS for i, char in enumerate(row) if char != ","}
+# "Comma" is the runtime's delimiter-free alias; a literal comma separates alternatives.
+SDL_NAME_ALIASES = {"Comma": ","}
+SCAN_NAMES = {start + i: "Comma" if char == "," else char
+              for start, row in _ROWS for i, char in enumerate(row)}
 # Windows virtual keys of that block: digits, letters, and the OEM keys (; = , - . / ` [ \ ] ').
 _TYPING_KEYS = (set(range(0x30, 0x3A)) | set(range(0x41, 0x5B)) | {0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0,
                                                                     0xDB, 0xDC, 0xDD, 0xDE})
 KEYSYM_CHARS = {
     "minus": "-", "equal": "=", "bracketleft": "[", "bracketright": "]", "backslash": "\\",
-    "semicolon": ";", "apostrophe": "'", "grave": "`", "period": ".", "slash": "/",
-}  # "comma" is missing on purpose: the runtime splits a binding at commas
+    "semicolon": ";", "apostrophe": "'", "grave": "`", "period": ".", "slash": "/", "comma": "Comma",
+}
 
 
 def windows_scan(virtual_key):

@@ -5818,7 +5818,8 @@ class Launcher:
         if bbport_controls.is_modifier_keysym(event.keysym):
             self.pending_modifier = key  # bound when let go; a mouse input first makes it the combination's modifier
             return 'break'
-        self.assign_key(name, add, key)
+        self.assign_key(name, add, bbport_controls.with_modifiers(
+            key, *bbport_controls.held_modifiers(bbport_controls.windows_key_down)))
         return 'break'
 
     def control_key_release(self, event):
