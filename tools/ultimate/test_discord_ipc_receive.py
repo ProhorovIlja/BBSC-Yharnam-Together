@@ -150,5 +150,22 @@ class DiscordReceiveTest(unittest.TestCase):
                     subprocess.run([str(exe), mode], cwd=temp, check=True, timeout=6)
 
 
+    def test_reused_presence_policy(self):
+        compiler = shutil.which("cl" if os.name == "nt" else "c++")
+        self.assertIsNotNone(compiler, "C++ compiler required for presence policy regression")
+        source = ROOT / "bbport/tests/test_discord_activity.cpp"
+        include = ROOT / "bbport"
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            exe = temp / ("presence.exe" if os.name == "nt" else "presence")
+            if os.name == "nt":
+                cmd = [compiler, "/nologo", "/std:c++20", "/EHsc", "/utf-8",
+                       f"/I{include}", str(source), f"/Fe:{exe}"]
+            else:
+                cmd = [compiler, "-std=c++20", "-Wall", "-Wextra", "-Werror", "-pedantic",
+                       "-I", str(include), str(source), "-o", str(exe)]
+            subprocess.run(cmd, cwd=temp, check=True, timeout=60)
+            subprocess.run([str(exe)], cwd=temp, check=True, timeout=6)
+
 if __name__ == "__main__":
     unittest.main()
