@@ -35,6 +35,8 @@
 
 #include "bbcoop.h"
 #include "bbcoop/discord_activity.h"
+#include "bbcoop/discord_presence_policy.h"
+#include "bbcoop/build_archetype.h"
 #include "common/logging/log.h"
 #include "core/bloodborne_party.h"
 #include "core/bloodborne_re.h"
@@ -173,41 +175,73 @@ public:
         std::memcpy(frame.data() + 4, &length, 4);
         frame += json;
         DWORD written = 0;
-        return WriteFile(pipe, frame.data(), static_cast<DWORD>(frame.size()), &written, nullptr) &&
-               written == frame.size();
+        if (!WriteFile(pipe, frame.data(), static_cast<DWORD>(frame.size()), &written, nullptr) ||
+            written != frame.size()) {
+            // Never append another frame to a partially written stream.
+            Close();
+            return false;
+        }
+        return true;
     }
 
-    bool Drain(bool wait) {
-        for (;;) {
-            DWORD available = 0;
-            if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) {
+    bool Drain(bool wait_for_ready) {
+        constexpr std::uint32_t MaxBody = 64 * 1024; // Local budget for activity RPC.
+        constexpr unsigned MaxFramesPerPoll = 32;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        for (unsigned frames = 0; frames < MaxFramesPerPoll;) {
+            if (wait_for_ready && std::chrono::steady_clock::now() >= deadline) {
                 Close();
                 return false;
             }
-            if (available < 8 && !wait) {
-                return true;
+            if (header_used < sizeof(header)) {
+                if (!ReadAvailable(reinterpret_cast<char*>(header), sizeof(header), header_used)) {
+                    Close();
+                    return false;
+                }
+                if (header_used == sizeof(header)) {
+                    if (header[1] > MaxBody) {
+                        Close();
+                        return false;
+                    }
+                    body.resize(header[1]);
+                }
             }
-            std::uint32_t header[2]{};
-            DWORD got = 0;
-            if (!ReadFile(pipe, header, 8, &got, nullptr) || got != 8) {
+            if (header_used == sizeof(header) && body_used < header[1] &&
+                !ReadAvailable(body.data(), header[1], body_used)) {
                 Close();
                 return false;
             }
-            std::string body(header[1], '\0');
-            if (header[1] != 0 &&
-                (!ReadFile(pipe, body.data(), header[1], &got, nullptr) || got != header[1])) {
+            if (header_used != sizeof(header) || body_used != header[1]) {
+                if (!wait_for_ready) {
+                    return true;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+
+            const auto opcode = header[0];
+            header_used = body_used = 0;
+            ++frames;
+            if (opcode == 2) {
                 Close();
                 return false;
             }
-            if (header[0] == 2) {
-                Close();
-                return false;
-            }
-            if (header[0] == 3) {
-                Send(4, body); // a ping: its pong
-            } else if (header[0] == 1) {
+            if (opcode == 3) {
+                if (!Send(4, body)) {
+                    Close();
+                    return false;
+                }
+            } else if (opcode == 1) {
                 const std::string event = Field(body, "evt");
-                if (event == "ACTIVITY_JOIN") {
+                if (wait_for_ready) {
+                    if (event == "READY") {
+                        return true;
+                    }
+                    if (event == "ERROR") {
+                        Close();
+                        return false;
+                    }
+                } else if (event == "ACTIVITY_JOIN") {
                     JoinFromDiscord(Field(body, "secret"));
                 } else if (event == "ACTIVITY_JOIN_REQUEST") {
                     NoteJoinRequest(body);
@@ -215,8 +249,12 @@ public:
                     LOG_WARNING(Loader, "Co-op Discord: Discord says {}", Field(body, "message"));
                 }
             }
-            wait = false;
         }
+        if (wait_for_ready) {
+            Close();
+            return false;
+        }
+        return true;
     }
 
     bool Connected() const {
@@ -228,47 +266,113 @@ public:
             CloseHandle(pipe);
             pipe = INVALID_HANDLE_VALUE;
         }
+        header_used = body_used = 0;
+        body.clear();
     }
 
 private:
+    // This thread is the sole reader. Consume only bytes already buffered, retaining partial
+    // frames across polls instead of blocking ReadFile on a peer that stopped mid-frame.
+    bool ReadAvailable(char* dest, DWORD total, DWORD& used) {
+        DWORD available = 0;
+        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) {
+            return false;
+        }
+        if (available == 0) {
+            return true;
+        }
+        const DWORD remaining = total - used;
+        const DWORD amount = available < remaining ? available : remaining;
+        DWORD got = 0;
+        if (!ReadFile(pipe, dest + used, amount, &got, nullptr) || got == 0 || got > amount) {
+            return false;
+        }
+        used += got;
+        return true;
+    }
+
     HANDLE pipe = INVALID_HANDLE_VALUE;
+    std::uint32_t header[2]{};
+    DWORD header_used = 0;
+    DWORD body_used = 0;
+    std::string body;
 };
 
 std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop_lobby& lobby,
                          std::int64_t started) {
-    const bool down = panel.vital == Core::Bloodborne::Vital::Down;
-    const bool dead = panel.vital == Core::Bloodborne::Vital::Dead;
-    const std::string details = panel.map != 0 ? "Hunting in " + std::string{AreaName(panel.map)}
-                                : lobby.in_team ? std::string{"In the team lobby"}
-                                                : std::string{"Preparing the hunt"};
     const int size = lobby.team_size > 0 ? lobby.team_size : BBCOOP_LOBBY_TEAM;
-    std::string state;
-    if (lobby.in_team) {
-        state = "In a team";
-        if (lobby.join == BBCOOP_JOIN_OPEN) {
-            state += " - open to all";
-        } else if (lobby.join == BBCOOP_JOIN_ASK) {
-            state += " - ask to join";
-        }
-    } else {
-        const std::size_t hunters = 1 + panel.members.size();
-        state = hunters > 1 ? fmt::format("Party of {} hunters", hunters) : "Solo hunter";
-    }
-    // Amanises 2026-10-30: a duel under way (team duels, free for all) says so.
     bbcoop_duel duel{};
     bbcoop_duel_view(&duel);
-    if (down) {
-        state += " - downed";
-    } else if (dead) {
-        state += " - fallen";
-    } else if (duel.may_cancel && duel.fighters > 0) {
-        state += " - in a duel";
+    bbcoop_invasion invasion{};
+    bbcoop_invasion_view(&invasion);
+
+    DiscordActivity::PresenceSnapshot snapshot;
+    snapshot.location = AreaName(panel.map);
+    if (panel.map == 0 && lobby.in_team) {
+        snapshot.location = "Team lobby";
     }
-    std::string activity = "{\"details\":" + Json(details) + ",\"state\":" + Json(state);
-    activity += fmt::format(",\"timestamps\":{{\"start\":{}}}", started);
+    snapshot.session_started_unix = started;
+    if (panel.local_level >= 4 && panel.local_level <= 544) {
+        snapshot.level = panel.local_level;
+    }
+    if (panel.local_stats_valid) {
+        const auto& a = panel.local_offensive_stats;
+        if (const auto mask = BbHunterBuild::Mask({a[0], a[1], a[2], a[3]})) {
+            snapshot.build = BbHunterBuild::DiscordCardLabel(*mask);
+        }
+    }
+    snapshot.boss_fighting = panel.local_boss_fight;
+    snapshot.boss = panel.local_boss_name;
+    snapshot.boss_started_unix = panel.local_boss_started_unix;
+    snapshot.host = lobby.in_team && lobby.leader;
+    snapshot.guest = lobby.in_team && !lobby.leader;
+    snapshot.members = lobby.member_count;
+    snapshot.capacity = size;
+    snapshot.down = panel.vital == Core::Bloodborne::Vital::Down;
+    snapshot.dead = panel.vital == Core::Bloodborne::Vital::Dead;
+    snapshot.spectating = panel.vital == Core::Bloodborne::Vital::Spectate ||
+                          panel.watching.has_value();
+    snapshot.duel = duel.may_cancel && duel.fighters > 0;
+    snapshot.team_duel = snapshot.duel && duel.teams != 0;
+    snapshot.invading = invasion.role == BBCOOP_INVASION_INVADER &&
+                        (invasion.phase == BBCOOP_INVASION_APPROACHING ||
+                         invasion.phase == BBCOOP_INVASION_ACTIVE ||
+                         invasion.phase == BBCOOP_INVASION_RETURNING);
+    snapshot.invasion_searching = invasion.role == BBCOOP_INVASION_INVADER &&
+                                  invasion.phase == BBCOOP_INVASION_SEARCHING;
+
+    const bool has_party = lobby.in_team && lobby.team[0] != '\0' &&
+                           !snapshot.invading && !snapshot.invasion_searching &&
+                           DiscordActivity::ValidPartyCount(snapshot.members, size);
+    // Keep Discord's native party count and join behavior. The formatter must
+    // not also append a textual count when party.size is sent.
+    snapshot.discord_party_counter = has_party;
+    DiscordActivity::PresencePrivacy privacy;
+    if (const char* show_area = std::getenv("BB_DISCORD_SHOW_AREA")) {
+        privacy.show_location = std::strcmp(show_area, "1") == 0;
+    }
+    if (const char* value = std::getenv("BB_DISCORD_SHOW_LEVEL")) {
+        privacy.show_level = std::strcmp(value, "1") == 0;
+    }
+    if (const char* value = std::getenv("BB_DISCORD_SHOW_BUILD")) {
+        privacy.show_build = std::strcmp(value, "1") == 0;
+    }
+    if (const char* value = std::getenv("BB_DISCORD_SHOW_BOSS")) {
+        privacy.show_boss = std::strcmp(value, "1") == 0;
+    }
+    const char* layout = std::getenv("BB_DISCORD_REFERENCE_LAYOUT");
+    const auto shown = DiscordActivity::Describe(
+        snapshot, privacy, layout && std::strcmp(layout, "0") == 0
+                               ? DiscordActivity::PresenceLayout::StatusFirst
+                               : DiscordActivity::PresenceLayout::ReferenceCard);
+    std::string activity = "{\"details\":" + Json(shown.details) + ",\"state\":" +
+                           Json(shown.state);
+    if (shown.start > 0) {
+        activity += fmt::format(",\"timestamps\":{{\"start\":{}}}", shown.start);
+    }
     activity += ",\"assets\":{\"large_image\":\"yharnam\",\"large_text\":" +
-                Json("Yharnam Together") + "}";
-    if (lobby.in_team && lobby.team[0] != '\0') {
+                Json("BBSC: Yharnam Together") + "}";
+    if (has_party) {
         // One party for the whole team (Discord groups its members), and the secret to join it.
         activity += fmt::format(",\"party\":{{\"id\":{},\"size\":[{},{}]}}",
                                 Json(std::string{"yt-"} + lobby.team), lobby.member_count, size);
@@ -306,12 +410,14 @@ DWORD WINAPI DiscordThread(LPVOID) {
             sent.clear();
             // Amanises 2026-10-25: Discord tells this game when a friend joins it or asks to.
             for (const char* event : {"ACTIVITY_JOIN", "ACTIVITY_JOIN_REQUEST"}) {
-                discord.Send(1, fmt::format("{{\"cmd\":\"SUBSCRIBE\",\"evt\":\"{}\","
-                                            "\"nonce\":\"{}\"}}",
-                                            event, ++nonce));
+                if (!discord.Send(1, fmt::format("{{\"cmd\":\"SUBSCRIBE\",\"evt\":\"{}\","
+                                                 "\"nonce\":\"{}\"}}",
+                                                 event, ++nonce))) {
+                    break; // Send closed the broken stream; retry on the next poll.
+                }
             }
         }
-        if (!discord.Drain(false)) {
+        if (!discord.Connected() || !discord.Drain(false)) {
             continue;
         }
         // The team screen's answers to Discord's join requests.
@@ -329,6 +435,11 @@ DWORD WINAPI DiscordThread(LPVOID) {
         }
         Core::Bloodborne::PartyPanel panel;
         Core::Bloodborne::ReadPartyPanel(panel); // also copies the cached snapshot while solo
+        const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (!DiscordActivity::GameSnapshotFresh(panel.rpc_snapshot_steady_ms, now_ms)) {
+            panel = {};
+        }
         static bbcoop_lobby lobby; // large: kept off this thread's stack
         if (bbcoop_lobby_view(&lobby) == 0) {
             lobby = {};

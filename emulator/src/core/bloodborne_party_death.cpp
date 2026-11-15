@@ -2104,6 +2104,8 @@ void ForgetTargetsOnDowned(PartyDeathRun& run, const DeathTick& tick) {
 void PostVitalsAndPanel(PartyDeathRun& run, const DeathTick& tick) {
     const auto at = LocalPlayerPosition();
     const auto own_stain = Coop::ReadOwnBloodstain();
+    const auto local_level = OwnCharacterLevel();
+    const bool local_fight = tick.alive && EventFlagOn(BossFightFlag);
     PostVitals(
         MemberVitals{
             .map = tick.in_session ? tick.map : 0,
@@ -2114,8 +2116,8 @@ void PostVitalsAndPanel(PartyDeathRun& run, const DeathTick& tick) {
             .landed = run.downed.DamageLanded(),
             .needed = run.downed.DamageNeeded(),
             .at = at.value_or(LampPosition{}),
-            .level = OwnCharacterLevel(),
-            .boss = tick.alive && EventFlagOn(BossFightFlag),
+            .level = local_level,
+            .boss = local_fight,
             .killed_by_invader = run.downed.Current() == Vital::Dead && died_to_invader.load(),
             .bosses = tick.in_session ? OwnBossClaims() : std::vector<u32>{},
         },
@@ -2128,6 +2130,73 @@ void PostVitalsAndPanel(PartyDeathRun& run, const DeathTick& tick) {
     // Phase 11: what the player sees is each one's character name.
     for (PanelMember& member : panel.members) {
         member.shown = Coop::CharacterNameOf(member.member);
+    }
+    // The launcher sets these before game start; do not query the environment
+    // or read additional character data on every tick with RPC disabled.
+    static const bool rpc_enabled = [] {
+        const char* enabled = std::getenv("BB_DISCORD_STATUS");
+        const char* app = std::getenv("BB_DISCORD_APP_ID");
+        return enabled && std::strcmp(enabled, "1") == 0 && app && *app;
+    }();
+    static const bool share_build = [] {
+        const char* value = std::getenv("BB_DISCORD_SHOW_BUILD");
+        return value && std::strcmp(value, "1") == 0;
+    }();
+    static const bool share_boss = [] {
+        const char* value = std::getenv("BB_DISCORD_SHOW_BOSS");
+        return !value || std::strcmp(value, "1") == 0;
+    }();
+    if (rpc_enabled && tick.map != 0) {
+        // B56: the Discord IPC worker may read only this guarded game-thread
+        // snapshot, never live PS4 game pointers. These offsets are the same 1.09
+        // PlayerGameData attribute fields validated by bbport's save editor:
+        // +0x58 Strength, +0x60 Skill, +0x68 Bloodtinge, +0x70 Arcane.
+        panel.local_level = local_level;
+        const u64 own_data = OwnGameData();
+        if (share_build && own_data >= 0x10000 &&
+            own_data <= std::numeric_limits<u64>::max() - 0x74 &&
+            HasMemoryAccess(own_data + 0x58, 0x70 - 0x58 + 4, MemoryProt::CpuRead)) {
+            panel.local_offensive_stats = {
+                ReadValue<s32>(own_data, 0x58), ReadValue<s32>(own_data, 0x60),
+                ReadValue<s32>(own_data, 0x68), ReadValue<s32>(own_data, 0x70)
+            };
+            panel.local_stats_valid = std::ranges::all_of(
+                panel.local_offensive_stats, [](s32 stat) { return stat >= 1 && stat <= 99; });
+        }
+        // Spectating a boss still counts as being in its encounter for the timer.
+        panel.local_boss_fight = share_boss && (local_fight ||
+            (vital == Vital::Spectate && run.spectating_boss_fight));
+        // B60: read the *same* 1.09 gauge table this co-op already uses to clear
+        // stale boss bars on death (BossGaugesPointerOffset / BossGaugesOffset).
+        // Unlike ClearBossBarsAfterDeath, this path is read-only. It never scans
+        // arbitrary process memory or guesses boss names from the current map.
+        static_assert(BossPresence::GaugeSlots == BossGaugeSlots &&
+                      BossPresence::GaugeSize == BossGaugeSize);
+        if (panel.local_boss_fight) {
+            const u64 holder = ReadValue<u64>(image_base + BossGaugesPointerOffset, 0);
+            if (holder >= 0x10000 &&
+                holder <= std::numeric_limits<u64>::max() - BossGaugesOffset - BossPresence::GaugeBytes &&
+                HasMemoryAccess(holder + BossGaugesOffset, BossPresence::GaugeBytes,
+                                MemoryProt::CpuRead)) {
+                std::array<u8, BossPresence::GaugeBytes> gauges{};
+                std::memcpy(gauges.data(),
+                            reinterpret_cast<const void*>(holder + BossGaugesOffset),
+                            gauges.size());
+                if (const auto name = BossPresence::NameFromActiveGauges(gauges)) {
+                    panel.local_boss_name.assign(name->data(), name->size());
+                }
+            }
+        }
+        // The encounter timestamp is observed on the actual game tick, not
+        // invented by the 2-second Discord IPC loop. Phase label changes leave
+        // the timer intact; quitting the encounter or changing maps resets it.
+        run.rpc_boss_clock.Observe(
+            panel.local_boss_fight, tick.map,
+            panel.local_boss_fight ? std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count() : 0);
+        panel.local_boss_started_unix = run.rpc_boss_clock.StartedUnix();
+    } else {
+        run.rpc_boss_clock.Reset();
     }
     panel.vital = tick.in_session ? vital : Vital::Off;
     panel.landed = run.downed.DamageLanded();
@@ -2160,6 +2229,10 @@ void PostVitalsAndPanel(PartyDeathRun& run, const DeathTick& tick) {
         panel.me = at;
         panel.camera_heading = CameraHeadingNow();
     }
+    if (rpc_enabled && tick.map != 0) {
+        panel.rpc_snapshot_steady_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
     SetPartyPanel(std::move(panel));
 }
 
@@ -2178,6 +2251,7 @@ void TickPartyDeath() {
     tick.data = PlayerDataModule(tick.player);
     if (tick.data < 0x10000 || !HasMemoryAccess(tick.data, 0x204, MemoryProt::CpuWrite)) {
         party_death_data.store(0);
+        run.rpc_boss_clock.Reset();
         SetPartyPanel({});
         return; // loading
     }
