@@ -8,6 +8,9 @@
 #include <filesystem>
 #include <string>
 #include <system_error>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 namespace BbNgxPaths {
 // NGX consumes wide paths, then may convert them with the C locale on Linux. Keep its path

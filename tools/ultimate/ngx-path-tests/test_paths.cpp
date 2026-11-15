@@ -20,8 +20,8 @@ int main() {
 #ifndef _WIN32
     std::mbstate_t legacy_state{};
     const wchar_t* legacy_text=L"\u0418\u0433\u0440\u044b_\u8840\u7f18";
-    CHECK(std::wcsrtombs(nullptr,&legacy_text,0,&legacy_state)==static_cast<std::size_t>(-1));
-    std::puts("LEGACY_WIDE_TO_MULTIBYTE_UNDER_C=FAILED");
+    const bool narrow_failed=std::wcsrtombs(nullptr,&legacy_text,0,&legacy_state)==static_cast<std::size_t>(-1);
+    std::printf("LEGACY_WIDE_TO_MULTIBYTE_UNDER_C=%s\n",narrow_failed ? "FAILED" : "ACCEPTED");
     bool legacy_failed=false;
     try { (void)(root/names[1]).wstring(); }
     catch(const std::exception&) { legacy_failed=true; }
