@@ -1,0 +1,51 @@
+name: Ultimate synthetic recompiler intake
+on:
+  pull_request:
+    paths:
+      - tools/ultimate/recompiler_probe.py
+      - tools/ultimate/recompiler-linux-gcc.sh
+      - tools/ultimate/recompiler-probe-encodings.txt
+      - .github/workflows/ultimate-recompiler-intake.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-x64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@v4
+        with:
+          repository: bloodborne-native/bloodborne-recomp
+          ref: c60ccf8be752b8690f2813505c4daf9eafdb136b
+          path: .ci/recomp
+      - uses: actions/checkout@v4
+        with:
+          repository: bloodborne-native/bbcpu
+          ref: 3f9b6c1a11d5a443ee2e556a0d1f3aec4a73f0ca
+          path: .ci/bbcpu
+      - uses: actions/checkout@v4
+        with:
+          repository: zyantific/zydis
+          ref: a2278f1d254e492f6a6b39f6cb5d1f5d515659dc
+          submodules: recursive
+          path: .ci/zydis
+      - name: Build the isolated pinned decoder dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="$RUNNER_TEMP/recompiler-deps"
+          cmake -S .ci/zydis/dependencies/zycore -B .ci/zycore-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.10 -DCMAKE_INSTALL_PREFIX="$prefix" -DBUILD_SHARED_LIBS=OFF
+          cmake --build .ci/zycore-build --parallel 2
+          cmake --install .ci/zycore-build
+          cmake -S .ci/zydis -B .ci/zydis-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.10 -DCMAKE_INSTALL_PREFIX="$prefix" -DBUILD_SHARED_LIBS=OFF -DZYAN_SYSTEM_ZYCORE=ON -DCMAKE_C_FLAGS="-I$prefix/include" -DZYDIS_BUILD_TOOLS=OFF -DZYDIS_BUILD_EXAMPLES=OFF -DZYDIS_BUILD_DOXYGEN=OFF
+          cmake --build .ci/zydis-build --parallel 2
+          cmake --install .ci/zydis-build
+      - name: Generate and execute synthetic C against the interpreter
+        shell: bash
+        run: |
+          python tools/ultimate/recompiler_probe.py --recompiler .ci/recomp --bbcpu .ci/bbcpu --deps "$RUNNER_TEMP/recompiler-deps" --output "$RUNNER_TEMP/recompiler-probe" --trials 1000

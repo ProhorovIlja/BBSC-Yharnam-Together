@@ -34,6 +34,11 @@
     "GPUOpen-LibrariesAndSDKs/FidelityFX-SDK",
     "GPUOpen-LibrariesAndSDKs/RadeonRays_SDK",
     "RenderKit/embree",
-    "NVIDIA-RTX/NRD"
+    "NVIDIA-RTX/NRD",
+    "bloodborne-native/bloodborne-recomp",
+    "bloodborne-native/bbcpu",
+    "bloodborne-native/bloodborne-launcher",
+    "bloodborne-native/bloodborne-mac",
+    "bloodborne-native/bloodborne-ios"
   ]
 }

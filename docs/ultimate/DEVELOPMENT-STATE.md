@@ -1,22 +1,21 @@
 # Development continuation
 
-Latest work: branch `development/ultimate-upstream-state-20261115`, stacked on
-[PR260](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/260).
-Read [source intake](SOURCE-INTAKE-20261115.md), its JSON inventory and the current
-branch diff before starting another intake or implementation pass.
+Latest work: branch `development/ultimate-aot-native136-20261115`, stacked on
+[PR 261](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/261).
+Read [recompiler intake](RECOMPILER-INTAKE-20261115.md) and the current branch diff.
+Earlier [source intake](SOURCE-INTAKE-20261115.md) retains the C++ stream and rig
+changes; its infrastructure/image CI43725362583 has now succeeded too.
 
-Implemented in this checkpoint: shared C++ stream unreliable-payload ownership,
-upstream crash-suite placement correction, portable rig process-list path checks,
-delay-proxy teardown/FIFO improvements and a reproducible public-ref scanner.
-The private Drive report is named
-`Bloodborne_Upstream_Intake_Handoff_EN_20261115.txt`; its accompanying validation
-ZIP includes full ref snapshots and reproduction/test logs. These files are in
-the existing private research/diagnostics folders. They contain no game assets.
+This checkpoint adds a pinned Linux external-recompiler probe using 20 synthetic
+instructions and 1,000 randomized states each, separate from the owner startup test.
+The source watchlist expands to 39 repositories; full snapshots and exact test logs
+are in the private research/diagnostics folders, without game assets in GitHub.
+The private Drive handoff is `Bloodborne_Recompiler_Native136_Handoff_EN_20261115.txt`.
 
-The native startup diagnostic remains at **132 original constructor returns**,
-eleven classes/44 phase rows/five metadata objects. Continue at constructor133;
-see [evidence](NATIVE-STARTUP-132-EVIDENCE.md). The owner-only reproducer archive
-`Bloodborne_Private_Native132_Owner_Reproducer_20261115.zip` is in private Drive.
+The native startup diagnostic reaches **136 original constructor returns**,
+twelve classes/48 phase rows/six metadata objects. Continue at constructor 137;
+see [evidence](NATIVE-STARTUP-136-EVIDENCE.md). The owner-only reproducer archive
+`Bloodborne_Private_Native136_Owner_Reproducer_20261115.zip` is in private Drive.
 No approved playable no-eboot profile, game-main/assets/gameplay proof, native
 Windows/macOS retail execution or complete toolchain/SDK closure is established.
 
