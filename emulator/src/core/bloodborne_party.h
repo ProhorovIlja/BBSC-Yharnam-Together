@@ -1571,7 +1571,8 @@ private:
     bool arrival_due = false; // a new player character: the world loaded between two ticks
     bool trip_seen = false;
     bool death_seen = false;
-    std::optional<s64> standing_since;  // a character stood at a position since, in this stretch
+    std::optional<s64> standing_since;  // this live character had a finite position since
+    u64 standing_player = 0;
     bool loading_flag_outlived = false; // Playing although the loading flag stays up
 };
 // Discord 2026-11-12 (Raziel, 1.5.0): a guest's vitals said map 0 for six minutes after its trip

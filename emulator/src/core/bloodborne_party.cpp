@@ -1883,6 +1883,11 @@ u64 VisitTracker::Update(u32 new_map, u64 new_player, bool in_session, u64 new_t
     return (u64{map} << 32) | generation;
 }
 
+static bool HasStandingCharacter(const PlaceReading& reading) {
+    return reading.player != 0 && !reading.dead && reading.at &&
+           std::ranges::all_of(*reading.at, [](float axis) { return std::isfinite(axis); });
+}
+
 std::optional<PlaceChange> PlaceTracker::Update(const PlaceReading& reading) {
     const bool known_map = reading.map != 0 && reading.map != 0xFFFFFFFFu;
     trip_seen = trip_seen || reading.trip;
@@ -1890,11 +1895,14 @@ std::optional<PlaceChange> PlaceTracker::Update(const PlaceReading& reading) {
         death_seen = true;
     }
     // A character standing at a position (StandingInLoadMs): since when, in this stretch.
-    const bool standing = reading.player != 0 && reading.at.has_value();
-    if (!standing) {
+    const bool standing = HasStandingCharacter(reading);
+    if (!standing || reading.player != standing_player ||
+        (standing_since && reading.now_ms < *standing_since)) {
         standing_since.reset();
         loading_flag_outlived = false;
-    } else if (!standing_since) {
+    }
+    standing_player = standing ? reading.player : 0;
+    if (standing && !standing_since) {
         standing_since = reading.now_ms;
     }
     if (!reading.loading) {
@@ -2020,7 +2028,7 @@ std::optional<std::string> StuckLoadWatch::Tick(PlaceState state, const PlaceRea
     }
     // A load proper has no character (or a moment of one): only a character standing in the
     // world, with a position, counts.
-    if (reading.player == 0 || !reading.at) {
+    if (!HasStandingCharacter(reading)) {
         stands.reset();
         return std::nullopt;
     }

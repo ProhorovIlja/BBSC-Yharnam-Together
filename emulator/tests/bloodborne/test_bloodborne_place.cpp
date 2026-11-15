@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include <limits>
+
 #include <gtest/gtest.h>
 
 #include "core/bloodborne_party.h"
@@ -126,6 +128,44 @@ TEST(BloodbornePlace, AnUnreadableMapUnderAStandingCharacterEndsTheLoadOnTheLast
     ASSERT_TRUE(ended);
     EXPECT_EQ(ended->to.state, PlaceState::Playing);
     EXPECT_EQ(ended->to.map, CentralYharnam);
+}
+
+TEST(BloodbornePlace, AReplacementCharacterDoesNotInheritTheStuckLoadTimer) {
+    PlaceTracker tracker = ArrivedOn(CentralYharnam);
+    auto stuck = Standing(1'000, CentralYharnam);
+    stuck.loading = true;
+    ASSERT_TRUE(tracker.Update(stuck));
+    stuck.now_ms += PlaceTracker::StandingInLoadMs;
+    ++stuck.player;
+    EXPECT_FALSE(tracker.Update(stuck));
+    EXPECT_EQ(tracker.Current().state, PlaceState::Loading);
+    stuck.now_ms += PlaceTracker::StandingInLoadMs;
+    ASSERT_TRUE(tracker.Update(stuck));
+    EXPECT_EQ(tracker.Current().state, PlaceState::Playing);
+    ++stuck.player;
+    ++stuck.now_ms;
+    ASSERT_TRUE(tracker.Update(stuck));
+    EXPECT_EQ(tracker.Current().state, PlaceState::Loading);
+}
+
+TEST(BloodbornePlace, DeadOrNonFiniteCharacterSamplesCannotEndALoad) {
+    PlaceTracker tracker = ArrivedOn(CentralYharnam);
+    auto stuck = Standing(1'000, CentralYharnam);
+    stuck.loading = true;
+    ASSERT_TRUE(tracker.Update(stuck));
+    stuck.now_ms += PlaceTracker::StandingInLoadMs;
+    stuck.dead = true;
+    EXPECT_FALSE(tracker.Update(stuck));
+    stuck.now_ms += PlaceTracker::StandingInLoadMs;
+    stuck.dead = false;
+    (*stuck.at)[0] = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FALSE(tracker.Update(stuck));
+    stuck.now_ms += PlaceTracker::StandingInLoadMs;
+    (*stuck.at)[0] = 1.0f;
+    EXPECT_FALSE(tracker.Update(stuck));
+    stuck.now_ms += PlaceTracker::StandingInLoadMs;
+    ASSERT_TRUE(tracker.Update(stuck));
+    EXPECT_EQ(tracker.Current().state, PlaceState::Playing);
 }
 
 TEST(BloodbornePlace, ALoadWithoutACharacterOrPositionNeverEndsByItself) {

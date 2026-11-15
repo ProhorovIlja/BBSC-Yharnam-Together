@@ -1938,19 +1938,6 @@ int PS4_SYSV_ABI sceHttpSendRequest(int reqId, const void* postData, u64 size) {
         }
 
         CaptureBloodborneSummon(plan, local_res, worker_errno);
-        if (!game_server_url.empty()) {
-            const bool answered =
-                worker_errno == 0 && local_res.status_code >= 200 && local_res.status_code < 300;
-            auto& sign_in = Core::Bloodborne::TheGameServerSignIn();
-            const auto before = sign_in.State();
-            sign_in.Answered(game_server_url, answered);
-            if (sign_in.State() != before) {
-                LOG_INFO(Lib_Http, "Co-op: the game server sign-in is {} ({} {})",
-                         Core::Bloodborne::GameServerSignInName(sign_in.State()),
-                         answered ? "answered" : "failed", plan.path);
-            }
-        }
-
         std::lock_guard<std::mutex> lock(g_state.m_mutex);
         if (g_state.shutting_down.load() || req_ptr->deleted ||
             req_ptr->state == HttpRequestState::Aborted) {
@@ -1963,6 +1950,19 @@ int PS4_SYSV_ABI sceHttpSendRequest(int reqId, const void* postData, u64 size) {
                      reqId, reason, local_res.status_code, static_cast<u32>(worker_errno));
             req_ptr->cv.notify_all();
             return;
+        }
+        // Only a result delivered to the guest may update the sign-in diagnostic.
+        if (!game_server_url.empty()) {
+            const bool answered =
+                worker_errno == 0 && local_res.status_code >= 200 && local_res.status_code < 300;
+            auto& sign_in = Core::Bloodborne::TheGameServerSignIn();
+            const auto before = sign_in.State();
+            sign_in.Answered(game_server_url, answered);
+            if (sign_in.State() != before) {
+                LOG_INFO(Lib_Http, "Co-op: the game server sign-in is {} ({} {})",
+                         Core::Bloodborne::GameServerSignInName(sign_in.State()),
+                         answered ? "answered" : "failed", plan.path);
+            }
         }
         req_ptr->res = std::move(local_res);
         req_ptr->state = HttpRequestState::Sent;

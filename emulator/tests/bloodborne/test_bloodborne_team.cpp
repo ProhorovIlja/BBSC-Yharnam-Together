@@ -1296,6 +1296,24 @@ TEST(GameServerSignIn, TheSignInCountsOnTheAddressSsInfoHandsBack) {
     EXPECT_EQ(log.Notice(), "");
 }
 
+TEST(GameServerSignIn, UnrelatedUrlsCannotPretendToBeLoginOrDiscovery) {
+    EXPECT_FALSE(IsGameServerRequest("https://other.example/?host=ss4.scej-network.jp:20443"));
+    EXPECT_FALSE(IsGameServerRequest("https://ss4.scej-network.jp:20443@other.example/"));
+    EXPECT_FALSE(IsGameServerRequest("https://other.example/basic_utils/login_backup"));
+    EXPECT_FALSE(IsGameServerRequest("https://other.example/#/basic_utils/login"));
+    EXPECT_FALSE(IsGameServerRequest("https://other.example/status?path=/basic_utils/login"));
+    EXPECT_TRUE(IsGameServerRequest("https://[::1]:20443/basic_utils/login?attempt=1"));
+
+    GameServerSignInLog log;
+    log.Asked();
+    log.Answered("https://other.example/status?path=/basic_utils/login", true);
+    log.Answered("https://other.example/basic_utils/login_backup", false);
+    EXPECT_EQ(log.State(), GameServerSignIn::Trying);
+    EXPECT_EQ(log.Failures(), 0u);
+    log.Answered("https://[::1]:20443/basic_utils/login?attempt=1", true);
+    EXPECT_EQ(log.State(), GameServerSignIn::SignedIn);
+}
+
 TEST(GameServerSignIn, TheTeamScreenSaysWhenTheGameIsNotSignedIn) {
     EXPECT_EQ(GameServerNotice(GameServerSignIn::SignedIn, true), "");
     EXPECT_EQ(GameServerNotice(GameServerSignIn::NotTried, false), ""); // the title, not yet
