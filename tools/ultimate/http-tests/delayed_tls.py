@@ -25,7 +25,7 @@ def main():
         port = listener.getsockname()[1]
         threads, errors = [], []
 
-        def serve(raw, delay):
+        def serve(raw, delay, response_delay):
             try:
                 with raw:
                     raw.settimeout(12)
@@ -37,19 +37,20 @@ def main():
                             if not part:
                                 return
                             data += part
+                        time.sleep(response_delay)
                         body = b'verified-local-tls'
                         tls.sendall(b'HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: ' +
                                     str(len(body)).encode() + b'\r\n\r\n' + body)
             except (ssl.SSLError, BrokenPipeError, ConnectionResetError):
-                pass  # The raw timeout and the two certificate-negative controls close TLS early.
+                pass  # The raw/read timeouts and certificate-negative controls close TLS early.
             except Exception as error:
                 errors.append(repr(error))
 
         def accept():
             try:
-                for delay in (2, 2, 0, 0, 0):
+                for delay, response_delay in ((2, 0), (2, 0), (0, 0), (0, 0), (0, 0), (0, 3)):
                     raw, _ = listener.accept()
-                    thread = threading.Thread(target=serve, args=(raw, delay), daemon=True)
+                    thread = threading.Thread(target=serve, args=(raw, delay, response_delay), daemon=True)
                     threads.append(thread)
                     thread.start()
             except Exception as error:
@@ -58,7 +59,7 @@ def main():
         acceptor = threading.Thread(target=accept, daemon=True)
         acceptor.start()
         try:
-            for mode in ('raw', 'fixed', 'untrusted', 'hostname', 'fast'):
+            for mode in ('raw', 'fixed', 'untrusted', 'hostname', 'fast', 'read'):
                 host = '127.0.0.1' if mode == 'hostname' else 'localhost'
                 result = subprocess.run([sys.argv[1], f'https://{host}:{port}', str(cert), mode],
                                         capture_output=True, text=True, timeout=15)
@@ -69,7 +70,7 @@ def main():
             listener.close()
             acceptor.join(timeout=2)
             for thread in threads:
-                thread.join(timeout=2)
+                thread.join(timeout=5)
         if acceptor.is_alive() or any(thread.is_alive() for thread in threads) or errors:
             raise RuntimeError(f'local server did not finish cleanly: {errors}')
         print('DELAYED_TLS_AND_CERTIFICATE_CONTROLS_PASS')

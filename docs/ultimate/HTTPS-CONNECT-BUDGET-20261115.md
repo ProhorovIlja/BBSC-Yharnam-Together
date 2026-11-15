@@ -22,6 +22,10 @@ client used by BBport with OpenSSL 3 and runs it against a loopback-only TLS ser
   and hostname verification enabled.
 - An untrusted self-signed certificate and a hostname mismatch remain rejected.
 - A fast handshake succeeds well below the ten-second budget, confirming there is no added sleep.
+- A server that completes TLS but delays its response still hits the configured one-second read
+  budget (`Read`, observed about two seconds in httplib), despite the ten-second connection
+  budget. This checks real read-timeout
+  behavior independently of the portable setter tests.
 
 Certificates and keys are generated in a temporary directory for this fixture, then removed.
 No game/account data, credentials or external game server is involved. Exact elapsed times are

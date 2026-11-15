@@ -11,7 +11,7 @@ int main(int argc, char** argv) {
     client.enable_server_certificate_verification(true);
     client.enable_server_hostname_verification(true);
     if(mode!="untrusted") client.set_ca_cert_path(argv[2]);
-    const auto budgets=Libraries::Http::Timeouts::Configure(client,1000000,2000000,2000000,
+    const auto budgets=Libraries::Http::Timeouts::Configure(client,1000000,mode=="read" ? 1000000 : 2000000,2000000,
                                                           mode!="raw");
     const auto started=std::chrono::steady_clock::now();
     const auto result=client.Get("/probe");
@@ -20,6 +20,8 @@ int main(int argc, char** argv) {
     std::printf("TLS mode=%s budget=%llds elapsed=%lldms status=%d error=%s\n",mode.c_str(),
                 static_cast<long long>(budgets.connect.count()),static_cast<long long>(ms),
                 result ? result->status : 0,httplib::to_string(result.error()).c_str());
+    if(mode=="read") return !result && result.error()==httplib::Error::Read &&
+        budgets.receive==std::chrono::seconds(1) && ms<5000 ? 0 : 1;
     if(mode=="raw") return !result && result.error()==httplib::Error::SSLConnection ? 0 : 1;
     if(mode=="untrusted") return !result && result.error()==httplib::Error::SSLServerVerification ? 0 : 1;
     if(mode=="hostname") return !result && result.error()==httplib::Error::SSLServerHostnameVerification ? 0 : 1;
