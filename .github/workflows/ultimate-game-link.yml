@@ -12,6 +12,8 @@ on:
       - emulator/src/core/bloodborne_game_link.h
       - emulator/tests/bloodborne/test_bloodborne_game_link.cpp
       - emulator/src/core/bloodborne_team.*
+      - emulator/src/core/bloodborne_game_server.h
+      - emulator/src/core/libraries/network/http.cpp
       - emulator/src/core/bloodborne_server_world.cpp
       - emulator/src/core/bloodborne_travel.cpp
       - tools/re/tests/test_team_world_preservation.py
