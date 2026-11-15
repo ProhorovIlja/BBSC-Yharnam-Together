@@ -4496,12 +4496,12 @@ class Launcher:
         self.coop_vars[key] = v
         return v
 
-    def coop_rule_switch(self, parent, key, title):
+    def coop_rule_switch(self, parent, key, title, width=None):
         text = self.coop_rule_var(key)
         on = self.tk.BooleanVar(value=text.get() == '1')
         on.trace_add('write', lambda *_a: text.set('1' if on.get() else ''))
         text.trace_add('write', lambda *_a: on.get() != (text.get() == '1') and on.set(text.get() == '1'))
-        row = self.switch(parent, on, title, self.px(640))
+        row = self.switch(parent, on, title, self.px(640) if width is None else width)
         row.pack(anchor='w', pady=(self.px(4), 0))
         return row
 
