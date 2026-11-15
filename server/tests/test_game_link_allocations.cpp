@@ -179,12 +179,41 @@ static bool CoopStreamTransfersSingleAndReassemblesSplitMessages() {
     return true;
 }
 
+static bool CoopStreamRejectsBeforeQueueingAndCountsChunkMarkers() {
+    CoopStream a{"host", 1}, b{"guest", 2};
+    const std::vector<u8> first(CoopStream::ChunkBytes + 1, 4);
+    const std::vector<u8> next{7};
+    const size_t exact = first.size() + 2;
+    CHECK(!a.SendWithinUnackedLimit(first, 0, exact - 1));
+    CHECK(a.Unacked() == 0 && a.UnackedBytes() == 0);
+    CHECK(a.SendWithinUnackedLimit(first, 0, exact));
+    CHECK(!a.SendWithinUnackedLimit(next, 0, exact + 1));
+    CHECK(a.Unacked() == 2 && a.UnackedBytes() == exact);
+    std::vector<std::vector<u8>> got;
+    for (const auto& frame : a.Flush(0)) {
+        for (auto& message : b.Receive(frame, 0)) got.push_back(std::move(message));
+    }
+    CHECK(got.size() == 1 && got[0] == first);
+    for (const auto& ack : b.Flush(0)) a.Receive(ack, 0);
+    CHECK(a.UnackedBytes() == 0);
+    CHECK(!a.SendWithinUnackedLimit({}, 1, 0));
+    CHECK(a.SendWithinUnackedLimit({}, 1, 1));
+    CHECK(a.SendWithinUnackedLimit(next, 1, 3));
+    got.clear();
+    for (const auto& frame : a.Flush(1)) {
+        for (auto& message : b.Receive(frame, 1)) got.push_back(std::move(message));
+    }
+    CHECK(got.size() == 2 && got[0].empty() && got[1] == next);
+    return true;
+}
+
 int main() {
     if (!UnreliableTransfersItsOwnedPayload() || !ReliableRetainsItsPayloadForRetransmission() ||
         !FreshAndRetriedPacketsKeepWireOrderAcrossFrames() ||
         !WireRejectsImpossibleCountsAndSplitsAtTheWireLimit() ||
         !OwnedReceivePreservesPayloadStorageAndReliableOrder() ||
-        !CoopStreamTransfersSingleAndReassemblesSplitMessages())
+        !CoopStreamTransfersSingleAndReassemblesSplitMessages() ||
+        !CoopStreamRejectsBeforeQueueingAndCountsChunkMarkers())
         return 1;
     std::cout << "Shared stream: unreliable Flush payload allocations 1 -> 0; reliable resend preserved\n";
 }

@@ -59,6 +59,19 @@ public:
         } while (at < message.size());
     }
 
+    // Admission before allocating chunks, including the byte added to every chunk.
+    // A rejected message leaves the reliable sequence and backlog untouched.
+    bool SendWithinUnackedLimit(std::span<const u8> message, s64 now_ms, size_t budget) {
+        const size_t used = UnackedBytes();
+        const size_t chunks = message.empty() ? 1 : 1 + (message.size() - 1) / ChunkBytes;
+        if (used > budget || message.size() > budget - used ||
+            chunks > budget - used - message.size()) {
+            return false;
+        }
+        Send(message, now_ms);
+        return true;
+    }
+
     // The frames to send now (each one datagram's body): chunks, resends and acks.
     std::vector<std::vector<u8>> Flush(s64 now_ms) {
         std::vector<std::vector<u8>> bodies;

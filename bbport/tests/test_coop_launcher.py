@@ -1463,6 +1463,14 @@ class SaveBackupTests(unittest.TestCase):
         self.assertFalse(list(self.user.glob('.restore-stage-*')))
         self.assertEqual(coop.save_files(coop.save_backups(self.install)[0]['path']), before)
 
+    def test_backup_catalog_without_details_does_not_walk_snapshot_contents(self):
+        self.game_backup('20261024-231630', 'old')
+        with mock.patch.object(Path, 'rglob', side_effect=AssertionError('walked a snapshot')):
+            listed = coop.save_backups(self.install, details=False)
+            self.assertEqual([row['name'] for row in listed], ['20261024-231630'])
+            self.assertEqual(coop.prune_launcher_backups(self.install), 0)
+        self.assertGreater(coop.save_backups(self.install)[0]['size'], 0)
+
     def test_invalid_backup_date_and_bad_note_do_not_break_the_list(self):
         self.game_backup('20261024-231630', 'good')
         self.game_backup('20269999-231630', 'not a date')

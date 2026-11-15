@@ -1316,7 +1316,7 @@ def save_files(user):
     return files
 
 
-def save_backups(install):
+def save_backups(install, *, details=True):
     """The backups, newest first: dicts of name, path, when (a time.struct_time), note (what the
     launcher wrote in it; '' for the game's own) and size in bytes."""
     folder = Path(install) / 'user' / SAVE_BACKUPS
@@ -1328,17 +1328,19 @@ def save_backups(install):
             continue
         try:
             when = time.strptime(path.name, '%Y%m%d-%H%M%S')
-            size = sum(f.stat().st_size for f in path.rglob('*')
-                       if f.is_file() and f.name != LAUNCHER_BACKUP_NOTE)
+            size = (sum(f.stat().st_size for f in path.rglob('*')
+                        if f.is_file() and f.name != LAUNCHER_BACKUP_NOTE)
+                    if details else 0)
         except (ValueError, OSError):
             continue  # malformed or pruned by the game during enumeration
         note_file = path / LAUNCHER_BACKUP_NOTE
+        launcher = note_file.is_file()
         try:
-            note = note_file.read_text(encoding='utf-8').strip() if note_file.is_file() else ''
+            note = note_file.read_text(encoding='utf-8').strip() if details and launcher else ''
         except (OSError, UnicodeError):
             note = ''
         found.append({'name': path.name, 'path': path, 'when': when,
-                      'note': note, 'size': size, 'launcher': note_file.is_file()})
+                      'note': note, 'size': size, 'launcher': launcher})
     found.sort(key=lambda backup: backup['name'], reverse=True)
     return found
 
@@ -1350,9 +1352,13 @@ def back_up_saves(install, note, now=None, prune=True):
     files = save_files(user)
     if not files:
         return None
-    existing = save_backups(install)
-    if existing and save_files(existing[0]['path']) == files:
-        return None
+    existing = save_backups(install, details=False)
+    if existing:
+        try:
+            if save_files(existing[0]['path']) == files:
+                return None
+        except FileNotFoundError:
+            pass  # the game may rotate its newest snapshot concurrently
     name = time.strftime('%Y%m%d-%H%M%S', time.localtime(now))
     root = user / SAVE_BACKUPS
     root.mkdir(parents=True, exist_ok=True)
@@ -1387,7 +1393,7 @@ def back_up_saves(install, note, now=None, prune=True):
 def prune_launcher_backups(install, kept=KEPT_LAUNCHER_BACKUPS):
     """Deletes all but the newest `kept` launcher backups (the game prunes its own); how many went."""
     removed = 0
-    for backup in [b for b in save_backups(install) if b['launcher']][kept:]:
+    for backup in [b for b in save_backups(install, details=False) if b['launcher']][kept:]:
         shutil.rmtree(backup['path'], ignore_errors=True)
         removed += 1
     return removed

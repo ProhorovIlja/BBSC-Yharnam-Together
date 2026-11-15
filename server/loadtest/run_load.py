@@ -87,6 +87,8 @@ def main():
     parser.add_argument("--port", type=int, default=31314)
     parser.add_argument("--extra", default="", help="more bbload options")
     parser.add_argument("--cfg", action="append", default=[], help="Key=Value for shadnet.cfg")
+    parser.add_argument("--require-all-playing", action="store_true",
+                        help="fail if any scheduled simulated player does not play")
     parser.add_argument("--keep", action="store_true", help="keep the server's folder")
     parser.add_argument("--attack", default="", help="attack.py arguments, run beside the players")
     parser.add_argument("--attack-delay", type=float, default=20, help="seconds before it")
@@ -100,6 +102,10 @@ def main():
     try:
         with ExitStack() as cleanup:
             summary = run(args, home, cleanup)
+            if args.require_all_playing and (
+                    summary["playing"] != summary["scheduled_players"] or summary["refused"]
+                    or not summary["packets_sent"] or not summary["packets_received"]):
+                raise RuntimeError(f"incomplete loopback smoke: {summary}")
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(f"load test failed: {error}; diagnostic folder: {home}", file=sys.stderr)
         return 1

@@ -100,7 +100,11 @@ RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
     && cmake --build build --target shadnet $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
     && if [ "$RUN_WORLD_TESTS" = 1 ]; then \
            cmake --build build --target test_bloodborne_world test_world_writer $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
-           && ctest --test-dir build --output-on-failure --no-tests=error -R '^(bloodborne_world|world_writer)$'; \
+           && ctest --test-dir build --output-on-failure --no-tests=error -R '^(bloodborne_world|world_writer)$' \
+           && cmake --build build --target bbload $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
+           && LD_LIBRARY_PATH=/opt/qt/lib QT_PLUGIN_PATH=/opt/qt/plugins python3 loadtest/run_load.py \
+              --shadnet build/shadnet --bbload build/bbload --players 6 --team-size 3 --seconds 10 \
+              --port 32014 --require-all-playing; \
        fi \
     && mkdir -p /bin-out && strip -o /bin-out/shadnet build/shadnet
 COPY server/hosting/collect-runtime.sh /usr/local/bin/
