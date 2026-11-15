@@ -12,6 +12,7 @@ import argparse
 from contextlib import ExitStack
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -75,6 +76,47 @@ def worker_result(child, deadline):
     return rows[0]
 
 
+BUILD_LOG_MARKER = "Link: games must run this server's build:"
+
+
+def local_build_fingerprint(log_path, server, timeout=10):
+    """Read the checked fingerprint from this run's fresh, private server log."""
+    deadline = time.monotonic() + timeout
+    with open(log_path, encoding="utf-8", errors="replace") as log:
+        while True:
+            for line in log:
+                if BUILD_LOG_MARKER not in line:
+                    continue
+                value = line.partition(BUILD_LOG_MARKER)[2].strip()
+                fields = {part.partition("=")[0] for part in value.split(";")[1:-1]}
+                if (len(value) > 255 or not re.fullmatch(
+                        r"bb-build 1;(?:[a-z]+=[A-Za-z0-9.+_-]+;)+", value)
+                        or not {"version", "protocol"} <= fields):
+                    raise RuntimeError("invalid checked build fingerprint in shadNet startup log")
+                return value
+            if server.poll() is not None:
+                raise RuntimeError(f"shadNet exited during startup: {server.returncode}")
+            if time.monotonic() >= deadline:
+                raise RuntimeError("shadNet did not announce a checked build fingerprint")
+            time.sleep(0.05)
+
+
+def print_refusals(home):
+    # Only surface bounded refusal lines from the synthetic clients, not server logs or keys.
+    remaining = 8
+    for name in sorted(os.listdir(home)):
+        if not re.fullmatch(r"bbload[0-9]+\.log", name):
+            continue
+        with open(os.path.join(home, name), encoding="utf-8", errors="replace") as log:
+            for line in log:
+                if " refused:" in line:
+                    msg = "".join(c if c.isprintable() else " " for c in line.strip()[:256])
+                    print(f"{name}: {msg}", file=sys.stderr)
+                    remaining -= 1
+                    if not remaining:
+                        return
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--shadnet", required=True)
@@ -86,6 +128,8 @@ def main():
     parser.add_argument("--processes", type=int, default=0, help="0: one per 150 players")
     parser.add_argument("--port", type=int, default=31314)
     parser.add_argument("--extra", default="", help="more bbload options")
+    parser.add_argument("--match-local-build", action="store_true",
+                        help="send the checked fingerprint announced by the fresh local server")
     parser.add_argument("--cfg", action="append", default=[], help="Key=Value for shadnet.cfg")
     parser.add_argument("--require-all-playing", action="store_true",
                         help="fail if any scheduled simulated player does not play")
@@ -98,6 +142,9 @@ def main():
             or min(args.ramp_ms, args.processes, args.attack_delay) < 0
             or not 1025 <= args.port <= 65534):
         parser.error("invalid workload, duration, process count or test port")
+    if args.match_local_build and any(option == "--build" or option.startswith("--build=")
+                                      for option in args.extra.split()):
+        parser.error("--match-local-build conflicts with an explicit --extra --build")
     home = tempfile.mkdtemp(prefix="shadnet-load-")
     try:
         with ExitStack() as cleanup:
@@ -108,6 +155,11 @@ def main():
                 raise RuntimeError(f"incomplete loopback smoke: {summary}")
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(f"load test failed: {error}; diagnostic folder: {home}", file=sys.stderr)
+        if args.match_local_build:
+            try:
+                print_refusals(home)
+            except OSError:
+                pass  # Diagnostic I/O must not hide the original failure.
         return 1
     print(json.dumps(summary))
     if args.keep:
@@ -142,7 +194,12 @@ def run(args, home, cleanup):
     server = subprocess.Popen([os.path.abspath(args.shadnet)], cwd=home, env=env, stdout=log,
                               stderr=subprocess.STDOUT)
     cleanup.callback(stop_child, server)
-    time.sleep(1.5)
+    extra = args.extra.split()
+    if args.match_local_build:
+        build = local_build_fingerprint(os.path.join(home, "shadnet.log"), server)
+        extra += ["--build", build]
+    else:
+        time.sleep(1.5)
     if server.poll() is not None:
         raise RuntimeError(f"shadNet exited during startup: {server.returncode}")
 
@@ -188,7 +245,7 @@ def run(args, home, cleanup):
         command = [os.path.abspath(args.bbload), "--json", "--port", str(args.port), "--teams",
                    str(count), "--team-size", str(args.team_size), "--seconds",
                    str(args.seconds), "--ramp-ms", str(args.ramp_ms * processes), "--tag",
-                   f"lt{index}"] + args.extra.split()
+                   f"lt{index}"] + extra
         worker_log = cleanup.enter_context(open(os.path.join(home, f"bbload{index}.log"), "w"))
         load = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=worker_log, text=True)
         cleanup.callback(stop_child, load)
