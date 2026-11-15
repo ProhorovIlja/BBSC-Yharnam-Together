@@ -237,6 +237,10 @@ target_link_libraries(shadnet PRIVATE
 )
 
 if(BUILD_TESTING)
+    add_executable(test_game_link_restart EXCLUDE_FROM_ALL tests/test_game_link_restart.cpp)
+    target_include_directories(test_game_link_restart PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME game_link_restart COMMAND test_game_link_restart)
+
     add_executable(test_bloodborne_summon_broker EXCLUDE_FROM_ALL
         tests/test_bloodborne_summon_broker.cpp
         src/bloodborne_summon_broker.cpp
