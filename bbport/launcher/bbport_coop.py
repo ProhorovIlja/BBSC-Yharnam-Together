@@ -65,6 +65,9 @@ DEFAULTS = {'game': '', 'update': '', 'role': 'guest', 'host_ip': '', 'account':
             'machine': '',
             # Kaniel 2026-11-01: '1' shows the game on Discord (off by default).
             'discord_status': '',
+            'discord_show_area': '1', 'discord_show_level': '',
+            'discord_show_build': '', 'discord_show_boss': '1',
+            'discord_reference_layout': '1',
             # Kaniel 2026-11-01: 'local' (a host's own server, by its address: as ever) or 'global' (the
             # public server: its own accounts, bbport_auth.py, Kaniel 2026-11-03); the account's name while
             # signed in (never its password); another Global server's address than GLOBAL_SERVER (a test
@@ -1406,17 +1409,26 @@ def unlocked_fps(fps_mode):
 
 
 # The Discord application the status shows as: ours, once made (empty: the option is not offered).
-DISCORD_APP_ID = ''
+_configured_discord_app_id = os.environ.get('BB_DISCORD_APP_ID', '')
+DISCORD_APP_ID = (_configured_discord_app_id if
+                  re.fullmatch(r'[0-9]{17,20}', _configured_discord_app_id) else '')
 
 
 def discord_environment(env, settings):
     """The Discord status's entries in the game's environment, off unless the player turned it on. A
     friend joins from Discord only on a public server: a home server's code means nothing to a stranger."""
-    for key in ('BB_DISCORD_STATUS', 'BB_DISCORD_APP_ID', 'BB_DISCORD_JOIN'):
+    fields = {'BB_DISCORD_SHOW_AREA': ('discord_show_area', '1'),
+              'BB_DISCORD_SHOW_LEVEL': ('discord_show_level', ''),
+              'BB_DISCORD_SHOW_BUILD': ('discord_show_build', ''),
+              'BB_DISCORD_SHOW_BOSS': ('discord_show_boss', '1'),
+              'BB_DISCORD_REFERENCE_LAYOUT': ('discord_reference_layout', '1')}
+    for key in ('BB_DISCORD_STATUS', 'BB_DISCORD_APP_ID', 'BB_DISCORD_JOIN', *fields):
         env.pop(key, None)
     if settings.get('discord_status') == '1' and DISCORD_APP_ID:
         env['BB_DISCORD_STATUS'] = '1'
         env['BB_DISCORD_APP_ID'] = DISCORD_APP_ID
+        for key, (setting, default) in fields.items():
+            env[key] = '1' if settings.get(setting, default) == '1' else '0'
         if settings.get('server_type') == 'global':
             env['BB_DISCORD_JOIN'] = '1'
     return env
