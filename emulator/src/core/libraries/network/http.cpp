@@ -34,6 +34,7 @@
 #include "core/libraries/kernel/process.h"
 #include "core/libraries/libs.h"
 #include "core/libraries/network/http.h"
+#include "core/libraries/network/http_timeouts.h"
 #include "core/libraries/network/windows_trust.h"
 #include "http_error.h"
 
@@ -1030,17 +1031,6 @@ static s32 RunRealHttpRequest(const SendRequestPlan& plan_in, HttpResponse& out_
     // Mutable copy: PS4-faithful redirect loop rewrites scheme/host/port/path/method.
     SendRequestPlan plan = plan_in;
 
-    auto pick_timeout_seconds = [](u32 us, u32 default_s) -> std::chrono::seconds {
-        if (us == 0) {
-            return std::chrono::seconds(default_s);
-        }
-        u64 secs = (static_cast<u64>(us) + 999999ull) / 1000000ull;
-        if (secs == 0) {
-            secs = 1;
-        }
-        return std::chrono::seconds(secs);
-    };
-
     for (int depth = 0; depth <= MaxRedirects; ++depth) {
         if (plan.scheme == "https" && !ORBIS_HTTP_HAS_HTTPS) {
             LOG_ERROR(Lib_Http, "HTTPS request but cpp-httplib lacks OpenSSL support");
@@ -1057,9 +1047,15 @@ static s32 RunRealHttpRequest(const SendRequestPlan& plan_in, HttpResponse& out_
                                     (plan.ctx_has_loaded_certs ? "1" : "0"),
                                 base_url);
         httplib::Client& cli = *pooled;
-        cli.set_connection_timeout(pick_timeout_seconds(plan.settings.connect_timeout_us, 30));
-        cli.set_read_timeout(pick_timeout_seconds(plan.settings.recv_timeout_us, 120));
-        cli.set_write_timeout(pick_timeout_seconds(plan.settings.send_timeout_us, 120));
+        const auto budgets = Timeouts::Configure(cli, plan.settings.connect_timeout_us,
+                                                plan.settings.recv_timeout_us,
+                                                plan.settings.send_timeout_us,
+                                                plan.scheme == "https");
+        const auto requested = Timeouts::Seconds(plan.settings.connect_timeout_us, 30);
+        if (budgets.connect > requested) {
+            LOG_INFO(Lib_Http, "HTTPS connection budget raised from {}s to {}s for TLS handshake",
+                     requested.count(), budgets.connect.count());
+        }
 
         // We always handle redirects manually per PS4 rules
         cli.set_follow_location(false);

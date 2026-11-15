@@ -1,0 +1,28 @@
+name: Ultimate HTTPS connection budget
+on:
+  pull_request:
+    paths:
+      - emulator/src/core/libraries/network/http.cpp
+      - emulator/src/core/libraries/network/http_timeouts.h
+      - tools/ultimate/http-tests/**
+      - .github/workflows/ultimate-http-timeouts.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  http-timeouts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Configure policy and Linux loopback TLS regression
+        run: cmake -S tools/ultimate/http-tests -B build-http -DULTIMATE_LOCAL_TLS_TEST=${{ runner.os == 'Linux' && 'ON' || 'OFF' }}
+      - run: cmake --build build-http --config Release --parallel 2
+      - run: ctest --test-dir build-http -C Release --output-on-failure --verbose
