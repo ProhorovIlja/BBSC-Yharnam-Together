@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "coop/game_link.h"
+#include "coop/coop_stream.h"
 
 namespace {
 constexpr size_t PayloadBytes = 4093; // distinguish packet allocations from container growth
@@ -156,11 +157,34 @@ static bool OwnedReceivePreservesPayloadStorageAndReliableOrder() {
     return true;
 }
 
+static bool CoopStreamTransfersSingleAndReassemblesSplitMessages() {
+    CoopStream a{"host", 1}, b{"guest", 2};
+    for (const size_t size : {size_t{0}, size_t{4}, CoopStream::ChunkBytes,
+                              2 * CoopStream::ChunkBytes + 1}) {
+        std::vector<u8> data(size, 0x35);
+        a.Send(data, 0);
+        auto frames = a.Flush(0);
+        CHECK(!frames.empty());
+        std::vector<std::vector<u8>> all;
+        for (const auto& frame : frames) {
+            for (auto& message : b.Receive(frame, 0)) all.push_back(std::move(message));
+        }
+        CHECK(all.size() == 1 && all[0] == data && !b.Broken());
+        for (const auto& ack : b.Flush(0)) a.Receive(ack, 0);
+        CHECK(a.Unacked() == 0);
+    }
+    CoopStream limited{"guest", 3, {.message_bytes = 2, .chunk_bytes = 8}};
+    const GameFrame oversized{"host", 1, 3, 0, {{PacketClass::Reliable, 0, {1, 1, 2, 3}}}};
+    CHECK(limited.Receive(EncodeGameFrame(oversized), 0).empty() && limited.Broken());
+    return true;
+}
+
 int main() {
     if (!UnreliableTransfersItsOwnedPayload() || !ReliableRetainsItsPayloadForRetransmission() ||
         !FreshAndRetriedPacketsKeepWireOrderAcrossFrames() ||
         !WireRejectsImpossibleCountsAndSplitsAtTheWireLimit() ||
-        !OwnedReceivePreservesPayloadStorageAndReliableOrder())
+        !OwnedReceivePreservesPayloadStorageAndReliableOrder() ||
+        !CoopStreamTransfersSingleAndReassemblesSplitMessages())
         return 1;
     std::cout << "Shared stream: unreliable Flush payload allocations 1 -> 0; reliable resend preserved\n";
 }

@@ -54,7 +54,7 @@ public:
             chunk.push_back(at + size == message.size() ? LastChunk : 0);
             chunk.insert(chunk.end(), message.begin() + static_cast<std::ptrdiff_t>(at),
                          message.begin() + static_cast<std::ptrdiff_t>(at + size));
-            peer.Send(PacketClass::Reliable, chunk, now_ms);
+            peer.SendOwned(PacketClass::Reliable, std::move(chunk), now_ms);
             at += size;
         } while (at < message.size());
     }
@@ -62,7 +62,9 @@ public:
     // The frames to send now (each one datagram's body): chunks, resends and acks.
     std::vector<std::vector<u8>> Flush(s64 now_ms) {
         std::vector<std::vector<u8>> bodies;
-        for (const GameFrame& frame : peer.Flush(now_ms)) {
+        const auto frames = peer.Flush(now_ms);
+        bodies.reserve(frames.size());
+        for (const GameFrame& frame : frames) {
             bodies.push_back(EncodeGameFrame(frame));
         }
         return bodies;

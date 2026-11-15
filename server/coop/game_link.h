@@ -182,10 +182,15 @@ public:
 
     // A packet of this game for the member, sent at the next Flush.
     void Send(PacketClass packet_class, std::span<const u8> packet, s64 now_ms) {
-        Outgoing out{packet_class, 0, {packet.begin(), packet.end()}, now_ms, 0, now_ms};
+        SendOwned(packet_class, {packet.begin(), packet.end()}, now_ms);
+    }
+
+    void SendOwned(PacketClass packet_class, std::vector<u8> packet, s64 now_ms) {
+        const size_t bytes = packet.size();
+        Outgoing out{packet_class, 0, std::move(packet), now_ms, 0, now_ms};
         if (packet_class == PacketClass::Reliable) {
             out.seq = next_reliable++;
-            reliable_bytes += packet.size();
+            reliable_bytes += bytes;
         } else {
             out.seq = next_unreliable++;
         }
