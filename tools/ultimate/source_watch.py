@@ -52,12 +52,29 @@ def discover(repository, timeout=40, runner=subprocess.run):
                 'error_kind': type(error).__name__, 'refs': None}
 
 
+def baseline_refs(previous):
+    if not previous:
+        return None
+    if previous.get('status') == 'inventoried_not_reviewed':
+        return previous.get('refs')
+    return previous.get('last_successful_refs')
+
+
+def carry_scan_history(current, previous):
+    if current['status'] != 'inventoried_not_reviewed':
+        old = baseline_refs(previous)
+        if old is not None:
+            current['last_successful_refs'] = old
+    current['delta'] = changes(current, previous)
+
+
 def changes(current, previous):
     if current['status'] != 'inventoried_not_reviewed':
         return {'status': 'unknown_due_to_failed_scan'}
-    if not previous or previous.get('status') != 'inventoried_not_reviewed':
+    old = baseline_refs(previous)
+    if old is None:
         return {'status': 'initial_inventory'}
-    old, new = previous['refs'], current['refs']
+    new = current['refs']
     return {'status': 'compared',
             'added': sorted(new.keys() - old.keys()),
             'removed': sorted(old.keys() - new.keys()),
@@ -102,7 +119,7 @@ def main():
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         rows = list(pool.map(discover, repos))
     for row in rows:
-        row['delta'] = changes(row, previous.get(row['repository']))
+        carry_scan_history(row, previous.get(row['repository']))
     failed = sum(row['status'] == 'failed' for row in rows)
     snapshot = {'schema': 1, 'observed_at_utc': datetime.now(timezone.utc).isoformat(),
                 'scope': 'configured public heads and PR heads only',

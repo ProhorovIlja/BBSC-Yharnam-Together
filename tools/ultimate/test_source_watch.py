@@ -47,6 +47,19 @@ class SourceWatchTests(unittest.TestCase):
                                        {'status': 'failed', 'refs': None}),
                          {'status': 'initial_inventory'})
 
+    def test_consecutive_failed_scans_preserve_delta_baseline_without_claiming_coverage(self):
+        good = {'status': 'inventoried_not_reviewed', 'refs': {'refs/heads/main': A}}
+        first = {'status': 'failed', 'refs': None}
+        second = {'status': 'failed', 'refs': None}
+        watch.carry_scan_history(first, good)
+        watch.carry_scan_history(second, first)
+        self.assertIsNone(second['refs'])
+        self.assertEqual(second['delta']['status'], 'unknown_due_to_failed_scan')
+        self.assertEqual(second['last_successful_refs'], good['refs'])
+        recovered = {'status': 'inventoried_not_reviewed', 'refs': {'refs/heads/main': B}}
+        watch.carry_scan_history(recovered, second)
+        self.assertEqual(recovered['delta']['changed'], ['refs/heads/main'])
+
     def test_failed_publication_keeps_previous_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'snapshot.json'

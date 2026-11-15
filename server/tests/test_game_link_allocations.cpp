@@ -100,9 +100,41 @@ static bool FreshAndRetriedPacketsKeepWireOrderAcrossFrames() {
     return true;
 }
 
+static bool WireRejectsImpossibleCountsAndSplitsAtTheWireLimit() {
+    GameFrame malformed{"host", 1, 0, 0, {}};
+    auto header = EncodeGameFrame(malformed);
+    CHECK(!header.empty());
+    header.back() = 0xff; // a nonzero high byte, but no entries
+    CHECK(!DecodeGameFrame(header));
+    malformed.entries.resize(65536);
+    CHECK(EncodeGameFrame(malformed).empty());
+
+    GameLinkPeer::Settings settings;
+    settings.frame_bytes = 2'000'000;
+    GameLinkPeer peer{"host", 1, settings};
+    const std::vector<u8> payload{4, 0, 0, 0};
+    for (size_t i = 0; i < 65536; ++i) peer.Send(PacketClass::Unreliable, payload, 0);
+    const auto frames = peer.Flush(0);
+    CHECK(frames.size() == 2);
+    CHECK(frames[0].entries.size() == 65535 && frames[1].entries.size() == 1);
+    for (const auto& frame : frames) {
+        auto read = DecodeGameFrame(EncodeGameFrame(frame));
+        CHECK(read && *read == frame);
+    }
+    settings.frame_bytes = 100;
+    GameLinkPeer long_name{std::string(64, 'x'), 2, settings};
+    long_name.Send(PacketClass::Unreliable, payload, 0);
+    long_name.Send(PacketClass::Unreliable, payload, 0);
+    const auto split = long_name.Flush(0);
+    CHECK(split.size() == 2);
+    for (const auto& frame : split) CHECK(EncodeGameFrame(frame).size() <= 100);
+    return true;
+}
+
 int main() {
     if (!UnreliableTransfersItsOwnedPayload() || !ReliableRetainsItsPayloadForRetransmission() ||
-        !FreshAndRetriedPacketsKeepWireOrderAcrossFrames())
+        !FreshAndRetriedPacketsKeepWireOrderAcrossFrames() ||
+        !WireRejectsImpossibleCountsAndSplitsAtTheWireLimit())
         return 1;
     std::cout << "Shared stream: unreliable Flush payload allocations 1 -> 0; reliable resend preserved\n";
 }

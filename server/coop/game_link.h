@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <deque>
+#include <limits>
 #include <map>
 #include <optional>
 #include <span>
@@ -83,8 +84,21 @@ constexpr size_t EntryHeaderBytes = 1 + 4 + 4;
 inline std::vector<u8> EncodeGameFrame(const GameFrame& frame) {
     using namespace GameLinkDetail;
     std::vector<u8> out;
-    out.push_back(GameFrameVersion);
     const size_t sender = std::min<size_t>(frame.sender.size(), 0xFF);
+    if (frame.entries.size() > (std::numeric_limits<u16>::max)()) {
+        return {};
+    }
+    size_t bytes = FrameHeaderBytes - 16 + sender;
+    for (const auto& entry : frame.entries) {
+        if (entry.packet.size() > (std::numeric_limits<u32>::max)() ||
+            out.max_size() - bytes < EntryHeaderBytes ||
+            out.max_size() - bytes - EntryHeaderBytes < entry.packet.size()) {
+            return {};
+        }
+        bytes += EntryHeaderBytes + entry.packet.size();
+    }
+    out.reserve(bytes);
+    out.push_back(GameFrameVersion);
     out.push_back(static_cast<u8>(sender));
     out.insert(out.end(), frame.sender.begin(), frame.sender.begin() + sender);
     Put(out, frame.instance);
@@ -117,6 +131,10 @@ inline std::optional<GameFrame> DecodeGameFrame(std::span<const u8> bytes) {
         !Get(bytes, at, frame.ack) || !Get(bytes, at, count)) {
         return std::nullopt;
     }
+    if (count > (bytes.size() - at) / EntryHeaderBytes) {
+        return std::nullopt; // reject impossible counts before allocating entries
+    }
+    frame.entries.reserve(count);
     for (u16 index = 0; index < count; ++index) {
         u8 packet_class = 0;
         GameFrameEntry entry;
@@ -184,11 +202,15 @@ public:
         }
         std::vector<GameFrame> frames;
         size_t bytes = 0;
+        // Retain the usual 16-byte sender budget, but account for longer sender IDs.
+        const size_t header = GameLinkDetail::FrameHeaderBytes +
+                              (std::clamp<size_t>(self.size(), 16, 255) - 16);
         const auto append = [&](PacketClass packet_class, u32 seq, auto&& packet) {
             const size_t size = GameLinkDetail::EntryHeaderBytes + packet.size();
-            if (frames.empty() || bytes + size > settings.frame_bytes) {
+            if (frames.empty() || bytes + size > settings.frame_bytes ||
+                frames.back().entries.size() == (std::numeric_limits<u16>::max)()) {
                 frames.push_back(Header());
-                bytes = GameLinkDetail::FrameHeaderBytes;
+                bytes = header;
             }
             frames.back().entries.push_back(
                 {packet_class, seq, std::forward<decltype(packet)>(packet)});
