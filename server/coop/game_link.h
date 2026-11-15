@@ -182,9 +182,11 @@ public:
             flush_serial = 1;
         }
         std::vector<GameFrameEntry> entries;
+        entries.reserve(fresh.size());
         for (Outgoing& out : fresh) {
-            entries.push_back({out.packet_class, out.seq, out.packet});
             if (out.packet_class == PacketClass::Reliable) {
+                // Keep the original payload until ACKed; the wire frame needs its own copy.
+                entries.push_back({out.packet_class, out.seq, out.packet});
                 // Queued sequence numbers have not necessarily been sent yet.
                 sent_reliable_end = out.seq + 1;
                 out.sent_ms = now_ms;
@@ -193,6 +195,10 @@ public:
                 // flush must follow the emitted packets, even on sequence collision.
                 auto sent = unacked.emplace(out.seq, std::move(out)).first;
                 sent->second.emitted_flush = flush_serial;
+            } else {
+                // Unreliable payloads have no retry owner. Transfer the queued allocation
+                // to the frame instead of copying every visual/enemy update before clear().
+                entries.push_back({out.packet_class, out.seq, std::move(out.packet)});
             }
         }
         fresh.clear();

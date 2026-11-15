@@ -456,13 +456,13 @@ def split_games(listing: str, exe: pathlib.Path,
     another thread's staged build in its lane) and every other one (Kaniel's own copy), from
     "<pid>\t<path>[\t<command line>]" lines."""
     rig, others = [], []
-    folder = str(rig_folder).lower().rstrip("\\/") + os.sep if rig_folder else None
+    folder = lanes.command_path(rig_folder).rstrip("/") + "/" if rig_folder else None
     for line in listing.splitlines():
         pid, _, rest = line.strip().partition("\t")
         path, _, command = rest.partition("\t")
         if pid.isdigit():
-            same = path.strip().lower() == str(exe).lower()
-            in_rig = folder is not None and folder in command.lower().replace("/", os.sep)
+            same = lanes.command_path(path.strip()) == lanes.command_path(exe)
+            in_rig = folder is not None and folder in lanes.command_path(command)
             (rig if same or in_rig else others).append(int(pid))
     return rig, others
 
@@ -471,13 +471,12 @@ def outside_lanes(listing: str, exe: pathlib.Path, rig_folder: pathlib.Path) -> 
     """The rig's games that are not in a lane (rig/port/lanes/<n>): what a run with no lane may
     stop. Another thread's lane is its own (rig 2026-10-18: a run with no --lane closed a lane-3
     run's games)."""
-    lanes_folder = (str(rig_folder).lower().rstrip("\\/") + os.sep + "port" + os.sep + "lanes"
-                    + os.sep)
+    lanes_folder = lanes.command_path(rig_folder).rstrip("/") + "/port/lanes/"
     commands = {}
     for line in listing.splitlines():
         pid, _, rest = line.strip().partition("\t")
         if pid.isdigit():
-            commands[int(pid)] = rest.partition("\t")[2].lower().replace("/", os.sep)
+            commands[int(pid)] = lanes.command_path(rest.partition("\t")[2])
     return [pid for pid in split_games(listing, exe, rig_folder)[0]
             if lanes_folder not in commands.get(pid, "")]
 

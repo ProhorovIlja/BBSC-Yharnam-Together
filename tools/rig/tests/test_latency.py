@@ -54,7 +54,7 @@ class ProxyTest(unittest.TestCase):
         threading.Thread(target=self.echo, daemon=True).start()
 
     def tearDown(self):
-        self.server.close()
+        latency.close(self.server)
 
     def echo(self):
         try:
@@ -110,6 +110,28 @@ class ProxyTest(unittest.TestCase):
         proxy.stop()
         with socket.create_server(("127.0.0.1", port)):
             pass
+        self.assertFalse(proxy.accept_thread.is_alive())
+
+    def test_stop_closes_an_active_connection_during_a_long_outage(self):
+        proxy = latency.DelayProxy(0, self.target, (1, 2))
+        proxy.start()
+        try:
+            with socket.create_connection(("127.0.0.1", proxy.port), timeout=2) as client:
+                client.sendall(b'ready')
+                self.assertEqual(client.recv(5), b'ready')
+                proxy.outage(30)
+                client.sendall(b'pending')
+                started = time.monotonic()
+                proxy.stop()
+                self.assertLess(time.monotonic() - started, 2)
+                with socket.create_server(("127.0.0.1", proxy.port)):
+                    pass
+                try:
+                    self.assertEqual(client.recv(1), b'')
+                except ConnectionResetError:
+                    pass # Closing a live TCP peer may report reset instead of EOF.
+        finally:
+            proxy.stop()
 
 
 if __name__ == "__main__":

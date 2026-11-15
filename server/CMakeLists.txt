@@ -241,6 +241,10 @@ if(BUILD_TESTING)
     target_include_directories(test_game_link_resend PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME game_link_resend COMMAND test_game_link_resend)
 
+    add_executable(test_game_link_allocations EXCLUDE_FROM_ALL tests/test_game_link_allocations.cpp)
+    target_include_directories(test_game_link_allocations PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME game_link_allocations COMMAND test_game_link_allocations)
+
     add_executable(test_game_link_restart EXCLUDE_FROM_ALL tests/test_game_link_restart.cpp)
     target_include_directories(test_game_link_restart PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME game_link_restart COMMAND test_game_link_restart)

@@ -246,15 +246,20 @@ def status(rig: pathlib.Path, alive=pid_alive) -> list[str]:
     return lines
 
 
+def command_path(text) -> str:
+    """Compare separators in captured Windows/POSIX process listings on either host OS."""
+    return str(text).lower().replace("\\", "/")
+
+
 def strays(listing: str, role_dirs: list[pathlib.Path]) -> list[int]:
     """The processes in a "<pid>\\t<command line>" listing that run in one of a lane's role
     folders (its games, and the port's run.py starting them)."""
-    wanted = [str(folder).lower().rstrip("\\/") + os.sep for folder in role_dirs]
+    wanted = [command_path(folder).rstrip("/") + "/" for folder in role_dirs]
     found = []
     for line in listing.splitlines():
         pid, _, command = line.strip().partition("\t")
-        command = command.lower().replace("/", os.sep)
-        if pid.isdigit() and any(folder in command + os.sep for folder in wanted):
+        command = command_path(command)
+        if pid.isdigit() and any(folder in command + "/" for folder in wanted):
             found.append(int(pid))
     return found
 
