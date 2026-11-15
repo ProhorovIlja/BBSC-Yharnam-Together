@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include "bbport_ngx_paths.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -155,6 +156,7 @@ bool CollectExtensions(const VkExtensionProperties* required, u32 count,
 
 struct Dlss::Impl {
     Module module{};
+    std::unique_ptr<BbNgxPaths::Paths> paths;
     const BbDlssApi* api{};
     std::vector<std::string> instance_extensions, device_extensions;
     std::optional<FeatureDesc> feature;
@@ -212,8 +214,14 @@ Dlss::Dlss() : impl{std::make_unique<Impl>()} {
     std::error_code error;
     std::filesystem::create_directories(data, error);
     std::printf("DLSS: NVIDIA's library from %s\n", ngx.string().c_str());
-    if (!impl->api->Configure(ngx.wstring().c_str(), data.wstring().c_str(), BridgeLog)) {
-        impl->Disable("bridge configuration failed");
+    try {
+        impl->paths = std::make_unique<BbNgxPaths::Paths>(ngx, data);
+        if (!impl->api->Configure(impl->paths->Runtime().c_str(), impl->paths->Data().c_str(),
+                                  BridgeLog)) {
+            impl->Disable("bridge configuration failed");
+        }
+    } catch (const std::exception& failure) {
+        impl->Disable(failure.what());
     }
 }
 
@@ -412,6 +420,7 @@ void Dlss::Shutdown() {
         impl->api->Shutdown();
         impl->initialized = false;
     }
+    impl->paths.reset(); // NGX has shut down before its directory aliases disappear.
 }
 
 #else
