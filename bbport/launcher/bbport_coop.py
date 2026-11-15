@@ -2231,18 +2231,28 @@ def download_update(release, folder, progress=None, timeout=30):
         want = expected_sum(response.read(4096).decode('utf-8', 'replace'), release['name'])
     target = folder / release['name']
     digest, done = hashlib.sha256(), 0
-    with urllib.request.urlopen(urllib.request.Request(release['setup'], headers=headers), timeout=timeout) as response:
-        size = int(response.headers.get('Content-Length') or 0)
-        with open(target, 'wb') as out:
-            for chunk in iter(lambda: response.read(1 << 20), b''):
-                out.write(chunk)
-                digest.update(chunk)
-                done += len(chunk)
-                if progress and size:
-                    progress(done / size)
-    if digest.hexdigest() != want:
-        target.unlink(missing_ok=True)
-        raise ValueError('the downloaded update does not match its SHA-256; nothing was changed')
+    # Stage beside the final file so an interrupted or corrupt download never
+    # replaces a previously verified installer.
+    partial = None
+    try:
+        with urllib.request.urlopen(urllib.request.Request(release['setup'], headers=headers),
+                                    timeout=timeout) as response:
+            size = int(response.headers.get('Content-Length') or 0)
+            with tempfile.NamedTemporaryFile(dir=folder, prefix='.setup-', suffix='.part',
+                                             delete=False) as out:
+                partial = Path(out.name)
+                for chunk in iter(lambda: response.read(1 << 20), b''):
+                    out.write(chunk)
+                    digest.update(chunk)
+                    done += len(chunk)
+                    if progress and size:
+                        progress(min(1.0, done / size))
+        if digest.hexdigest() != want:
+            raise ValueError('the downloaded update does not match its SHA-256; nothing was changed')
+        os.replace(partial, target)
+    finally:
+        if partial is not None:
+            partial.unlink(missing_ok=True)
     return target
 
 

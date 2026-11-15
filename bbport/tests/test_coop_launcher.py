@@ -1114,11 +1114,28 @@ class UpdateTests(unittest.TestCase):
                 path = coop.download_update(release, tmp, progress=seen.append)
             self.assertEqual(path.read_bytes(), body)
             self.assertEqual(seen[-1], 1.0)
-            path.unlink()
             with mock.patch.object(coop.urllib.request, 'urlopen', opener('00' * 32)):
                 with self.assertRaises(ValueError):
                     coop.download_update(release, tmp)
-            self.assertFalse((Path(tmp) / release['name']).exists(), 'a file that does not match is gone')
+            self.assertEqual(path.read_bytes(), body, 'previous verified installer survives')
+            self.assertEqual(list(Path(tmp).iterdir()), [path])
+
+            def interrupted(request, timeout=0):
+                if request.full_url.endswith('.sha256'):
+                    return Response(f'{hashlib.sha256(body).hexdigest()} *{release["name"]}'.encode())
+
+                class Broken(Response):
+                    def read(self, size=-1):
+                        if self.tell():
+                            raise OSError('connection interrupted')
+                        return super().read(1)
+                return Broken(body)
+
+            with mock.patch.object(coop.urllib.request, 'urlopen', interrupted):
+                with self.assertRaisesRegex(OSError, 'connection interrupted'):
+                    coop.download_update(release, tmp)
+            self.assertEqual(path.read_bytes(), body)
+            self.assertEqual(list(Path(tmp).iterdir()), [path])
 
     def test_patch_notes_are_every_release_newest_first(self):
         # Kaniel 2026-10-20: Home lists every release's notes from the latest one back to the first
