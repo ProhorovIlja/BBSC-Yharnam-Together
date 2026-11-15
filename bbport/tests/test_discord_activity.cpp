@@ -262,6 +262,7 @@ int main() {
     assert(BbHunterBuild::DiscordShort(9) == "STR/ARC");
     assert(BbHunterBuild::DiscordShort(15) == "OMNI");
     assert(BbHunterBuild::DiscordShort(16) == "Unknown");
+    static_assert(BbHunterBuild::DiscordCardLabel(0).empty());
     static_assert(BbHunterBuild::DiscordCardLabel(1) == "STR");
     static_assert(BbHunterBuild::DiscordCardLabel(3) == "Quality");
     static_assert(BbHunterBuild::DiscordCardLabel(7) == "STR/SKL/BLT");
@@ -294,6 +295,10 @@ int main() {
     assert(card.details == "In Central Yharnam");
     assert(card.state == "BL 25   STR Build · Co-op (2/5)");
     assert(card.start == 1600000000);
+    example.build = BbHunterBuild::DiscordCardLabel(*BbHunterBuild::Mask({17, 17, 17, 17}));
+    assert(Describe(example, visible, screenshot).state == "BL 25 · Co-op (2/5)");
+    assert(Describe(example, visible).details == "Central Yharnam | BL 25");
+    example.build = "STR";
 
     example.boss_fighting = true;
     example.boss = "Father Gascoigne";

@@ -175,8 +175,13 @@ public:
         std::memcpy(frame.data() + 4, &length, 4);
         frame += json;
         DWORD written = 0;
-        return WriteFile(pipe, frame.data(), static_cast<DWORD>(frame.size()), &written, nullptr) &&
-               written == frame.size();
+        if (!WriteFile(pipe, frame.data(), static_cast<DWORD>(frame.size()), &written, nullptr) ||
+            written != frame.size()) {
+            // Never append another frame to a partially written stream.
+            Close();
+            return false;
+        }
+        return true;
     }
 
     bool Drain(bool wait_for_ready) {
@@ -313,8 +318,7 @@ std::string ActivityJson(const Core::Bloodborne::PartyPanel& panel, const bbcoop
     if (panel.local_stats_valid) {
         const auto& a = panel.local_offensive_stats;
         if (const auto mask = BbHunterBuild::Mask({a[0], a[1], a[2], a[3]})) {
-            snapshot.build = *mask == (BbHunterBuild::Strength | BbHunterBuild::Skill)
-                                 ? "Quality" : BbHunterBuild::DiscordCardLabel(*mask);
+            snapshot.build = BbHunterBuild::DiscordCardLabel(*mask);
         }
     }
     snapshot.boss_fighting = panel.local_boss_fight;
@@ -406,12 +410,14 @@ DWORD WINAPI DiscordThread(LPVOID) {
             sent.clear();
             // Amanises 2026-10-25: Discord tells this game when a friend joins it or asks to.
             for (const char* event : {"ACTIVITY_JOIN", "ACTIVITY_JOIN_REQUEST"}) {
-                discord.Send(1, fmt::format("{{\"cmd\":\"SUBSCRIBE\",\"evt\":\"{}\","
-                                            "\"nonce\":\"{}\"}}",
-                                            event, ++nonce));
+                if (!discord.Send(1, fmt::format("{{\"cmd\":\"SUBSCRIBE\",\"evt\":\"{}\","
+                                                 "\"nonce\":\"{}\"}}",
+                                                 event, ++nonce))) {
+                    break; // Send closed the broken stream; retry on the next poll.
+                }
             }
         }
-        if (!discord.Drain(false)) {
+        if (!discord.Connected() || !discord.Drain(false)) {
             continue;
         }
         // The team screen's answers to Discord's join requests.

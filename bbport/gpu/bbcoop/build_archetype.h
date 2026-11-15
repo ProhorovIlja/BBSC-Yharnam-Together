@@ -84,6 +84,7 @@ struct Attributes {
 }
 // Keep legacy compact labels available; use explicit combinations on the RPC card.
 [[nodiscard]] constexpr std::string_view DiscordCardLabel(std::uint8_t mask) {
+    if (mask == 0) return {}; // No offensive attribute has reached the threshold.
     if (mask == 3) return "Quality";
     if (mask == 7) return "STR/SKL/BLT";
     if (mask == 11) return "STR/SKL/ARC";

@@ -30,6 +30,7 @@ std::vector<std::string> outbound;
 std::string last_join;
 unsigned asks = 0, closes = 0;
 bool broken = false;
+bool write_error = false, short_write = false;
 HANDLE CreateFileW(const wchar_t*, int, int, void*, int, int, void*) { return 1; }
 bool CloseHandle(HANDLE) { ++closes; return true; }
 bool PeekNamedPipe(HANDLE, void*, int, void*, DWORD* n, void*) {
@@ -47,8 +48,12 @@ bool ReadFile(HANDLE, char* dest, DWORD amount, DWORD* got, void*) {
     return true;
 }
 bool WriteFile(HANDLE, const char* src, DWORD n, DWORD* wrote, void*) {
-    outbound.emplace_back(src, n);
-    *wrote = n;
+    if (write_error) {
+        *wrote = 0;
+        return false;
+    }
+    *wrote = short_write ? n - 1 : n;
+    outbound.emplace_back(src, *wrote);
     return true;
 }
 namespace fmt {
@@ -111,6 +116,17 @@ int main(int argc, char** argv) {
             assert(pipe.Drain(false) && outbound.back() == frame(4, "") && last_join.empty());
             feed(frame(2, ""));
             assert(!pipe.Drain(false) && !pipe.Connected());
+        } else if (mode == "write_error" || mode == "short_write") {
+            write_error = mode == "write_error";
+            short_write = !write_error;
+            assert(!pipe.Send(1, "{}") && !pipe.Connected() && closes == 1);
+            const auto writes = outbound.size();
+            assert(!pipe.Send(1, "{}") && outbound.size() == writes);
+            write_error = short_write = false;
+            ready();
+            assert(pipe.Connect() && pipe.Connected());
+            feed(frame(3, ""));
+            assert(pipe.Drain(false) && outbound.back() == frame(4, ""));
         } else if (mode == "budget") {
             for (unsigned i = 0; i < 33; ++i) {
                 feed(frame(1, R"({"evt":"ACTIVITY_JOIN_REQUEST"})"));
@@ -145,7 +161,8 @@ class DiscordReceiveTest(unittest.TestCase):
                 cmd = [compiler, "-std=c++20", "-Wall", "-Wextra", "-Werror", "-pthread",
                        "-I", str(include), str(cpp), "-o", str(exe)]
             subprocess.run(cmd, cwd=temp, check=True, timeout=60)
-            for mode in ("fragment", "limits", "reconnect", "budget", "timeout", "error"):
+            for mode in ("fragment", "limits", "reconnect", "budget", "timeout", "error",
+                         "write_error", "short_write"):
                 with self.subTest(mode=mode):
                     subprocess.run([str(exe), mode], cwd=temp, check=True, timeout=6)
 
