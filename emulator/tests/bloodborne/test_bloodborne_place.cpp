@@ -1,11 +1,10 @@
 // SPDX-FileCopyrightText: Copyright 2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
-
-#include <limits>
 
 #include <gtest/gtest.h>
 

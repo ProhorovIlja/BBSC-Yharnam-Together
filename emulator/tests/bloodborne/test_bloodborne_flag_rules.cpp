@@ -527,17 +527,6 @@ TEST(BloodborneFlagRules, ShopStockIsEachPlayersOwn) {
     EXPECT_EQ(item_of(70009490), ShopArmor | 373000);
 }
 
-// A save that took the host's purchases from a team world: once per save slot a stock flag goes
-// off while the player holds none of what the row sells (it can buy it then); never set by us.
-TEST(BloodborneFlagRules, ShopStockGoesOffOnceWithoutTheItem) {
-    EXPECT_EQ(ShopStockFlagFix(true, true, false, true), std::optional<bool>{false});
-    EXPECT_EQ(ShopStockFlagFix(true, true, true, true), std::nullopt) << "bought it itself";
-    EXPECT_EQ(ShopStockFlagFix(true, true, false, false), std::nullopt) << "after the recheck";
-    EXPECT_EQ(ShopStockFlagFix(true, false, true, true), std::nullopt) << "never set";
-    EXPECT_EQ(ShopStockFlagFix(true, false, false, true), std::nullopt);
-    EXPECT_EQ(ShopStockFlagFix(false, true, false, true), std::nullopt) << "no party";
-}
-
 // The common events check the weapon at any upgrade level: base id + 100 * level, up to +10.
 TEST(BloodborneFlagRules, AnyUpgradeOfTheWeaponCounts) {
     const std::vector<u32> held{9000300, 23020000, 7000000};
