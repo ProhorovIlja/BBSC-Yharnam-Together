@@ -83,6 +83,13 @@ The fixed full rig run discovers 190 tests: 188 pass and two skip on this Linux
 host. The 37 preparation/source-watch tests also pass. Windows/macOS CI verifies
 the shared C++ and rig tests separately; consult the run, not this local result.
 
+The first Windows CI run also exposed game-view cleanup following junctions on
+Python3.11: `os.path.isjunction` did not exist, so its fallback falsely treated a
+junction as a real directory and the second synthetic merge removed an original
+fixture file. Inspect links/reparse points with lstat before descending. The
+existing repeated-merge test checks original game/update preservation; do not
+skip it or merely raise the CI Python version to conceal this defect.
+
 ## Rendering/performance candidates still under evaluation
 
 * Supermedo SSR shading-rate commit

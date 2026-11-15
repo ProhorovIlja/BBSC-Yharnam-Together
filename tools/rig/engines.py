@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -297,7 +298,15 @@ def link(path: pathlib.Path, target: pathlib.Path):
 
 
 def is_link(path: pathlib.Path) -> bool:
-    return path.is_symlink() or getattr(os.path, "isjunction", lambda _: False)(path)
+    # os.path.isjunction appeared in Python3.12. On3.11 its old false fallback made
+    # remove_view recurse through junctions and unlink the original game's files.
+    # lstat inspects the entry itself; never descend into a Windows reparse point.
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
 
 
 def unlink(path: pathlib.Path):
