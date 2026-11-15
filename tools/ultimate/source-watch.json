@@ -45,6 +45,13 @@
     "lud-berthe/Bloodborne-Recompiled",
     "ducvd89/Bloodborne-android-rebuild-tool",
     "visy/bloodborne_pc_windows_port",
-    "hazeyxd23/bloodborne_pc_windows_port"
+    "hazeyxd23/bloodborne_pc_windows_port",
+    "Astrr00/BloodbornePC",
+    "ayozetr/bloodborne_linux",
+    "ValveSoftware/GameNetworkingSockets",
+    "rainmakerv3/BB_Launcher",
+    "ValveSoftware/Proton",
+    "doitsujin/dxvk",
+    "HansKristian-Work/vkd3d-proton"
   ]
 }
