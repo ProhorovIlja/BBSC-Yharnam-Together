@@ -5,6 +5,8 @@ on:
       - tools/ultimate/recompiler_probe.py
       - tools/ultimate/recompiler-linux-gcc.sh
       - tools/ultimate/recompiler-probe-encodings.txt
+      - tools/ultimate/recompiler_functions_probe.py
+      - tools/ultimate/recompiler_functions_host.c
       - .github/workflows/ultimate-recompiler-intake.yml
   workflow_dispatch:
 permissions:
@@ -49,3 +51,7 @@ jobs:
         shell: bash
         run: |
           python tools/ultimate/recompiler_probe.py --recompiler .ci/recomp --bbcpu .ci/bbcpu --deps "$RUNNER_TEMP/recompiler-deps" --output "$RUNNER_TEMP/recompiler-probe" --trials 1000
+      - name: Verify whole-function calls, callbacks and terminal fallback
+        shell: bash
+        run: |
+          python tools/ultimate/recompiler_functions_probe.py --recompiler .ci/recomp --bbcpu .ci/bbcpu --deps "$RUNNER_TEMP/recompiler-deps" --output "$RUNNER_TEMP/recompiler-functions"

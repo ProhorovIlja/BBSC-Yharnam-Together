@@ -1,0 +1,73 @@
+{
+  "observed_at_utc": "2026-11-15T15:27:23.467202+00:00",
+  "targets": 45,
+  "successful_inventories": 44,
+  "failed": 1,
+  "heads": 2398,
+  "advertised_pr_heads": 6070,
+  "existing_39_external_ref_changes": 0,
+  "initial_39_only_own_pr262_added": true,
+  "semantic_review_complete": false,
+  "global_github_or_internet_exhaustive": false,
+  "new_targets": [
+    {
+      "repository": "ProhorovIlja/bloodborne_pc_windows_port",
+      "status": "inventoried_not_reviewed",
+      "default_candidates": {
+        "refs/heads/master": "6486642d35418bd26c278bceadaf42e842daf4e4"
+      },
+      "error_kind": null,
+      "semantic_review_complete": false
+    },
+    {
+      "repository": "NielsL92/bloodborne-pc-port",
+      "status": "inventoried_not_reviewed",
+      "default_candidates": {
+        "refs/heads/master": "1e9987830982e61356068663fb0f19a08c049dcc"
+      },
+      "error_kind": null,
+      "semantic_review_complete": false
+    },
+    {
+      "repository": "lud-berthe/Bloodborne-Recompiled",
+      "status": "failed",
+      "default_candidates": {},
+      "error_kind": "CalledProcessError",
+      "semantic_review_complete": false
+    },
+    {
+      "repository": "ducvd89/Bloodborne-android-rebuild-tool",
+      "status": "inventoried_not_reviewed",
+      "default_candidates": {
+        "refs/heads/main": "6ebb33b0c729a3942fddaa03965360c699d7d900"
+      },
+      "error_kind": null,
+      "semantic_review_complete": false
+    },
+    {
+      "repository": "visy/bloodborne_pc_windows_port",
+      "status": "inventoried_not_reviewed",
+      "default_candidates": {
+        "refs/heads/master": "9a63a144d3c7f534f99a76e460c8c6abf3aa8f73"
+      },
+      "error_kind": null,
+      "semantic_review_complete": false
+    },
+    {
+      "repository": "hazeyxd23/bloodborne_pc_windows_port",
+      "status": "inventoried_not_reviewed",
+      "default_candidates": {
+        "refs/heads/master": "88f06059762b3c95347e6ed71c67724dcee25e50"
+      },
+      "error_kind": null,
+      "semantic_review_complete": false
+    }
+  ],
+  "selected_review": {
+    "v401_pr131_head": "f151b8f79ee6bbaee81797efcc8b146845e2db09",
+    "v392_pr122_head": "e43c5c0220460f49891c9c25acc0b7d9481e45e9",
+    "niels_current_report_sections_read": true,
+    "android_readme_first_100_lines_read": true,
+    "copied_donor_source": false
+  }
+}

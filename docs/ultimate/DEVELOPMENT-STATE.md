@@ -1,23 +1,32 @@
 # Development continuation
 
-Latest work: branch `development/ultimate-aot-native136-20261115`, stacked on
-[PR 261](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/261).
-Read [recompiler intake](RECOMPILER-INTAKE-20261115.md) and the current branch diff.
-Earlier [source intake](SOURCE-INTAKE-20261115.md) retains the C++ stream and rig
-changes; its infrastructure/image CI43725362583 has now succeeded too.
+Latest work: branch `development/ultimate-aot-abi140-20261115`, stacked on
+[PR262](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/262).
+Read [whole-function AOT boundary](AOT-ABI-20261115.md),
+[source intake](AOT-SOURCES-20261115.json) and the current branch diff.
 
-This checkpoint adds a pinned Linux external-recompiler probe using 20 synthetic
-instructions and 1,000 randomized states each, separate from the owner startup test.
-The source watchlist expands to 39 repositories; full snapshots and exact test logs
-are in the private research/diagnostics folders, without game assets in GitHub.
-The private Drive handoff is `Bloodborne_Recompiler_Native136_Handoff_EN_20261115.txt`.
+The new synthetic test uses the real pinned full-function C generator and tests
+calls, returns, tail calls, TCB loads and host callbacks/reentry in 14,000 cases.
+Normal paths never reach the interpreter; unsupported instructions and unknown
+call targets are terminal. Local ASan/UBSan also passes, leak checks disabled.
+This is an independent test host, not a production AOT dispatcher or Win64 bridge.
 
-The native startup diagnostic reaches **136 original constructor returns**,
-twelve classes/48 phase rows/six metadata objects. Continue at constructor 137;
-see [evidence](NATIVE-STARTUP-136-EVIDENCE.md). The owner-only reproducer archive
-`Bloodborne_Private_Native136_Owner_Reproducer_20261115.zip` is in private Drive.
-No approved playable no-eboot profile, game-main/assets/gameplay proof, native
-Windows/macOS retail execution or complete toolchain/SDK closure is established.
+The source watchlist now targets45 repositories:44 inventory successfully,
+2,398 branch heads and6,070 advertised PR heads. The historical
+lud-berthe/Bloodborne-Recompiled source is inaccessible and explicitly unreviewed.
+Existing external tracked refs did not change during the repeat scans. These
+counts are inventories, not a review of all refs, forks, GitHub or the Internet.
+Selected V395/V401 and V392 work in the owner's other repo informed the new
+boundary tests; Android/Niels/other Windows variants remain scoped references.
+
+The private startup diagnostic now reaches **140 original ordered constructor
+returns**, thirteen classes/52 phase rows/six metadata objects. Fifteen prefix
+modes each pass ten fresh processes. See [evidence](NATIVE-STARTUP-140-EVIDENCE.md).
+The owner reproducer and exact validation snapshots/logs are in private Drive;
+English handoff: `Bloodborne_AOT_ABI_Native140_Handoff_EN_20261115.txt`.
+Continue at constructor141. No approved playable no-eboot profile, game-main,
+assets/gameplay, native Windows/macOS retail execution or complete SDK/toolchain
+closure has been established.
 
 Community neural rendering remains a candidate track, not an enabled backend:
 [pinned investigation](NEURAL-RENDERING-CANDIDATES-20261115.md). RT/PT candidates,
