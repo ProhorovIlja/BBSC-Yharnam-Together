@@ -173,7 +173,9 @@ def run(args, home, cleanup):
     processes = args.processes or max(1, (teams * args.team_size + 149) // 150)
     per = [teams // processes + (1 if i < teams % processes else 0) for i in range(processes)]
     loads = []
-    deadline = time.monotonic() + args.seconds + teams * args.ramp_ms / 1000 + 30
+    # bbload ramps per player, not per team; use the largest worker's schedule.
+    ramp_seconds = max(per) * args.team_size * args.ramp_ms * processes / 1000
+    deadline = time.monotonic() + args.seconds + ramp_seconds + 30
     for index, count in enumerate(per):
         if count == 0:
             continue

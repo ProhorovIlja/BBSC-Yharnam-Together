@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tools/bench.sh NAME [ENV=VALUE...]: starts the game through tools/restart.sh (title: cross,
 # cross; waits for the level), stands still there for ${HOLD:-60} s, then closes it. The log is
-# out/bench_NAME_<time>.log, the per-frame CSV out/bench_NAME_<time>.frames.csv.
+# a unique out/bench_NAME_*/ directory with capture.log and capture.frames.csv.
 set -euo pipefail
 cd -- "$(dirname -- "$0")/.."
 name=${1:?usage: tools/bench.sh NAME [ENV=VALUE...]}
