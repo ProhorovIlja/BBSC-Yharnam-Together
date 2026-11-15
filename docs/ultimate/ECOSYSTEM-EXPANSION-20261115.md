@@ -22,7 +22,11 @@ They must not become enabled settings or release claims merely because listed.
 Latest SDK check, not integration: NVIDIA's public DLSS repository lists 310.9.16;
 NVIDIA staff state on 9 November that the DLSS 5 SDK is not publicly available.
 DLSS 5 neural rendering is distinct from the public SR/RR/frame-generation SDK.
-Keep it an external-access dependency, without substituting an unofficial DLL.
+Community Vulkan/D3D12 bridges, an independent Vulkan network implementation and
+UE editor integrations now provide concrete research routes. Track these alongside
+official SDK access: see [pinned candidates](NEURAL-RENDERING-CANDIDATES-20261115.md).
+Their source licenses, external runtimes/weights, GPU requirements and measured
+game integration are separate checks. No neural-rendering backend is enabled yet.
 AMD lists FSR SDK 2.4, Upscaling 4.1.2 and analytical 3.1.6, including a Windows
 Vulkan loader/effect-DLL path. That is not proof of native Linux/macOS support.
 Intel's public XeSS SDK is 3.0.2. Each effect and latency component needs its own

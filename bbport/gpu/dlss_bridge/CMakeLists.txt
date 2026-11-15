@@ -25,7 +25,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # nvsdk_ngx_s.lib is the static-CRT (/MT) variant: no Visual C++ runtime install needed.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
-add_library(bbport_dlss SHARED bbport_dlss_bridge.cpp bbport_dlss_bridge.h)
+add_library(bbport_dlss SHARED bbport_dlss_bridge.cpp bbport_dlss_bridge.h dlss_camera_math.h)
 target_include_directories(bbport_dlss PRIVATE "${DLSS_SDK_ROOT}/include" ${VULKAN_INCLUDE})
 if (WIN32)
     target_link_libraries(bbport_dlss PRIVATE "${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib")

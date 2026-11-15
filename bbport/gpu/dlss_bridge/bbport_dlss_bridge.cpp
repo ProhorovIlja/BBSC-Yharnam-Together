@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "bbport_dlss_bridge.h" // Vulkan first: the NGX headers expect its types
+#include "dlss_camera_math.h"
 
 #include <nvsdk_ngx_helpers.h>
 #include <nvsdk_ngx_vk.h>
@@ -366,16 +367,6 @@ void Perspective(float (&m)[4][4], float fov, float aspect, float near_z, float 
     m[3][2] = -near_z * far_z / (far_z - near_z);
 }
 
-void Inverse(float (&out)[4][4], const float (&m)[4][4]) {
-    // Of the perspective matrix above.
-    std::memset(out, 0, sizeof(out));
-    out[0][0] = 1.0f / m[0][0];
-    out[1][1] = 1.0f / m[1][1];
-    out[2][3] = 1.0f / m[3][2];
-    out[3][2] = 1.0f;
-    out[3][3] = -m[2][2] / m[3][2];
-}
-
 void Identity(float (&m)[4][4]) {
     std::memset(m, 0, sizeof(m));
     for (int i = 0; i < 4; ++i)
@@ -421,7 +412,12 @@ int32_t FrameGenEvaluate(VkCommandBuffer command, const BbDlssgEvaluate* evaluat
         Identity(options.clipToPrevClip);
         Identity(options.prevClipToClip);
     }
-    Inverse(options.clipToCameraView, options.cameraViewToClip);
+    if (!bbport::dlss::InvertMatrix(options.clipToCameraView, options.cameraViewToClip) ||
+        !bbport::dlss::FiniteMatrix(options.clipToPrevClip) ||
+        !bbport::dlss::FiniteMatrix(options.prevClipToClip)) {
+        Log(1, "Frame Generation rejected invalid camera matrices");
+        return 0;
+    }
     options.jitterOffset[0] = evaluate->jitter_x;
     options.jitterOffset[1] = evaluate->jitter_y;
     options.mvecScale[0] = options.mvecScale[1] = 1.0f;
