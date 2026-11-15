@@ -24,3 +24,8 @@ save clones, and scene. Record cold cache and warm cache separately; don't mix
 capture lengths or title/menu frames into an area benchmark. `bbport/tools/bench.sh`
 is the existing Linux scene harness; it now keeps each run's CSV and log together.
 Windows build logs are build evidence only, not a runtime benchmark or installer.
+
+The PR server image build additionally runs a six-player loopback smoke, using the
+same built shadNet and bbload binaries. It is a functional join/traffic gate, not an
+A/B benchmark or retail-game validation. No ports are published and the image is
+not pushed from a pull request.
