@@ -214,11 +214,11 @@ static bool ExecuteCopyShaderHLE(const Shader::Info& info, const AmdGpu::Compute
 
     while (batch_end < copies.size()) {
         // Place first copy into the current batch
-        const auto& copy = copies[batch_start];
-        auto src_offset_min = copy.srcOffset;
-        auto src_offset_max = copy.srcOffset + copy.size;
-        auto dst_offset_min = copy.dstOffset;
-        auto dst_offset_max = copy.dstOffset + copy.size;
+        const auto& first_copy = copies[batch_start];
+        auto src_offset_min = first_copy.srcOffset;
+        auto src_offset_max = first_copy.srcOffset + first_copy.size;
+        auto dst_offset_min = first_copy.dstOffset;
+        auto dst_offset_max = first_copy.dstOffset + first_copy.size;
 
         for (++batch_end; batch_end < copies.size(); batch_end++) {
             // Compute new src and dst bounds if we were to batch this copy

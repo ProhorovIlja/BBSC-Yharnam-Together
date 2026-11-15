@@ -16,6 +16,7 @@ target_include_directories(copy_hle PRIVATE ../../../bbport/gpu/shim ${CMAKE_CUR
 foreach(target copy_ranges copy_hle)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX)
+    target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
   else()
     target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
   endif()

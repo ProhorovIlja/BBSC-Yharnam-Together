@@ -27,7 +27,7 @@ struct BufferCopy { u64 srcOffset, dstOffset, size; };
 struct Span { u64 address, size; };
 static std::vector<Span> mapped_ranges, reads, dirty;
 static std::vector<vk::BufferCopy> submitted;
-static std::vector<BbCopyShader::Control> controls;
+static std::vector<BbCopyShader::Control> fixture_controls;
 static unsigned obtains;
 namespace Core {
 struct Memory {
@@ -40,8 +40,8 @@ struct Memory {
     }
     void ReadBacking(VAddr address, void* out, u64 size) {
         reads.push_back({address, size});
-        if (size > controls.size() * sizeof(BbCopyShader::Control)) std::abort();
-        std::memcpy(out, controls.data(), static_cast<std::size_t>(size));
+        if (size > fixture_controls.size() * sizeof(BbCopyShader::Control)) std::abort();
+        std::memcpy(out, fixture_controls.data(), static_cast<std::size_t>(size));
     }
 };
 }
@@ -90,7 +90,7 @@ int main() {
     const auto reset = [&] {
         reads.clear(); dirty.clear(); submitted.clear(); obtains = 0;
         mapped_ranges = {{ctl,24},{src,4000},{dst,4000}};
-        controls = {{100,200,9},{990,990,63}};
+        fixture_controls = {{100,200,9},{990,990,63}};
     };
     Rasterizer rasterizer;
     const auto run = [&](u32 groups=2) { CHECK(ExecuteCopyShaderHLE(info,{groups},rasterizer)); };
@@ -107,7 +107,7 @@ int main() {
     CHECK(reads.empty() && submitted.empty() && dirty.empty() && obtains==0);
     reset(); mapped_ranges.pop_back(); run();
     CHECK(reads.size()==1 && submitted.empty() && dirty.empty() && obtains==0);
-    reset(); controls={{1000,0,0xffffffff},{0,1000,0xffffffff}}; run();
+    reset(); fixture_controls={{1000,0,0xffffffff},{0,1000,0xffffffff}}; run();
     CHECK(submitted.empty() && dirty.empty() && obtains==0);
     reset(); info.buffers[0].num_records=1; run(0xffffffff);
     CHECK(reads[0].size==12 && submitted.size()==1 && dirty.size()==1);
@@ -118,7 +118,7 @@ int main() {
     info.buffers[2].base_address=dst;
     // An unmapped batch does not suppress a later independently mapped batch.
     reset(); info.buffers[1].num_records=100000; info.buffers[2].num_records=100000;
-    controls={{0,0,0},{20000,20000,0}};
+    fixture_controls={{0,0,0},{20000,20000,0}};
     mapped_ranges={{ctl,24},{src+80000,4},{dst+80000,4}}; run();
     CHECK(submitted.size()==1 && dirty.size()==1 && dirty[0].address==dst+80000);
     CHECK(dirty[0].size==4 && obtains==2);
