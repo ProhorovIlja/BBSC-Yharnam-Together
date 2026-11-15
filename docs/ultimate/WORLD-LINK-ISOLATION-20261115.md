@@ -81,6 +81,13 @@ The workflow `Ultimate world and shared game link` runs this suite on Linux,
 Windows and macOS. GoogleTest is pinned to v1.17.0's exact source commit.
 The server's normal CMake test registration also includes the restart regression.
 
+The existing travel-lock fixture now compiles the actual `OffersTeamTravel` and
+`TravelVote` implementation region rather than linking the entire host-rules
+translation unit, whose unrelated fmt/enemy-tuning dependencies prevented the
+standalone test from building. No travel logic is replaced with a test stub.
+The local RE suite collects 136 tests: 132 pass and four retail-event-file checks
+skip because no game event tree is provided. The POSIX CI jobs run this suite too.
+
 ## Acceptance boundaries and next priorities
 
 These changes are reviewable source fixes. Real multiplayer playtests, long-run

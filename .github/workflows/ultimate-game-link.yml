@@ -12,6 +12,8 @@ on:
       - emulator/src/core/bloodborne_travel.cpp
       - tools/re/tests/test_team_world_preservation.py
       - tools/re/tests/fixtures/team_world.cpp.in
+      - tools/re/tests/test_team_travel_locking.py
+      - tools/re/tests/fixtures/team_travel.cpp.in
       - tools/ultimate/network-tests/**
       - .github/workflows/ultimate-game-link.yml
   workflow_dispatch:
@@ -45,3 +47,6 @@ jobs:
         run: cmake --build build-game-link --config Release --parallel 2
       - name: Test world preservation, reliable delivery and restart isolation
         run: ctest --test-dir build-game-link -C Release --output-on-failure --verbose
+      - name: Existing RE regression suite (four retail-file checks may skip)
+        if: runner.os != 'Windows'
+        run: python3 -m unittest discover -s tools/re/tests -p "test_*.py" -v

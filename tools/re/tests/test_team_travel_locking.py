@@ -33,6 +33,13 @@ class TeamTravelLockingTests(unittest.TestCase):
         implementation = source[source.index(marker):]
         fixture = (HERE / 'fixtures/team_travel.cpp.in').read_text().replace(
             '// TEAM_TRAVEL_IMPLEMENTATION', implementation)
+        # Compile the actual vote implementation required by the travel state machine.
+        # Linking the whole host-rules translation unit also pulls in unrelated enemy
+        # tuning and fmt dependencies; those are not part of this standalone fixture.
+        rules = (headers / 'core/bloodborne_host_rules.cpp').read_text()
+        vote = rules[rules.index('bool OffersTeamTravel('):
+                     rules.index('namespace {\nconstexpr HarderEnemies StandardStrength')]
+        fixture = fixture.replace('// TRAVEL_VOTE_IMPLEMENTATION', vote)
         compiler = shlex.split(os.environ.get('CXX', 'c++'))
         if not compiler or not shutil.which(compiler[0]):
             self.skipTest('C++20 compiler is unavailable')
@@ -43,7 +50,7 @@ class TeamTravelLockingTests(unittest.TestCase):
             build = compiler + ['-std=c++20', '-pthread',
                                 '-I' + str(root / 'gpu/bbseamless/include'),
                                 '-I' + str(headers), '-I' + str(root / 'server'),
-                                str(cpp), str(headers / 'core/bloodborne_host_rules.cpp'),
+                                str(cpp),
                                 '-o', str(exe)]
             subprocess.run(build, check=True, capture_output=True, text=True, timeout=60)
             result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)
