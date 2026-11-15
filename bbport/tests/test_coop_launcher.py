@@ -975,7 +975,10 @@ class DiscordStatusTests(unittest.TestCase):
     """Kaniel 2026-11-01: the Discord status is off by default, and no join secrets on a home server."""
 
     def env(self, **settings):
-        return coop.discord_environment({'BB_DISCORD_STATUS': 'old', 'BB_DISCORD_JOIN': 'old'}, settings)
+        return coop.discord_environment({
+            'BB_DISCORD_STATUS': 'old', 'BB_DISCORD_JOIN': 'old',
+            'BB_DISCORD_SHOW_BUILD': 'old', 'BB_DISCORD_SHOW_LEVEL': 'old',
+            'BB_DISCORD_REFERENCE_LAYOUT': 'old'}, settings)
 
     def test_off_by_default(self):
         self.assertEqual(coop.DEFAULTS['discord_status'], '')
@@ -989,12 +992,50 @@ class DiscordStatusTests(unittest.TestCase):
 
     def test_on_a_home_server_it_shows_but_offers_no_join(self):
         with mock.patch.object(coop, 'DISCORD_APP_ID', '123'):
-            self.assertEqual(self.env(discord_status='1', server_type='local'),
-                             {'BB_DISCORD_STATUS': '1', 'BB_DISCORD_APP_ID': '123'})
+            self.assertEqual(
+                self.env(discord_status='1', server_type='local'),
+                {'BB_DISCORD_STATUS': '1', 'BB_DISCORD_APP_ID': '123',
+                 'BB_DISCORD_SHOW_AREA': '1', 'BB_DISCORD_SHOW_BOSS': '1',
+                 'BB_DISCORD_SHOW_LEVEL': '0', 'BB_DISCORD_SHOW_BUILD': '0',
+                 'BB_DISCORD_REFERENCE_LAYOUT': '1'})
 
     def test_on_a_public_server_friends_join_from_discord(self):
         with mock.patch.object(coop, 'DISCORD_APP_ID', '123'):
             self.assertEqual(self.env(discord_status='1', server_type='global')['BB_DISCORD_JOIN'], '1')
+
+    def test_level_build_and_boss_are_independent_opt_ins(self):
+        with mock.patch.object(coop, 'DISCORD_APP_ID', '123'):
+            env = self.env(discord_status='1', server_type='local',
+                           discord_show_area='', discord_show_level='1',
+                           discord_show_build='1', discord_show_boss='')
+            self.assertEqual({k: v for k, v in env.items() if k.startswith('BB_DISCORD_SHOW_')},
+                             {'BB_DISCORD_SHOW_AREA': '0',
+                              'BB_DISCORD_SHOW_LEVEL': '1',
+                              'BB_DISCORD_SHOW_BUILD': '1',
+                              'BB_DISCORD_SHOW_BOSS': '0'})
+            self.assertNotIn('BB_DISCORD_JOIN', env)
+            self.assertNotIn('BB_DISCORD_SHOW_BUILD', self.env(discord_status=''))
+
+    def test_discord_reference_card_can_be_disabled_without_sending_stale_child_env(self):
+        with mock.patch.object(coop, 'DISCORD_APP_ID', '123'):
+            env = self.env(discord_status='1', discord_reference_layout='')
+            self.assertEqual(env['BB_DISCORD_REFERENCE_LAYOUT'], '0')
+            self.assertNotIn('BB_DISCORD_REFERENCE_LAYOUT', self.env(discord_status=''))
+
+    def test_privacy_defaults_follow_saved_config(self):
+        self.assertEqual(coop.DEFAULTS['discord_show_level'], '')
+        self.assertEqual(coop.DEFAULTS['discord_show_build'], '')
+        self.assertEqual(coop.DEFAULTS['discord_show_area'], '1')
+        self.assertEqual(coop.DEFAULTS['discord_show_boss'], '1')
+        self.assertEqual(coop.DEFAULTS['discord_reference_layout'], '1')
+        with tempfile.TemporaryDirectory() as directory:
+            stored = dict(coop.DEFAULTS, discord_status='1', discord_show_build='1')
+            coop.save_settings(directory, stored)
+            loaded = coop.read_settings(directory)
+            self.assertEqual(loaded['discord_show_build'], '1')
+            self.assertEqual(loaded['discord_show_level'], '')
+            self.assertEqual(loaded['discord_reference_layout'], '1')
+            self.assertEqual(loaded['discord_status'], '1')
 
 
 class UpdateTests(unittest.TestCase):
@@ -1073,11 +1114,37 @@ class UpdateTests(unittest.TestCase):
                 path = coop.download_update(release, tmp, progress=seen.append)
             self.assertEqual(path.read_bytes(), body)
             self.assertEqual(seen[-1], 1.0)
-            path.unlink()
             with mock.patch.object(coop.urllib.request, 'urlopen', opener('00' * 32)):
                 with self.assertRaises(ValueError):
                     coop.download_update(release, tmp)
-            self.assertFalse((Path(tmp) / release['name']).exists(), 'a file that does not match is gone')
+            self.assertEqual(path.read_bytes(), body, 'previous verified installer survives')
+            self.assertEqual(list(Path(tmp).iterdir()), [path])
+
+            def interrupted(request, timeout=0):
+                if request.full_url.endswith('.sha256'):
+                    return Response(f'{hashlib.sha256(body).hexdigest()} *{release["name"]}'.encode())
+
+                class Broken(Response):
+                    def read(self, size=-1):
+                        if self.tell():
+                            raise OSError('connection interrupted')
+                        return super().read(1)
+                return Broken(body)
+
+            with mock.patch.object(coop.urllib.request, 'urlopen', interrupted):
+                with self.assertRaisesRegex(OSError, 'connection interrupted'):
+                    coop.download_update(release, tmp)
+            self.assertEqual(path.read_bytes(), body)
+            self.assertEqual(list(Path(tmp).iterdir()), [path])
+
+    def test_update_name_must_be_a_safe_local_executable_basename(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(coop.urllib.request, 'urlopen') as opener:
+            for name in ('../outside.exe', r'..\outside.exe', 'C:outside.exe', 'NUL.exe',
+                         'COM1.extra.exe', 'a.exe:other', '/absolute.exe', 'not-an-exe.zip'):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    coop.download_update({'name': name}, tmp)
+            opener.assert_not_called()
+            self.assertEqual(list(Path(tmp).iterdir()), [])
 
     def test_patch_notes_are_every_release_newest_first(self):
         # Kaniel 2026-10-20: Home lists every release's notes from the latest one back to the first
@@ -1377,6 +1444,43 @@ class SaveBackupTests(unittest.TestCase):
         self.assertEqual((self.user / self.SLOT).read_text(encoding='utf-8'), 'broken altar')
         self.assertEqual((self.user / 'bloodborne_party_world_slot0.txt').read_text(encoding='utf-8'), 'new flags')
 
+    def test_restore_staging_failure_leaves_live_saves_unchanged(self):
+        self.game_backup('20261024-231630', 'old')
+        self.write(self.SLOT, 'live')
+        self.write('bloodborne_party_world_slot0.txt', 'live flags')
+        before = coop.save_files(self.user)
+        write_bytes = Path.write_bytes
+
+        def fail_in_stage(path, data):
+            if any(part.startswith('.restore-stage-') for part in path.parts):
+                raise OSError('restore staging full')
+            return write_bytes(path, data)
+
+        with mock.patch.object(Path, 'write_bytes', fail_in_stage):
+            with self.assertRaisesRegex(OSError, 'restore staging full'):
+                coop.restore_saves(self.install, '20261024-231630')
+        self.assertEqual(coop.save_files(self.user), before)
+        self.assertFalse(list(self.user.glob('.restore-stage-*')))
+        self.assertEqual(coop.save_files(coop.save_backups(self.install)[0]['path']), before)
+
+    def test_backup_catalog_without_details_does_not_walk_snapshot_contents(self):
+        self.game_backup('20261024-231630', 'old')
+        with mock.patch.object(Path, 'rglob', side_effect=AssertionError('walked a snapshot')):
+            listed = coop.save_backups(self.install, details=False)
+            self.assertEqual([row['name'] for row in listed], ['20261024-231630'])
+            self.assertEqual(coop.prune_launcher_backups(self.install), 0)
+        self.assertGreater(coop.save_backups(self.install)[0]['size'], 0)
+
+    def test_invalid_backup_date_and_bad_note_do_not_break_the_list(self):
+        self.game_backup('20261024-231630', 'good')
+        self.game_backup('20269999-231630', 'not a date')
+        root = self.user / 'save-backups'
+        (root / '20261024-231630' / coop.LAUNCHER_BACKUP_NOTE).write_bytes(b'\xff')
+        listed = coop.save_backups(self.install)
+        self.assertEqual([(b['name'], b['note']) for b in listed], [('20261024-231630', '')])
+        with self.assertRaises(ValueError):
+            coop.restore_saves(self.install, '20269999-231630')
+
     def test_a_missing_or_empty_backup_changes_nothing(self):
         self.write(self.SLOT, 'mine')
         (self.user / coop.SAVE_BACKUPS / '20261024-231630').mkdir(parents=True)
@@ -1394,6 +1498,25 @@ class SaveBackupTests(unittest.TestCase):
         self.assertEqual(sum(b['launcher'] for b in listed), coop.KEPT_LAUNCHER_BACKUPS)
         self.assertIn('20261001-000000', [b['name'] for b in listed])
         self.assertEqual(coop.save_files(listed[0]['path'])[self.SLOT], f'play {coop.KEPT_LAUNCHER_BACKUPS + 2}'.encode())
+
+    def test_failed_staging_never_lists_partial_backup_or_removes_old_one(self):
+        self.game_backup('20261024-231630', 'old')
+        self.write('savedata/1/CUSA03173/SPRJ0005/userdata0000', 'new')
+        write_bytes = Path.write_bytes
+
+        def fail_in_stage(path, data):
+            if any(part.startswith('.launcher-stage-') for part in path.parts):
+                self.assertEqual([b['name'] for b in coop.save_backups(self.install)],
+                                 ['20261024-231630'])
+                raise OSError('simulated write failure')
+            return write_bytes(path, data)
+
+        with mock.patch.object(Path, 'write_bytes', fail_in_stage):
+            with self.assertRaisesRegex(OSError, 'simulated write failure'):
+                coop.back_up_saves(self.install, 'before PLAY')
+        root = self.user / 'save-backups'
+        self.assertEqual(sorted(p.name for p in root.iterdir()), ['20261024-231630'])
+        self.assertIsNotNone(coop.back_up_saves(self.install, 'retry'))
 
     def test_two_backups_in_one_second_get_their_own_names(self):
         self.write(self.SLOT, 'one')

@@ -32,6 +32,8 @@ jobs:
         if: runner.os == 'Windows'
       - name: Preparation, intake and exact profile tests
         run: python -m unittest discover -s tools/ultimate -p "test_*.py" -v
+      - name: Launcher save backup and co-op settings regressions
+        run: python -m unittest discover -s bbport/tests -p test_coop_launcher.py -v
       - name: Existing hybrid acceptance model
         run: python tools/ultimate/ultimate_hybrid_policy.py
       - name: Compile and run C++ policy (POSIX)

@@ -94,9 +94,18 @@ COPY backend/ss_info_template.xml /src/backend/
 RUN test -f externals/protobuf/CMakeLists.txt \
         || (echo "externals/protobuf is empty: run git submodule update --init" && exit 1)
 # The build folder is a BuildKit cache: a rebuild after a source change compiles only that.
+ARG RUN_WORLD_TESTS=0
 RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/qt \
     && cmake --build build --target shadnet $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
+    && if [ "$RUN_WORLD_TESTS" = 1 ]; then \
+           cmake --build build --target test_bloodborne_world test_world_writer $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
+           && ctest --test-dir build --output-on-failure --no-tests=error -R '^(bloodborne_world|world_writer)$' \
+           && cmake --build build --target bbload $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
+           && LD_LIBRARY_PATH=/opt/qt/lib QT_PLUGIN_PATH=/opt/qt/plugins python3 loadtest/run_load.py \
+              --shadnet build/shadnet --bbload build/bbload --players 6 --team-size 3 --seconds 10 \
+              --port 32014 --require-all-playing; \
+       fi \
     && mkdir -p /bin-out && strip -o /bin-out/shadnet build/shadnet
 COPY server/hosting/collect-runtime.sh /usr/local/bin/
 RUN sh /usr/local/bin/collect-runtime.sh /bin-out/shadnet /opt/qt /out

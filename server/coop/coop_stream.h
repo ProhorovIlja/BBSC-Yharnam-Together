@@ -54,15 +54,30 @@ public:
             chunk.push_back(at + size == message.size() ? LastChunk : 0);
             chunk.insert(chunk.end(), message.begin() + static_cast<std::ptrdiff_t>(at),
                          message.begin() + static_cast<std::ptrdiff_t>(at + size));
-            peer.Send(PacketClass::Reliable, chunk, now_ms);
+            peer.SendOwned(PacketClass::Reliable, std::move(chunk), now_ms);
             at += size;
         } while (at < message.size());
+    }
+
+    // Admission before allocating chunks, including the byte added to every chunk.
+    // A rejected message leaves the reliable sequence and backlog untouched.
+    bool SendWithinUnackedLimit(std::span<const u8> message, s64 now_ms, size_t budget) {
+        const size_t used = UnackedBytes();
+        const size_t chunks = message.empty() ? 1 : 1 + (message.size() - 1) / ChunkBytes;
+        if (used > budget || message.size() > budget - used ||
+            chunks > budget - used - message.size()) {
+            return false;
+        }
+        Send(message, now_ms);
+        return true;
     }
 
     // The frames to send now (each one datagram's body): chunks, resends and acks.
     std::vector<std::vector<u8>> Flush(s64 now_ms) {
         std::vector<std::vector<u8>> bodies;
-        for (const GameFrame& frame : peer.Flush(now_ms)) {
+        const auto frames = peer.Flush(now_ms);
+        bodies.reserve(frames.size());
+        for (const GameFrame& frame : frames) {
             bodies.push_back(EncodeGameFrame(frame));
         }
         return bodies;
@@ -74,7 +89,7 @@ public:
         if (broken) {
             return messages;
         }
-        const auto frame = DecodeGameFrame(body);
+        auto frame = DecodeGameFrame(body);
         if (!frame) {
             return messages;
         }
@@ -85,18 +100,24 @@ public:
             return messages;
         }
         const u64 restarts = peer.Restarts();
-        std::vector<std::vector<u8>> chunks = peer.Receive(*frame, now_ms);
+        std::vector<std::vector<u8>> chunks = peer.Receive(std::move(*frame), now_ms);
         if (peer.Restarts() != restarts) {
             partial.clear();
             restarted = true;
         }
-        for (const std::vector<u8>& chunk : chunks) {
+        for (std::vector<u8>& chunk : chunks) {
             if (chunk.empty()) {
                 continue;
             }
             if (chunk.size() - 1 > limits.message_bytes - partial.size()) {
                 Break();
                 return {};
+            }
+            if (partial.empty() && (chunk[0] & LastChunk) != 0) {
+                // Reuse the decoded allocation for the common single-chunk message.
+                chunk.erase(chunk.begin());
+                messages.push_back(std::move(chunk));
+                continue;
             }
             partial.insert(partial.end(), chunk.begin() + 1, chunk.end());
             if ((chunk[0] & LastChunk) != 0) {

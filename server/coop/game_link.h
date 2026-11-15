@@ -6,10 +6,12 @@
 #include <algorithm>
 #include <cstdint>
 #include <deque>
+#include <limits>
 #include <map>
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "coop/coop_types.h"
@@ -82,8 +84,21 @@ constexpr size_t EntryHeaderBytes = 1 + 4 + 4;
 inline std::vector<u8> EncodeGameFrame(const GameFrame& frame) {
     using namespace GameLinkDetail;
     std::vector<u8> out;
-    out.push_back(GameFrameVersion);
     const size_t sender = std::min<size_t>(frame.sender.size(), 0xFF);
+    if (frame.entries.size() > (std::numeric_limits<u16>::max)()) {
+        return {};
+    }
+    size_t bytes = FrameHeaderBytes - 16 + sender;
+    for (const auto& entry : frame.entries) {
+        if (entry.packet.size() > (std::numeric_limits<u32>::max)() ||
+            out.max_size() - bytes < EntryHeaderBytes ||
+            out.max_size() - bytes - EntryHeaderBytes < entry.packet.size()) {
+            return {};
+        }
+        bytes += EntryHeaderBytes + entry.packet.size();
+    }
+    out.reserve(bytes);
+    out.push_back(GameFrameVersion);
     out.push_back(static_cast<u8>(sender));
     out.insert(out.end(), frame.sender.begin(), frame.sender.begin() + sender);
     Put(out, frame.instance);
@@ -116,6 +131,10 @@ inline std::optional<GameFrame> DecodeGameFrame(std::span<const u8> bytes) {
         !Get(bytes, at, frame.ack) || !Get(bytes, at, count)) {
         return std::nullopt;
     }
+    if (count > (bytes.size() - at) / EntryHeaderBytes) {
+        return std::nullopt; // reject impossible counts before allocating entries
+    }
+    frame.entries.reserve(count);
     for (u16 index = 0; index < count; ++index) {
         u8 packet_class = 0;
         GameFrameEntry entry;
@@ -163,10 +182,15 @@ public:
 
     // A packet of this game for the member, sent at the next Flush.
     void Send(PacketClass packet_class, std::span<const u8> packet, s64 now_ms) {
-        Outgoing out{packet_class, 0, {packet.begin(), packet.end()}, now_ms, 0, now_ms};
+        SendOwned(packet_class, {packet.begin(), packet.end()}, now_ms);
+    }
+
+    void SendOwned(PacketClass packet_class, std::vector<u8> packet, s64 now_ms) {
+        const size_t bytes = packet.size();
+        Outgoing out{packet_class, 0, std::move(packet), now_ms, 0, now_ms};
         if (packet_class == PacketClass::Reliable) {
             out.seq = next_reliable++;
-            reliable_bytes += packet.size();
+            reliable_bytes += bytes;
         } else {
             out.seq = next_unreliable++;
         }
@@ -181,12 +205,26 @@ public:
             for (auto& [seq, out] : unacked) out.emitted_flush = 0;
             flush_serial = 1;
         }
-        std::vector<GameFrameEntry> entries;
-        entries.reserve(fresh.size());
+        std::vector<GameFrame> frames;
+        size_t bytes = 0;
+        // Retain the usual 16-byte sender budget, but account for longer sender IDs.
+        const size_t header = GameLinkDetail::FrameHeaderBytes +
+                              (std::clamp<size_t>(self.size(), 16, 255) - 16);
+        const auto append = [&](PacketClass packet_class, u32 seq, auto&& packet) {
+            const size_t size = GameLinkDetail::EntryHeaderBytes + packet.size();
+            if (frames.empty() || bytes + size > settings.frame_bytes ||
+                frames.back().entries.size() == (std::numeric_limits<u16>::max)()) {
+                frames.push_back(Header());
+                bytes = header;
+            }
+            frames.back().entries.push_back(
+                {packet_class, seq, std::forward<decltype(packet)>(packet)});
+            bytes += size;
+        };
         for (Outgoing& out : fresh) {
             if (out.packet_class == PacketClass::Reliable) {
                 // Keep the original payload until ACKed; the wire frame needs its own copy.
-                entries.push_back({out.packet_class, out.seq, out.packet});
+                append(out.packet_class, out.seq, out.packet);
                 // Queued sequence numbers have not necessarily been sent yet.
                 sent_reliable_end = out.seq + 1;
                 out.sent_ms = now_ms;
@@ -198,7 +236,7 @@ public:
             } else {
                 // Unreliable payloads have no retry owner. Transfer the queued allocation
                 // to the frame instead of copying every visual/enemy update before clear().
-                entries.push_back({out.packet_class, out.seq, std::move(out.packet)});
+                append(out.packet_class, out.seq, std::move(out.packet));
             }
         }
         fresh.clear();
@@ -227,18 +265,7 @@ public:
             out.wait_ms = (std::min)(out.wait_ms * 2, settings.max_resend_ms);
             ++resends;
             ++resent;
-            entries.push_back({out.packet_class, out.seq, out.packet});
-        }
-        std::vector<GameFrame> frames;
-        size_t bytes = 0;
-        for (GameFrameEntry& entry : entries) {
-            const size_t size = GameLinkDetail::EntryHeaderBytes + entry.packet.size();
-            if (frames.empty() || bytes + size > settings.frame_bytes) {
-                frames.push_back(Header());
-                bytes = GameLinkDetail::FrameHeaderBytes;
-            }
-            frames.back().entries.push_back(std::move(entry));
-            bytes += size;
+            append(out.packet_class, out.seq, out.packet);
         }
         if (frames.empty() && (ack_owed || now_ms - last_frame_ms >= settings.keepalive_ms)) {
             frames.push_back(Header());
@@ -252,6 +279,17 @@ public:
 
     // A frame from the member: the packets for the game, in order.
     std::vector<std::vector<u8>> Receive(const GameFrame& frame, s64 now_ms) {
+        return ReceiveFrame(frame, now_ms);
+    }
+
+    // A decoded frame with no further readers can transfer its payload storage.
+    std::vector<std::vector<u8>> Receive(GameFrame&& frame, s64 now_ms) {
+        return ReceiveFrame(frame, now_ms);
+    }
+
+private:
+    template <typename Frame>
+    std::vector<std::vector<u8>> ReceiveFrame(Frame& frame, s64 now_ms) {
         if (frame.peer_instance != 0 && frame.peer_instance != instance) {
             // Advertise this run, but do not let a frame for a previous local run reset the
             // current stream, acknowledge its packets, or keep a dead peer alive.
@@ -277,7 +315,7 @@ public:
             unacked.erase(unacked.begin(), acked);
         }
         std::vector<std::vector<u8>> delivered;
-        for (const GameFrameEntry& entry : frame.entries) {
+        for (auto& entry : frame.entries) {
             if (entry.packet_class == PacketClass::Unreliable) {
                 TakeUnreliable(entry, delivered);
             } else {
@@ -287,6 +325,7 @@ public:
         return delivered;
     }
 
+public:
     size_t Unacked() const {
         return unacked.size() + std::ranges::count_if(fresh, [](const Outgoing& out) {
                    return out.packet_class == PacketClass::Reliable;
@@ -387,7 +426,8 @@ private:
         }
     }
 
-    void TakeUnreliable(const GameFrameEntry& entry, std::vector<std::vector<u8>>& delivered) {
+    template <typename Entry>
+    void TakeUnreliable(Entry& entry, std::vector<std::vector<u8>>& delivered) {
         const u32 channel = ChannelOf(entry.packet);
         const auto newest = newest_unreliable.find(channel);
         if ((newest != newest_unreliable.end() && entry.seq <= newest->second) ||
@@ -397,23 +437,25 @@ private:
             return;
         }
         newest_unreliable[channel] = entry.seq;
-        delivered.push_back(entry.packet);
+        delivered.push_back(std::move(entry.packet));
     }
 
-    void TakeReliable(const GameFrameEntry& entry, std::vector<std::vector<u8>>& delivered) {
+    template <typename Entry>
+    void TakeReliable(Entry& entry, std::vector<std::vector<u8>>& delivered) {
         ack_owed = true;
         if (entry.seq < expected) {
             return; // a resend of one already taken
         }
         if (entry.seq > expected) {
+            const size_t packet_bytes = entry.packet.size();
             if (held.size() < settings.held_out_of_order &&
-                held_bytes + entry.packet.size() <= settings.held_bytes &&
-                held.try_emplace(entry.seq, entry.packet).second) {
-                held_bytes += entry.packet.size();
+                packet_bytes <= settings.held_bytes - held_bytes &&
+                held.try_emplace(entry.seq, std::move(entry.packet)).second) {
+                held_bytes += packet_bytes;
             }
             return;
         }
-        delivered.push_back(entry.packet);
+        delivered.push_back(std::move(entry.packet));
         ++expected;
         for (auto next = held.find(expected); next != held.end(); next = held.find(expected)) {
             held_bytes -= next->second.size();

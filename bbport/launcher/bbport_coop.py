@@ -23,6 +23,7 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -65,6 +66,9 @@ DEFAULTS = {'game': '', 'update': '', 'role': 'guest', 'host_ip': '', 'account':
             'machine': '',
             # Kaniel 2026-11-01: '1' shows the game on Discord (off by default).
             'discord_status': '',
+            'discord_show_area': '1', 'discord_show_level': '',
+            'discord_show_build': '', 'discord_show_boss': '1',
+            'discord_reference_layout': '1',
             # Kaniel 2026-11-01: 'local' (a host's own server, by its address: as ever) or 'global' (the
             # public server: its own accounts, bbport_auth.py, Kaniel 2026-11-03); the account's name while
             # signed in (never its password); another Global server's address than GLOBAL_SERVER (a test
@@ -1312,7 +1316,7 @@ def save_files(user):
     return files
 
 
-def save_backups(install):
+def save_backups(install, *, details=True):
     """The backups, newest first: dicts of name, path, when (a time.struct_time), note (what the
     launcher wrote in it; '' for the game's own) and size in bytes."""
     folder = Path(install) / 'user' / SAVE_BACKUPS
@@ -1320,16 +1324,23 @@ def save_backups(install):
     if not folder.is_dir():
         return found
     for path in folder.iterdir():
-        if not (path.is_dir() and BACKUP_NAME.match(path.name)):
+        if path.is_symlink() or not (path.is_dir() and BACKUP_NAME.fullmatch(path.name)):
             continue
-        note_file = path / LAUNCHER_BACKUP_NOTE
         try:
-            note = note_file.read_text(encoding='utf-8').strip() if note_file.is_file() else ''
-        except OSError:
+            when = time.strptime(path.name, '%Y%m%d-%H%M%S')
+            size = (sum(f.stat().st_size for f in path.rglob('*')
+                        if f.is_file() and f.name != LAUNCHER_BACKUP_NOTE)
+                    if details else 0)
+        except (ValueError, OSError):
+            continue  # malformed or pruned by the game during enumeration
+        note_file = path / LAUNCHER_BACKUP_NOTE
+        launcher = note_file.is_file()
+        try:
+            note = note_file.read_text(encoding='utf-8').strip() if details and launcher else ''
+        except (OSError, UnicodeError):
             note = ''
-        size = sum(f.stat().st_size for f in path.rglob('*') if f.is_file() and f.name != LAUNCHER_BACKUP_NOTE)
-        found.append({'name': path.name, 'path': path, 'when': time.strptime(path.name, '%Y%m%d-%H%M%S'),
-                      'note': note, 'size': size, 'launcher': note_file.is_file()})
+        found.append({'name': path.name, 'path': path, 'when': when,
+                      'note': note, 'size': size, 'launcher': launcher})
     found.sort(key=lambda backup: backup['name'], reverse=True)
     return found
 
@@ -1341,22 +1352,39 @@ def back_up_saves(install, note, now=None, prune=True):
     files = save_files(user)
     if not files:
         return None
-    existing = save_backups(install)
-    if existing and save_files(existing[0]['path']) == files:
-        return None
+    existing = save_backups(install, details=False)
+    if existing:
+        try:
+            if save_files(existing[0]['path']) == files:
+                return None
+        except FileNotFoundError:
+            pass  # the game may rotate its newest snapshot concurrently
     name = time.strftime('%Y%m%d-%H%M%S', time.localtime(now))
-    while any(backup['name'] == name for backup in existing):  # two in one second: the next free second
-        name = time.strftime('%Y%m%d-%H%M%S', time.localtime(time.mktime(time.strptime(name, '%Y%m%d-%H%M%S')) + 1))
-    backup = user / SAVE_BACKUPS / name
-    try:
+    root = user / SAVE_BACKUPS
+    root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.launcher-stage-', dir=root) as directory:
+        stage = Path(directory)
         for relative, data in files.items():
-            target = backup / relative
+            target = stage / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-        (backup / LAUNCHER_BACKUP_NOTE).write_text(note + '\n', encoding='utf-8')
-    except OSError:
-        shutil.rmtree(backup, ignore_errors=True)
-        raise
+        (stage / LAUNCHER_BACKUP_NOTE).write_text(note + '\n', encoding='utf-8')
+        if save_files(stage) != files:
+            raise OSError('the staged launcher backup did not read back whole')
+
+        # A timestamp is visible to the game and launcher only after the whole
+        # backup is written. Never clean up another process's published backup.
+        while True:
+            backup = root / name
+            if not os.path.lexists(backup):
+                try:
+                    stage.rename(backup)
+                    break
+                except OSError:
+                    if not os.path.lexists(backup):
+                        raise
+            name = time.strftime('%Y%m%d-%H%M%S', time.localtime(
+                time.mktime(time.strptime(name, '%Y%m%d-%H%M%S')) + 1))
     if prune:
         prune_launcher_backups(install)
     return backup
@@ -1365,7 +1393,7 @@ def back_up_saves(install, note, now=None, prune=True):
 def prune_launcher_backups(install, kept=KEPT_LAUNCHER_BACKUPS):
     """Deletes all but the newest `kept` launcher backups (the game prunes its own); how many went."""
     removed = 0
-    for backup in [b for b in save_backups(install) if b['launcher']][kept:]:
+    for backup in [b for b in save_backups(install, details=False) if b['launcher']][kept:]:
         shutil.rmtree(backup['path'], ignore_errors=True)
         removed += 1
     return removed
@@ -1375,21 +1403,43 @@ def restore_saves(install, name):
     """Puts backup `name` back as the saves (the game must not run). The saves as they were are kept
     first as a launcher backup, so a restore can be undone. Returns that backup's path, or None when
     the saves were already in a backup. Raises ValueError for a backup that is missing or holds no saves."""
-    if not BACKUP_NAME.match(name):
+    if not BACKUP_NAME.fullmatch(name):
         raise ValueError(f'no backup {name}')
+    time.strptime(name, '%Y%m%d-%H%M%S')
     user = Path(install) / 'user'
-    files = save_files(user / SAVE_BACKUPS / name)
+    source = user / SAVE_BACKUPS / name
+    if source.is_symlink():
+        raise ValueError(f'no local backup {name}')
+    files = save_files(source)
     if not files:
         raise ValueError(f'backup {name} holds no saves')
     safety = back_up_saves(install, f'before restoring {name}', prune=False)
-    for folder in [user / 'savedata'] + sorted((user / 'home').glob('*/savedata')):
-        shutil.rmtree(folder, ignore_errors=True)
-    for party in user.glob('bloodborne_party_*.txt'):
-        party.unlink(missing_ok=True)
-    for relative, data in files.items():
-        target = user / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+    current = save_files(user)
+    with tempfile.TemporaryDirectory(prefix='.restore-stage-', dir=user) as directory:
+        stage = Path(directory)
+        for relative, data in files.items():
+            pending = stage / relative
+            pending.parent.mkdir(parents=True, exist_ok=True)
+            pending.write_bytes(data)
+        if save_files(stage) != files:
+            raise OSError(f'the staged restore from {name} did not read back whole')
+        # Each replacement is atomic, not the whole set. Keep the verified
+        # safety backup even if a later file is locked or publication fails.
+        for relative in files:
+            target = user / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(stage / relative, target)
+        # Do not delete saves absent from this backup until all replacements worked.
+        for relative in current.keys() - files.keys():
+            stale = user / relative
+            stale.unlink(missing_ok=True)
+            for parent in stale.parents:
+                if parent == user or parent == user / 'home':
+                    break
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
     if save_files(user) != files:
         raise OSError(f'the saves did not come back whole from {name}')
     prune_launcher_backups(install)
@@ -1406,17 +1456,26 @@ def unlocked_fps(fps_mode):
 
 
 # The Discord application the status shows as: ours, once made (empty: the option is not offered).
-DISCORD_APP_ID = ''
+_configured_discord_app_id = os.environ.get('BB_DISCORD_APP_ID', '')
+DISCORD_APP_ID = (_configured_discord_app_id if
+                  re.fullmatch(r'[0-9]{17,20}', _configured_discord_app_id) else '')
 
 
 def discord_environment(env, settings):
     """The Discord status's entries in the game's environment, off unless the player turned it on. A
     friend joins from Discord only on a public server: a home server's code means nothing to a stranger."""
-    for key in ('BB_DISCORD_STATUS', 'BB_DISCORD_APP_ID', 'BB_DISCORD_JOIN'):
+    fields = {'BB_DISCORD_SHOW_AREA': ('discord_show_area', '1'),
+              'BB_DISCORD_SHOW_LEVEL': ('discord_show_level', ''),
+              'BB_DISCORD_SHOW_BUILD': ('discord_show_build', ''),
+              'BB_DISCORD_SHOW_BOSS': ('discord_show_boss', '1'),
+              'BB_DISCORD_REFERENCE_LAYOUT': ('discord_reference_layout', '1')}
+    for key in ('BB_DISCORD_STATUS', 'BB_DISCORD_APP_ID', 'BB_DISCORD_JOIN', *fields):
         env.pop(key, None)
     if settings.get('discord_status') == '1' and DISCORD_APP_ID:
         env['BB_DISCORD_STATUS'] = '1'
         env['BB_DISCORD_APP_ID'] = DISCORD_APP_ID
+        for key, (setting, default) in fields.items():
+            env[key] = '1' if settings.get(setting, default) == '1' else '0'
         if settings.get('server_type') == 'global':
             env['BB_DISCORD_JOIN'] = '1'
     return env
@@ -2198,25 +2257,41 @@ def download_update(release, folder, progress=None, timeout=30):
     """The release's setup .exe in `folder`, checked against its .sha256 (ValueError when it does not
     match, and the file is gone). progress(fraction) is called while it downloads."""
     import hashlib
+    name = release['name']
+    # This is a local filename, not a URL or a Windows device/alternate-stream path.
+    if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*\.exe', name, re.I) or name.split('.')[0].upper() in {
+        'CON', 'PRN', 'AUX', 'NUL', *(f'{prefix}{i}' for prefix in ('COM', 'LPT') for i in range(10))
+    }:
+        raise ValueError('invalid update installer filename')
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     headers = {'User-Agent': 'bloodborne-coop-launcher'}
     with urllib.request.urlopen(urllib.request.Request(release['sha256'], headers=headers), timeout=timeout) as response:
-        want = expected_sum(response.read(4096).decode('utf-8', 'replace'), release['name'])
-    target = folder / release['name']
+        want = expected_sum(response.read(4096).decode('utf-8', 'replace'), name)
+    target = folder / name
     digest, done = hashlib.sha256(), 0
-    with urllib.request.urlopen(urllib.request.Request(release['setup'], headers=headers), timeout=timeout) as response:
-        size = int(response.headers.get('Content-Length') or 0)
-        with open(target, 'wb') as out:
-            for chunk in iter(lambda: response.read(1 << 20), b''):
-                out.write(chunk)
-                digest.update(chunk)
-                done += len(chunk)
-                if progress and size:
-                    progress(done / size)
-    if digest.hexdigest() != want:
-        target.unlink(missing_ok=True)
-        raise ValueError('the downloaded update does not match its SHA-256; nothing was changed')
+    # Stage beside the final file so an interrupted or corrupt download never
+    # replaces a previously verified installer.
+    partial = None
+    try:
+        with urllib.request.urlopen(urllib.request.Request(release['setup'], headers=headers),
+                                    timeout=timeout) as response:
+            size = int(response.headers.get('Content-Length') or 0)
+            with tempfile.NamedTemporaryFile(dir=folder, prefix='.setup-', suffix='.part',
+                                             delete=False) as out:
+                partial = Path(out.name)
+                for chunk in iter(lambda: response.read(1 << 20), b''):
+                    out.write(chunk)
+                    digest.update(chunk)
+                    done += len(chunk)
+                    if progress and size:
+                        progress(min(1.0, done / size))
+        if digest.hexdigest() != want:
+            raise ValueError('the downloaded update does not match its SHA-256; nothing was changed')
+        os.replace(partial, target)
+    finally:
+        if partial is not None:
+            partial.unlink(missing_ok=True)
     return target
 
 

@@ -13,6 +13,7 @@
 #include "core/bloodborne_re_internal.h"
 #include "core/bloodborne_trade.h"
 #include "core/bloodborne_write_watch.h"
+#include "core/bloodborne_reward_safety.h"
 
 #include <algorithm>
 #include <array>
@@ -1689,20 +1690,26 @@ void GiveBackPhantomKeyItems() {
         AddTradeItems(std::span{&item, 1}, ItemPopup::Silent);
     };
     const u64 list = KeyItemList();
+    if (list == 0 || character_slot.load() != slot) {
+        return;
+    }
     if (ReadValue<s32>(player, 0x78) == PhantomType) {
-        for (const HeldGoods& held : ledger.LookAtPhantom(list, HeldKeyGoods())) {
-            give(held);
-            LOG_INFO(Debug,
-                     "Bloodborne party: {} x goods {} of the guest's own in the phantom's key "
-                     "items",
-                     held.count, held.goods);
+        // Preserve any dirty ledger writes even while native grants are temporarily unready.
+        if (TradeItemsReadyToGive()) {
+            for (const HeldGoods& held : ledger.LookAtPhantom(list, HeldKeyGoods())) {
+                give(held);
+                LOG_INFO(Debug,
+                         "Bloodborne party: requested {} x goods {} of the guest's own in the "
+                         "phantom's key items",
+                         held.count, held.goods);
+            }
         }
     } else if (const auto owed = ledger.LookAtOwn(list, HeldKeyGoods());
-               owed && !ledger.Owed().empty() && (owed->empty() || TradeItemsCanBeAdded())) {
+               owed && !ledger.Owed().empty() && (owed->empty() || TradeItemsReadyToGive())) {
         for (const HeldGoods& held : *owed) {
             give(held);
             LOG_INFO(Debug,
-                     "Bloodborne party: gave back {} x goods {}: gained as a phantom, dropped by "
+                     "Bloodborne party: requested return of {} x goods {}: gained as a phantom, dropped by "
                      "the game with its key item list",
                      held.count, held.goods);
         }
@@ -1710,13 +1717,14 @@ void GiveBackPhantomKeyItems() {
     }
     // The slot's file follows what is owed, so a game closed as a phantom still gives it back.
     if (std::vector<OwedKeyItem> owed = ledger.Owed(); owed != filed) {
-        std::error_code error;
-        if (owed.empty()) {
-            std::filesystem::remove(file, error);
-        } else {
-            std::ofstream{file, std::ios::binary | std::ios::trunc} << EncodeOwedKeyItems(owed);
+        if (character_slot.load() != slot || phantom_keys_forgotten.load()) {
+            return;
         }
-        filed = std::move(owed);
+        if (RewardSafety::WriteLedger(file, owed.empty() ? std::string{} : EncodeOwedKeyItems(owed))) {
+            filed = std::move(owed);
+        } else {
+            LOG_WARNING(Debug, "Bloodborne party: could not update phantom ledger for slot {}", slot);
+        }
     }
 }
 

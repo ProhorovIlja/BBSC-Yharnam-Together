@@ -415,6 +415,7 @@ private:
         Member(quint32 instance, BloodborneCoop::CoopStream::Limits limits)
             : stream{"shadnet", instance, limits} {}
         BloodborneCoop::CoopStream stream;
+        bool outbound_overflow = false; // rejected a message before allocating its chunks
         bool to_flush = false; // something to send since the last flush (Service::flush_now)
         quint64 key = 0;       // its link's (Endpoint::Key)
         QByteArray online_id;

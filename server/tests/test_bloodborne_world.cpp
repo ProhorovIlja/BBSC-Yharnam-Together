@@ -314,7 +314,8 @@ struct Game {
 
 // Datagrams both ways until nothing moves (the service's sends go to the game
 // at their endpoint).
-void Pump(Service &service, const std::vector<Game *> &games, qint64 now_ms) {
+void Pump(Service &service, const std::vector<Game *> &games, qint64 now_ms,
+          QList<Service::Send> *observed = nullptr) {
   for (int round = 0; round < 20; ++round) {
     bool moved = false;
     QList<Service::Send> sends;
@@ -334,6 +335,9 @@ void Pump(Service &service, const std::vector<Game *> &games, qint64 now_ms) {
       }
     }
     sends.append(service.Tick(now_ms).sends);
+    if (observed) {
+      observed->append(sends);
+    }
     for (const Service::Send &send : sends) {
       for (Game *game : games) {
         if (game->online && !game->deaf && game->endpoint == send.to) {
@@ -4024,7 +4028,14 @@ int AMemberThatNeverAcksIsDropped() {
     envelope.mutable_portrait()->set_id(id);
     envelope.mutable_portrait()->set_pixels(std::string(40'000, 'p'));
     host.Send(envelope, now);
-    Pump(service, {&host, &guest}, now);
+    QList<Service::Send> observed;
+    Pump(service, {&host, &guest}, now, &observed);
+    if (service.PartyOf(guest.endpoint).isEmpty()) {
+      for (const auto &send : observed) {
+        CHECK(send.to != guest.endpoint); // the dropped backlog was never emitted
+      }
+      break;
+    }
   }
   CHECK(service.PartyOf(guest.endpoint).isEmpty());
   CHECK(!service.PartyOf(host.endpoint).isEmpty());
