@@ -1444,6 +1444,25 @@ class SaveBackupTests(unittest.TestCase):
         self.assertEqual((self.user / self.SLOT).read_text(encoding='utf-8'), 'broken altar')
         self.assertEqual((self.user / 'bloodborne_party_world_slot0.txt').read_text(encoding='utf-8'), 'new flags')
 
+    def test_restore_staging_failure_leaves_live_saves_unchanged(self):
+        self.game_backup('20261024-231630', 'old')
+        self.write(self.SLOT, 'live')
+        self.write('bloodborne_party_world_slot0.txt', 'live flags')
+        before = coop.save_files(self.user)
+        write_bytes = Path.write_bytes
+
+        def fail_in_stage(path, data):
+            if any(part.startswith('.restore-stage-') for part in path.parts):
+                raise OSError('restore staging full')
+            return write_bytes(path, data)
+
+        with mock.patch.object(Path, 'write_bytes', fail_in_stage):
+            with self.assertRaisesRegex(OSError, 'restore staging full'):
+                coop.restore_saves(self.install, '20261024-231630')
+        self.assertEqual(coop.save_files(self.user), before)
+        self.assertFalse(list(self.user.glob('.restore-stage-*')))
+        self.assertEqual(coop.save_files(coop.save_backups(self.install)[0]['path']), before)
+
     def test_invalid_backup_date_and_bad_note_do_not_break_the_list(self):
         self.game_backup('20261024-231630', 'good')
         self.game_backup('20269999-231630', 'not a date')

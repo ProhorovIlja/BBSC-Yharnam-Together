@@ -1408,14 +1408,32 @@ def restore_saves(install, name):
     if not files:
         raise ValueError(f'backup {name} holds no saves')
     safety = back_up_saves(install, f'before restoring {name}', prune=False)
-    for folder in [user / 'savedata'] + sorted((user / 'home').glob('*/savedata')):
-        shutil.rmtree(folder, ignore_errors=True)
-    for party in user.glob('bloodborne_party_*.txt'):
-        party.unlink(missing_ok=True)
-    for relative, data in files.items():
-        target = user / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+    current = save_files(user)
+    with tempfile.TemporaryDirectory(prefix='.restore-stage-', dir=user) as directory:
+        stage = Path(directory)
+        for relative, data in files.items():
+            pending = stage / relative
+            pending.parent.mkdir(parents=True, exist_ok=True)
+            pending.write_bytes(data)
+        if save_files(stage) != files:
+            raise OSError(f'the staged restore from {name} did not read back whole')
+        # Each replacement is atomic, not the whole set. Keep the verified
+        # safety backup even if a later file is locked or publication fails.
+        for relative in files:
+            target = user / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(stage / relative, target)
+        # Do not delete saves absent from this backup until all replacements worked.
+        for relative in current.keys() - files.keys():
+            stale = user / relative
+            stale.unlink(missing_ok=True)
+            for parent in stale.parents:
+                if parent == user or parent == user / 'home':
+                    break
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
     if save_files(user) != files:
         raise OSError(f'the saves did not come back whole from {name}')
     prune_launcher_backups(install)
