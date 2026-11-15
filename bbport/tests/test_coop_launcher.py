@@ -1444,6 +1444,16 @@ class SaveBackupTests(unittest.TestCase):
         self.assertEqual((self.user / self.SLOT).read_text(encoding='utf-8'), 'broken altar')
         self.assertEqual((self.user / 'bloodborne_party_world_slot0.txt').read_text(encoding='utf-8'), 'new flags')
 
+    def test_invalid_backup_date_and_bad_note_do_not_break_the_list(self):
+        self.game_backup('20261024-231630', 'good')
+        self.game_backup('20269999-231630', 'not a date')
+        root = self.user / 'save-backups'
+        (root / '20261024-231630' / coop.LAUNCHER_BACKUP_NOTE).write_bytes(b'\xff')
+        listed = coop.save_backups(self.install)
+        self.assertEqual([(b['name'], b['note']) for b in listed], [('20261024-231630', '')])
+        with self.assertRaises(ValueError):
+            coop.restore_saves(self.install, '20269999-231630')
+
     def test_a_missing_or_empty_backup_changes_nothing(self):
         self.write(self.SLOT, 'mine')
         (self.user / coop.SAVE_BACKUPS / '20261024-231630').mkdir(parents=True)

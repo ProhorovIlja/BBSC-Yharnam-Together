@@ -1987,14 +1987,16 @@ void Service::FlushSome(qint64 now_ms, Result& result) {
     std::vector<quint64> over;
     for (Member* member : std::exchange(flush_now, {})) {
         member->to_flush = false;
+        if (member->stream.UnackedBytes() > limits.unacked_bytes) {
+            over.push_back(member->key);
+            continue; // Do not serialize a backlog for a peer about to be dropped.
+        }
         for (const std::vector<u8>& body : member->stream.Flush(now_ms)) {
             result.sends.append(
                 {endpoints.at(member->key), QByteArray(reinterpret_cast<const char*>(body.data()),
                                                        static_cast<qsizetype>(body.size()))});
         }
-        if (member->stream.UnackedBytes() > limits.unacked_bytes) {
-            over.push_back(member->key);
-        }
+
     }
     for (const quint64 key : over) {
         Drop(key, QStringLiteral("over %1 bytes not acked").arg(limits.unacked_bytes), result);
@@ -2007,14 +2009,16 @@ void Service::Flush(qint64 now_ms, Result& result) {
     }
     std::vector<quint64> over;
     for (auto& [key, member] : members) {
+        if (member.stream.UnackedBytes() > limits.unacked_bytes) {
+            over.push_back(key);
+            continue; // Do not serialize a backlog for a peer about to be dropped.
+        }
         for (const std::vector<u8>& body : member.stream.Flush(now_ms)) {
             result.sends.append(
                 {endpoints.at(key), QByteArray(reinterpret_cast<const char*>(body.data()),
                                                static_cast<qsizetype>(body.size()))});
         }
-        if (member.stream.UnackedBytes() > limits.unacked_bytes) {
-            over.push_back(key);
-        }
+
     }
     for (const quint64 key : over) {
         Drop(key, QStringLiteral("over %1 bytes not acked").arg(limits.unacked_bytes), result);

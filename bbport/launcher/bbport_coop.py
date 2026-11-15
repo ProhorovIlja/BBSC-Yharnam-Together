@@ -1324,15 +1324,20 @@ def save_backups(install):
     if not folder.is_dir():
         return found
     for path in folder.iterdir():
-        if not (path.is_dir() and BACKUP_NAME.match(path.name)):
+        if path.is_symlink() or not (path.is_dir() and BACKUP_NAME.fullmatch(path.name)):
             continue
+        try:
+            when = time.strptime(path.name, '%Y%m%d-%H%M%S')
+            size = sum(f.stat().st_size for f in path.rglob('*')
+                       if f.is_file() and f.name != LAUNCHER_BACKUP_NOTE)
+        except (ValueError, OSError):
+            continue  # malformed or pruned by the game during enumeration
         note_file = path / LAUNCHER_BACKUP_NOTE
         try:
             note = note_file.read_text(encoding='utf-8').strip() if note_file.is_file() else ''
-        except OSError:
+        except (OSError, UnicodeError):
             note = ''
-        size = sum(f.stat().st_size for f in path.rglob('*') if f.is_file() and f.name != LAUNCHER_BACKUP_NOTE)
-        found.append({'name': path.name, 'path': path, 'when': time.strptime(path.name, '%Y%m%d-%H%M%S'),
+        found.append({'name': path.name, 'path': path, 'when': when,
                       'note': note, 'size': size, 'launcher': note_file.is_file()})
     found.sort(key=lambda backup: backup['name'], reverse=True)
     return found
@@ -1392,10 +1397,14 @@ def restore_saves(install, name):
     """Puts backup `name` back as the saves (the game must not run). The saves as they were are kept
     first as a launcher backup, so a restore can be undone. Returns that backup's path, or None when
     the saves were already in a backup. Raises ValueError for a backup that is missing or holds no saves."""
-    if not BACKUP_NAME.match(name):
+    if not BACKUP_NAME.fullmatch(name):
         raise ValueError(f'no backup {name}')
+    time.strptime(name, '%Y%m%d-%H%M%S')
     user = Path(install) / 'user'
-    files = save_files(user / SAVE_BACKUPS / name)
+    source = user / SAVE_BACKUPS / name
+    if source.is_symlink():
+        raise ValueError(f'no local backup {name}')
+    files = save_files(source)
     if not files:
         raise ValueError(f'backup {name} holds no saves')
     safety = back_up_saves(install, f'before restoring {name}', prune=False)
