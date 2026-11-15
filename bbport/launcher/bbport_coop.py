@@ -1743,8 +1743,10 @@ def console_text(data):
         return ''
     if isinstance(data, str):
         return data
+    if data.startswith((b'\xff\xfe', b'\xfe\xff')):
+        return data.decode('utf-16', 'replace')
     try:
-        return data.decode('utf-8')
+        return data.decode('utf-8-sig')
     except UnicodeDecodeError:
         pass
     for codec in ('oem', 'mbcs'):  # Windows only; elsewhere the lookup fails and the next one is tried
@@ -2116,8 +2118,16 @@ def firewall_ready(install, host):
                                  capture_output=True, timeout=15, creationflags=NO_WINDOW)
         except (OSError, subprocess.TimeoutExpired):
             return False
-        if out.returncode != 0 or (name == RULE_GAME and probe not in console_text(out.stdout).lower()):
+        if out.returncode != 0:
             return False
+        output = console_text(out.stdout)
+        if not output.strip():
+            return False
+        if name == RULE_GAME:
+            # Compare the entire localized field value, not a prefix of another executable.
+            if not any(line.partition(':')[2].strip().strip('"').lower() == probe
+                       for line in output.splitlines()):
+                return False
     return True
 
 
