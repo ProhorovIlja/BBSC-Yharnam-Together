@@ -262,6 +262,12 @@ int main() {
     assert(BbHunterBuild::DiscordShort(9) == "STR/ARC");
     assert(BbHunterBuild::DiscordShort(15) == "OMNI");
     assert(BbHunterBuild::DiscordShort(16) == "Unknown");
+    static_assert(BbHunterBuild::DiscordCardLabel(1) == "STR");
+    static_assert(BbHunterBuild::DiscordCardLabel(3) == "Quality");
+    static_assert(BbHunterBuild::DiscordCardLabel(7) == "STR/SKL/BLT");
+    static_assert(BbHunterBuild::DiscordCardLabel(11) == "STR/SKL/ARC");
+    static_assert(BbHunterBuild::DiscordCardLabel(15) == "STR/SKL/BLT/ARC");
+    static_assert(BbHunterBuild::DiscordCardLabel(16) == "Unknown");
 
     // No extra row is silently encoded as newline; Discord text rows do
     // not support independently positioned third/fourth custom strings.
