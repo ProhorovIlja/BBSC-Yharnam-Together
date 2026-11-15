@@ -1,7 +1,23 @@
 #define _GNU_SOURCE
 #include <assert.h>
+#include <stdint.h>
+#include <time.h>
 #include <unistd.h>
+/* Advance gesture deadlines exactly, without depending on scheduling inside
+   the 120 ms click pulse. SDL itself continues to use its normal clock. */
+static int use_test_clock;
+static uint64_t test_now_us;
+static int pad_test_clock_gettime(clockid_t clock_id, struct timespec *time) {
+    if (use_test_clock && clock_id==CLOCK_MONOTONIC) {
+        time->tv_sec=(time_t)(test_now_us/1000000);
+        time->tv_nsec=(long)(test_now_us%1000000)*1000;
+        return 0;
+    }
+    return clock_gettime(clock_id,time);
+}
+#define clock_gettime pad_test_clock_gettime
 #include "../src/runtime_pad.c"
+#undef clock_gettime
 
 static int capture;
 int bbgpu_overlay_captures_input(void) { return capture; }
@@ -172,22 +188,41 @@ int main(void) {
     assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_TOUCHPAD,true));
     SDL_UpdateJoysticks();
     SDL_UpdateGamepads();
+    test_now_us=now_us();
+    use_test_clock=1;
     assert(pad_read_state(1,&data)==0);
-    assert(gamepad && data.touch_count==2 && (data.buttons & BTN_TOUCHPAD));
-    assert(data.touches[0].x==1439 && data.touches[0].y==471 && data.touches[0].id==2);
-    assert(data.touches[1].x==480 && data.touches[1].y==942 && data.touches[1].id==3);
-    capture=1;
-    assert(pad_read_state(1,&data)==0 && data.touch_count==0 && data.buttons==0);
-    capture=0;
+    /* A physical click waits for the map-hold/double-tap decision. Sending it
+       immediately would also activate the game's gesture menu for map/ping. */
+    assert(gamepad && data.touch_count==0 && !(data.buttons & BTN_TOUCHPAD));
+    assert(map_opened==0 && pings_asked==0);
     assert(SDL_SetJoystickVirtualTouchpad(joystick,0,0,false,0,0,0));
     assert(SDL_SetJoystickVirtualTouchpad(joystick,0,1,false,0,0,0));
     SDL_UpdateJoysticks();
     SDL_UpdateGamepads();
-    assert(pad_read_state(1,&data)==0 && data.touch_count==1 && data.touches[0].x==480);
     assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_TOUCHPAD,false));
     SDL_UpdateJoysticks();
     SDL_UpdateGamepads();
-    /* Buttons still held when the overlay stopped capturing stay hidden until released. */
+    assert(pad_read_state(1,&data)==0 && data.touch_count==0 && data.buttons==0);
+    test_now_us+=TOUCH_DOUBLE_US+1;
+    assert(pad_read_state(1,&data)==0 && data.touch_count==1 && (data.buttons & BTN_TOUCHPAD));
+    /* The first finger pressed the right half; its delayed click keeps that side. */
+    assert(data.touches[0].x==1440 && data.touches[0].y==471 && data.touches[0].id!=0);
+    const uint8_t touch_id=data.touches[0].id;
+    assert(pad_read_state(1,&data)==0 && data.touch_count==1 && data.touches[0].id==touch_id);
+    assert(map_opened==0 && pings_asked==0);
+    test_now_us+=MAP_TAP_US+1;
+    assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    /* Buttons pressed in the overlay stay hidden until released after it closes. */
+    capture=1;
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_EAST,true));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
+    assert(pad_read_state(1,&data)==0 && data.touch_count==0 && data.buttons==0);
+    capture=0;
+    assert(pad_read_state(1,&data)==0 && data.buttons==0);
+    assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_EAST,false));
+    SDL_UpdateJoysticks();
+    SDL_UpdateGamepads();
     assert(pad_read_state(1,&data)==0 && data.buttons==0);
     assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_EAST,true));
     assert(SDL_SetJoystickVirtualButton(joystick,SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,true));

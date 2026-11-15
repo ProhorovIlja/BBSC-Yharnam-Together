@@ -369,7 +369,9 @@ s32 PS4_SYSV_ABI sceNpIntIsValidOnlineId(const OrbisNpOnlineId* id) {
         return 0;
     }
 
-    const size_t len = strnlen(id->data, ORBIS_NP_ONLINEID_MAX_LENGTH + 1);
+    // A full 16-character ID uses the separate term field, checked above. Do not
+    // ask strnlen to read beyond the data array to reach that terminator.
+    const size_t len = strnlen(id->data, sizeof(id->data));
     if (len < 3 || len > ORBIS_NP_ONLINEID_MAX_LENGTH) {
         return 0;
     }

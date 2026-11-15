@@ -185,3 +185,6 @@
 [submodule "bbport/gpu/third_party/xbyak"]
 	path = bbport/gpu/third_party/xbyak
 	url = https://github.com/herumi/xbyak.git
+[submodule "bbport/gpu/third_party/vulkan-headers"]
+	path = bbport/gpu/third_party/vulkan-headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git
