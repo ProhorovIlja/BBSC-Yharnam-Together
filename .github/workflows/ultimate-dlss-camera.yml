@@ -1,0 +1,23 @@
+name: Ultimate DLSS camera compatibility
+on:
+  pull_request:
+    paths:
+      - bbport/gpu/dlss_bridge/**
+      - tools/ultimate/dlss-camera-tests/**
+      - .github/workflows/ultimate-dlss-camera.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  camera:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S tools/ultimate/dlss-camera-tests -B build-camera
+      - run: cmake --build build-camera --config Release --parallel 2
+      - run: ctest --test-dir build-camera -C Release --output-on-failure --verbose
