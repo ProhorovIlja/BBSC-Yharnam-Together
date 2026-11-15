@@ -131,10 +131,36 @@ static bool WireRejectsImpossibleCountsAndSplitsAtTheWireLimit() {
     return true;
 }
 
+static bool OwnedReceivePreservesPayloadStorageAndReliableOrder() {
+    GameLinkPeer peer{"guest", 2};
+    const std::vector<u8> first(PayloadBytes, 0x29), second(PayloadBytes, 0x2a);
+    GameFrame later{"host", 1, 2, 0, {{PacketClass::Reliable, 1, second}}};
+    GameFrame early{"host", 1, 2, 0, {{PacketClass::Reliable, 0, first}}};
+    const auto* stored_later = later.entries[0].packet.data();
+    const auto* stored_early = early.entries[0].packet.data();
+    payload_allocations = 0;
+    measuring = true;
+    const auto held = peer.Receive(std::move(later), 0);
+    const auto delivered = peer.Receive(std::move(early), 1);
+    measuring = false;
+    CHECK(held.empty() && peer.HeldBytes() == 0);
+    CHECK(payload_allocations == 0 && delivered.size() == 2);
+    CHECK(delivered[0].data() == stored_early && delivered[1].data() == stored_later);
+    CHECK(delivered[0] == first && delivered[1] == second);
+    CHECK(peer.Receive(GameFrame{"host", 1, 2, 0, {{PacketClass::Reliable, 0, first}}}, 2).empty());
+
+    const GameFrame borrowed{"host", 1, 2, 0, {{PacketClass::Reliable, 2, first}}};
+    const auto copied = peer.Receive(borrowed, 3);
+    CHECK(copied.size() == 1 && copied[0] == first);
+    CHECK(borrowed.entries[0].packet == first);
+    return true;
+}
+
 int main() {
     if (!UnreliableTransfersItsOwnedPayload() || !ReliableRetainsItsPayloadForRetransmission() ||
         !FreshAndRetriedPacketsKeepWireOrderAcrossFrames() ||
-        !WireRejectsImpossibleCountsAndSplitsAtTheWireLimit())
+        !WireRejectsImpossibleCountsAndSplitsAtTheWireLimit() ||
+        !OwnedReceivePreservesPayloadStorageAndReliableOrder())
         return 1;
     std::cout << "Shared stream: unreliable Flush payload allocations 1 -> 0; reliable resend preserved\n";
 }

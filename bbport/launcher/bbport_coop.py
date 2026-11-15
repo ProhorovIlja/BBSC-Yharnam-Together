@@ -2224,12 +2224,18 @@ def download_update(release, folder, progress=None, timeout=30):
     """The release's setup .exe in `folder`, checked against its .sha256 (ValueError when it does not
     match, and the file is gone). progress(fraction) is called while it downloads."""
     import hashlib
+    name = release['name']
+    # This is a local filename, not a URL or a Windows device/alternate-stream path.
+    if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*\.exe', name, re.I) or name.split('.')[0].upper() in {
+        'CON', 'PRN', 'AUX', 'NUL', *(f'{prefix}{i}' for prefix in ('COM', 'LPT') for i in range(10))
+    }:
+        raise ValueError('invalid update installer filename')
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     headers = {'User-Agent': 'bloodborne-coop-launcher'}
     with urllib.request.urlopen(urllib.request.Request(release['sha256'], headers=headers), timeout=timeout) as response:
-        want = expected_sum(response.read(4096).decode('utf-8', 'replace'), release['name'])
-    target = folder / release['name']
+        want = expected_sum(response.read(4096).decode('utf-8', 'replace'), name)
+    target = folder / name
     digest, done = hashlib.sha256(), 0
     # Stage beside the final file so an interrupted or corrupt download never
     # replaces a previously verified installer.

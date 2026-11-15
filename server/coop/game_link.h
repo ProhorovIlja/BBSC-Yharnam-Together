@@ -274,6 +274,17 @@ public:
 
     // A frame from the member: the packets for the game, in order.
     std::vector<std::vector<u8>> Receive(const GameFrame& frame, s64 now_ms) {
+        return ReceiveFrame(frame, now_ms);
+    }
+
+    // A decoded frame with no further readers can transfer its payload storage.
+    std::vector<std::vector<u8>> Receive(GameFrame&& frame, s64 now_ms) {
+        return ReceiveFrame(frame, now_ms);
+    }
+
+private:
+    template <typename Frame>
+    std::vector<std::vector<u8>> ReceiveFrame(Frame& frame, s64 now_ms) {
         if (frame.peer_instance != 0 && frame.peer_instance != instance) {
             // Advertise this run, but do not let a frame for a previous local run reset the
             // current stream, acknowledge its packets, or keep a dead peer alive.
@@ -299,7 +310,7 @@ public:
             unacked.erase(unacked.begin(), acked);
         }
         std::vector<std::vector<u8>> delivered;
-        for (const GameFrameEntry& entry : frame.entries) {
+        for (auto& entry : frame.entries) {
             if (entry.packet_class == PacketClass::Unreliable) {
                 TakeUnreliable(entry, delivered);
             } else {
@@ -309,6 +320,7 @@ public:
         return delivered;
     }
 
+public:
     size_t Unacked() const {
         return unacked.size() + std::ranges::count_if(fresh, [](const Outgoing& out) {
                    return out.packet_class == PacketClass::Reliable;
@@ -409,7 +421,8 @@ private:
         }
     }
 
-    void TakeUnreliable(const GameFrameEntry& entry, std::vector<std::vector<u8>>& delivered) {
+    template <typename Entry>
+    void TakeUnreliable(Entry& entry, std::vector<std::vector<u8>>& delivered) {
         const u32 channel = ChannelOf(entry.packet);
         const auto newest = newest_unreliable.find(channel);
         if ((newest != newest_unreliable.end() && entry.seq <= newest->second) ||
@@ -419,23 +432,25 @@ private:
             return;
         }
         newest_unreliable[channel] = entry.seq;
-        delivered.push_back(entry.packet);
+        delivered.push_back(std::move(entry.packet));
     }
 
-    void TakeReliable(const GameFrameEntry& entry, std::vector<std::vector<u8>>& delivered) {
+    template <typename Entry>
+    void TakeReliable(Entry& entry, std::vector<std::vector<u8>>& delivered) {
         ack_owed = true;
         if (entry.seq < expected) {
             return; // a resend of one already taken
         }
         if (entry.seq > expected) {
+            const size_t packet_bytes = entry.packet.size();
             if (held.size() < settings.held_out_of_order &&
-                held_bytes + entry.packet.size() <= settings.held_bytes &&
-                held.try_emplace(entry.seq, entry.packet).second) {
-                held_bytes += entry.packet.size();
+                packet_bytes <= settings.held_bytes - held_bytes &&
+                held.try_emplace(entry.seq, std::move(entry.packet)).second) {
+                held_bytes += packet_bytes;
             }
             return;
         }
-        delivered.push_back(entry.packet);
+        delivered.push_back(std::move(entry.packet));
         ++expected;
         for (auto next = held.find(expected); next != held.end(); next = held.find(expected)) {
             held_bytes -= next->second.size();

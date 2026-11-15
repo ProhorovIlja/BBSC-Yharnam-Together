@@ -1137,6 +1137,15 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), body)
             self.assertEqual(list(Path(tmp).iterdir()), [path])
 
+    def test_update_name_must_be_a_safe_local_executable_basename(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(coop.urllib.request, 'urlopen') as opener:
+            for name in ('../outside.exe', r'..\outside.exe', 'C:outside.exe', 'NUL.exe',
+                         'COM1.extra.exe', 'a.exe:other', '/absolute.exe', 'not-an-exe.zip'):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    coop.download_update({'name': name}, tmp)
+            opener.assert_not_called()
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
     def test_patch_notes_are_every_release_newest_first(self):
         # Kaniel 2026-10-20: Home lists every release's notes from the latest one back to the first
         def notes(tag, body, draft=False, published='2026-10-20T14:06:33Z'):

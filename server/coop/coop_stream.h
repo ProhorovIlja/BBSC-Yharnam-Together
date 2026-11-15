@@ -74,7 +74,7 @@ public:
         if (broken) {
             return messages;
         }
-        const auto frame = DecodeGameFrame(body);
+        auto frame = DecodeGameFrame(body);
         if (!frame) {
             return messages;
         }
@@ -85,18 +85,24 @@ public:
             return messages;
         }
         const u64 restarts = peer.Restarts();
-        std::vector<std::vector<u8>> chunks = peer.Receive(*frame, now_ms);
+        std::vector<std::vector<u8>> chunks = peer.Receive(std::move(*frame), now_ms);
         if (peer.Restarts() != restarts) {
             partial.clear();
             restarted = true;
         }
-        for (const std::vector<u8>& chunk : chunks) {
+        for (std::vector<u8>& chunk : chunks) {
             if (chunk.empty()) {
                 continue;
             }
             if (chunk.size() - 1 > limits.message_bytes - partial.size()) {
                 Break();
                 return {};
+            }
+            if (partial.empty() && (chunk[0] & LastChunk) != 0) {
+                // Reuse the decoded allocation for the common single-chunk message.
+                chunk.erase(chunk.begin());
+                messages.push_back(std::move(chunk));
+                continue;
             }
             partial.insert(partial.end(), chunk.begin() + 1, chunk.end());
             if ((chunk[0] & LastChunk) != 0) {
