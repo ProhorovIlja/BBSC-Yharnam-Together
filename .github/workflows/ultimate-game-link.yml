@@ -61,7 +61,7 @@ jobs:
       - name: Cross-platform rig scenario and socket lifecycle tests
         run: python -m unittest discover -s tools/rig/tests -p "test_*.py" -v
       - name: Load-test worker failure, deadlines and cleanup
-        run: python -m unittest discover -s server/loadtest -p "test_run_load.py" -v
+        run: python -m unittest discover -s server/loadtest -p "test_*.py" -v
       - name: Check client benchmark shell syntax
         shell: bash
         run: bash -n bbport/tools/bench.sh
