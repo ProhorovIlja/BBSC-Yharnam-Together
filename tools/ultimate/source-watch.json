@@ -39,6 +39,12 @@
     "bloodborne-native/bbcpu",
     "bloodborne-native/bloodborne-launcher",
     "bloodborne-native/bloodborne-mac",
-    "bloodborne-native/bloodborne-ios"
+    "bloodborne-native/bloodborne-ios",
+    "ProhorovIlja/bloodborne_pc_windows_port",
+    "NielsL92/bloodborne-pc-port",
+    "lud-berthe/Bloodborne-Recompiled",
+    "ducvd89/Bloodborne-android-rebuild-tool",
+    "visy/bloodborne_pc_windows_port",
+    "hazeyxd23/bloodborne_pc_windows_port"
   ]
 }
