@@ -4,7 +4,7 @@ Status: experimental decision and executable model, not a release or a deploymen
 
 ## Baseline
 
-Keep the existing Yharnam Together fork as the product and compatibility baseline (launcher, bell-free teams, shared world, server/account flow). Do not change production Seamless Hunt, account storage, URLs or client/update channels. Maintain the native runtime as a separable donor/integration track, not a protocol replacement. Windows and Linux are first-class; macOS deferred.
+Keep the existing Yharnam Together fork as the product and compatibility baseline (launcher, bell-free teams, shared world, server/account flow). Do not change production Seamless Hunt, account storage, URLs or client/update channels. Maintain the native runtime as a separable donor/integration track, not a protocol replacement. Windows, Linux and macOS are native product targets. Runtime acceptance remains platform-specific and incomplete; see PLATFORM-TIMING-STORAGE-20261115.md for the updated target contract. macOS is no longer deferred as a product goal.
 
 GitHub compare on 2026-11-14: fork main and experiment/ultimate-batch-93-gpu-use-range-bounds-20261111 diverged (B93 +933/-218 commits, 300 files returned, not an exhaustive diff); merge base efa0ad265d840d9195e55db2e3216f46f7daedd0. Do not promote the highest-numbered branch or wholesale-merge it. On the candidate, verify the behavior and ancestry of upstream PRs #554 (host solo world rollback and update save preservation) and #548 (phantom key item persistence). Existing fork regressions: #22, #35; historic v1.3.1 intake #76; presence #119; launcher CI #122; donor integration #130. Treat existing branches and issues as input, not as proof a fix shipped.
 
