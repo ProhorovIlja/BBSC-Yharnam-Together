@@ -150,11 +150,9 @@ class DiscordReceiveTest(unittest.TestCase):
                     subprocess.run([str(exe), mode], cwd=temp, check=True, timeout=6)
 
 
-    def test_reused_presence_policy(self):
+    def compile_and_run(self, source, include):
         compiler = shutil.which("cl" if os.name == "nt" else "c++")
-        self.assertIsNotNone(compiler, "C++ compiler required for presence policy regression")
-        source = ROOT / "bbport/tests/test_discord_activity.cpp"
-        include = ROOT / "bbport"
+        self.assertIsNotNone(compiler, "C++ compiler required for Discord regressions")
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
             exe = temp / ("presence.exe" if os.name == "nt" else "presence")
@@ -166,6 +164,23 @@ class DiscordReceiveTest(unittest.TestCase):
                        "-I", str(include), str(source), "-o", str(exe)]
             subprocess.run(cmd, cwd=temp, check=True, timeout=60)
             subprocess.run([str(exe)], cwd=temp, check=True, timeout=6)
+
+    def test_reused_presence_policy(self):
+        self.compile_and_run(ROOT / "bbport/tests/test_discord_activity.cpp", ROOT / "bbport")
+
+    def test_reused_boss_gauges_and_clock(self):
+        self.compile_and_run(ROOT / "emulator/tests/bloodborne/test_ultimate_boss_presence.cpp",
+                             ROOT / "emulator/src")
+
+    def test_launcher_privacy(self):
+        import sys
+        subprocess.run([sys.executable, "-m", "py_compile", "bbport_coop.py",
+                        "bbport_launcher_win.py"], cwd=ROOT / "bbport/launcher",
+                       check=True, timeout=20)
+        subprocess.run([sys.executable, "-m", "unittest",
+                        "test_coop_launcher.DiscordStatusTests"], cwd=ROOT / "bbport/tests",
+                       check=True, timeout=30)
+
 
 if __name__ == "__main__":
     unittest.main()
