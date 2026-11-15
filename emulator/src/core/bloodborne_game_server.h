@@ -44,16 +44,33 @@ constexpr std::string_view GameServerSignInName(GameServerSignIn state) {
 constexpr std::string_view GameServerHost = "ss4.scej-network.jp:20443";
 constexpr std::string_view GameServerLoginPath = "/basic_utils/login";
 
-// Whether a URL the game asked for is its own server's (before the host override).
-constexpr bool IsGameServerUrl(std::string_view url) {
-    return url.find(GameServerHost) != std::string_view::npos;
+// Match the request's authority and path, never its query, fragment or a host suffix.
+constexpr std::string_view GameServerAuthorityAndPath(std::string_view url) {
+    if (url.starts_with("https://")) {
+        url.remove_prefix(8);
+    } else if (url.starts_with("http://")) {
+        url.remove_prefix(7);
+    } else {
+        return {};
+    }
+    return url.substr(0, url.find_first_of("?#"));
 }
 
-// Whether a request belongs to the game's sign-in: its own server's, or the sign-in itself
-// (/basic_utils/login), which goes to the address ss.info hands back (the team's server, any
-// host and port), not to ss4.scej-network.jp:20443.
+constexpr bool IsGameServerUrl(std::string_view url) {
+    const auto target = GameServerAuthorityAndPath(url);
+    return target.substr(0, target.find('/')) == GameServerHost;
+}
+
+// Login uses the address returned by ss.info, not necessarily the discovery host.
+constexpr bool IsGameServerLogin(std::string_view url) {
+    const auto target = GameServerAuthorityAndPath(url);
+    const auto slash = target.find('/');
+    return slash != std::string_view::npos && slash != 0 &&
+           target.substr(slash) == GameServerLoginPath;
+}
+
 constexpr bool IsGameServerRequest(std::string_view url) {
-    return IsGameServerUrl(url) || url.find(GameServerLoginPath) != std::string_view::npos;
+    return IsGameServerUrl(url) || IsGameServerLogin(url);
 }
 
 class GameServerSignInLog {
@@ -67,8 +84,11 @@ public:
     }
     // Its answer: `ok` for a 2xx status, false for no answer or an error status.
     void Answered(std::string_view url, bool ok) {
+        if (!IsGameServerRequest(url)) {
+            return;
+        }
         std::scoped_lock lock{mutex};
-        if (ok && url.find(GameServerLoginPath) != std::string_view::npos) {
+        if (ok && IsGameServerLogin(url)) {
             state = GameServerSignIn::SignedIn;
             return;
         }

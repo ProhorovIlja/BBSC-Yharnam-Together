@@ -2,7 +2,9 @@ name: Playable Windows build
 
 on:
   pull_request:
-    branches: [architecture/seamlesshunt-ultimate-playable-contract-20261115]
+    branches:
+      - architecture/seamlesshunt-ultimate-playable-contract-20261115
+      - integration/ultimate-playable-20261115
     paths:
       - 'bbport/**'
       - 'emulator/**'
