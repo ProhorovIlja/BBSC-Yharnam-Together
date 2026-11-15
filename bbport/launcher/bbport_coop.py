@@ -23,6 +23,7 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -1348,18 +1349,31 @@ def back_up_saves(install, note, now=None, prune=True):
     if existing and save_files(existing[0]['path']) == files:
         return None
     name = time.strftime('%Y%m%d-%H%M%S', time.localtime(now))
-    while any(backup['name'] == name for backup in existing):  # two in one second: the next free second
-        name = time.strftime('%Y%m%d-%H%M%S', time.localtime(time.mktime(time.strptime(name, '%Y%m%d-%H%M%S')) + 1))
-    backup = user / SAVE_BACKUPS / name
-    try:
+    root = user / SAVE_BACKUPS
+    root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.launcher-stage-', dir=root) as directory:
+        stage = Path(directory)
         for relative, data in files.items():
-            target = backup / relative
+            target = stage / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-        (backup / LAUNCHER_BACKUP_NOTE).write_text(note + '\n', encoding='utf-8')
-    except OSError:
-        shutil.rmtree(backup, ignore_errors=True)
-        raise
+        (stage / LAUNCHER_BACKUP_NOTE).write_text(note + '\n', encoding='utf-8')
+        if save_files(stage) != files:
+            raise OSError('the staged launcher backup did not read back whole')
+
+        # A timestamp is visible to the game and launcher only after the whole
+        # backup is written. Never clean up another process's published backup.
+        while True:
+            backup = root / name
+            if not os.path.lexists(backup):
+                try:
+                    stage.rename(backup)
+                    break
+                except OSError:
+                    if not os.path.lexists(backup):
+                        raise
+            name = time.strftime('%Y%m%d-%H%M%S', time.localtime(
+                time.mktime(time.strptime(name, '%Y%m%d-%H%M%S')) + 1))
     if prune:
         prune_launcher_backups(install)
     return backup

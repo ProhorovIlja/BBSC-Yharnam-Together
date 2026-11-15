@@ -1436,6 +1436,25 @@ class SaveBackupTests(unittest.TestCase):
         self.assertIn('20261001-000000', [b['name'] for b in listed])
         self.assertEqual(coop.save_files(listed[0]['path'])[self.SLOT], f'play {coop.KEPT_LAUNCHER_BACKUPS + 2}'.encode())
 
+    def test_failed_staging_never_lists_partial_backup_or_removes_old_one(self):
+        self.game_backup('20261024-231630', 'old')
+        self.write('savedata/1/CUSA03173/SPRJ0005/userdata0000', 'new')
+        write_bytes = Path.write_bytes
+
+        def fail_in_stage(path, data):
+            if any(part.startswith('.launcher-stage-') for part in path.parts):
+                self.assertEqual([b['name'] for b in coop.save_backups(self.install)],
+                                 ['20261024-231630'])
+                raise OSError('simulated write failure')
+            return write_bytes(path, data)
+
+        with mock.patch.object(Path, 'write_bytes', fail_in_stage):
+            with self.assertRaisesRegex(OSError, 'simulated write failure'):
+                coop.back_up_saves(self.install, 'before PLAY')
+        root = self.user / 'save-backups'
+        self.assertEqual(sorted(p.name for p in root.iterdir()), ['20261024-231630'])
+        self.assertIsNotNone(coop.back_up_saves(self.install, 'retry'))
+
     def test_two_backups_in_one_second_get_their_own_names(self):
         self.write(self.SLOT, 'one')
         first = coop.back_up_saves(self.install, 'before PLAY', now=1792698000)
