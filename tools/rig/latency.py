@@ -7,6 +7,7 @@ The games delay what they send each other themselves (SHADPS4_P2P_DELAY_MS, one 
 ping); the servers sit behind DelayProxy, a TCP proxy that holds every chunk half the ping each
 way. Each way keeps its order, as a real connection would.
 """
+from collections import deque
 import random
 import socket
 import threading
@@ -69,6 +70,7 @@ class DelayProxy:
         self.sockets: list[socket.socket] = []
         self.lock = threading.Lock()
         self.held_until = 0.0  # an outage (outage()): nothing passes before this (monotonic)
+        self.accept_thread: threading.Thread | None = None
 
     def outage(self, seconds: float):
         """Nothing gets through for `seconds` (players' links dropped for 15-31 s): what is sent
@@ -76,15 +78,19 @@ class DelayProxy:
         self.held_until = time.monotonic() + seconds
 
     def start(self):
-        threading.Thread(target=self.accept_all, daemon=True).start()
+        self.accept_thread = threading.Thread(target=self.accept_all, daemon=True)
+        self.accept_thread.start()
 
     def stop(self):
         self.stopping.set()
-        self.listener.close()
+        # close() alone need not wake a different thread blocked in accept()/recv().
+        close(self.listener)
         with self.lock:
             for sock in self.sockets:
                 close(sock)
             self.sockets.clear()
+        if self.accept_thread is not None and self.accept_thread is not threading.current_thread():
+            self.accept_thread.join(timeout=1)
 
     def accept_all(self):
         while not self.stopping.is_set():
@@ -101,6 +107,10 @@ class DelayProxy:
             for sock in (client, server):
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             with self.lock:
+                if self.stopping.is_set():
+                    close(client)
+                    close(server)
+                    return
                 self.sockets += [client, server]
             self.pass_on(client, server)
             self.pass_on(server, client)
@@ -109,7 +119,7 @@ class DelayProxy:
         """One direction: a reader that stamps each chunk with when it is due, and a writer that
         sends it then."""
         line = DelayLine(self.delay_ms)
-        queue: list[tuple[float, bytes]] = []
+        queue: deque[tuple[float, bytes]] = deque()
         ready = threading.Condition()
 
         def read():
@@ -129,10 +139,10 @@ class DelayProxy:
                 with ready:
                     while not queue:
                         ready.wait()
-                    due, data = queue.pop(0)
+                    due, data = queue.popleft()
                 wait = max(due, self.held_until) - time.monotonic()
-                if wait > 0:
-                    time.sleep(wait)
+                if wait > 0 and self.stopping.wait(wait):
+                    return
                 if not data:  # the other side closed: so does this one, after what came before
                     try:
                         sink.shutdown(socket.SHUT_WR)
@@ -150,6 +160,10 @@ class DelayProxy:
 
 
 def close(sock: socket.socket):
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
     try:
         sock.close()
     except OSError:

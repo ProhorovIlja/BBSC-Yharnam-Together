@@ -1,0 +1,248 @@
+{
+  "schema": 1,
+  "scope": "configured public heads and PR heads only",
+  "observed_at_utc": "2026-11-15T14:27:01.863808+00:00",
+  "semantic_review_complete": false,
+  "repositories": [
+    {
+      "repository": "Amanises-Yharnam-Together/BBSC-Yharnam-Together",
+      "heads": 603,
+      "pr_heads": 593,
+      "refs_sha256": "ee6b8ace9540211dc1991e2a041c41a4c956a51dba11a1548ec1b77a6683f72e",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "ProhorovIlja/BBSC-Yharnam-Together",
+      "heads": 132,
+      "pr_heads": 128,
+      "refs_sha256": "e13cebba7a53c195810355eaf87abd7d0290490dd7427e1787edc070855eb906",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "NightAngellForks/BBSC-Yharnam-Together",
+      "heads": 1,
+      "pr_heads": 0,
+      "refs_sha256": "e1d8ec290e1f70abfa167f02d0cdbdb55640fbc068338a35eadd93c54b4fcc2b",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "oat018/BBSC-Yharnam-Together",
+      "heads": 560,
+      "pr_heads": 0,
+      "refs_sha256": "99f51d93306983dde7d0f28d7455502154ed316133b21432fffff3dedabe943e",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "sousalucasc/BBSC-Yharnam-Together",
+      "heads": 560,
+      "pr_heads": 0,
+      "refs_sha256": "4e2fe25c347832f30e0b660005a6417d5b2c05c29e3fb692741eac9741fb2411",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "edisnord/BBSC-Yharnam-Together",
+      "heads": 1,
+      "pr_heads": 0,
+      "refs_sha256": "417bfd56903c9ca744d7ee31d9b462819ff4a938aad0cdef8f5692ef6b7a181a",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "Tutuzaooo/BBSC-Yharnam-Together",
+      "heads": 4,
+      "pr_heads": 0,
+      "refs_sha256": "5d38a4066e8bf437517a9b58ba70a0f8be9e5dd9dd957bcc37f1102ffe864fb4",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "nr-maker/BBSC-Yharnam-Together",
+      "heads": 1,
+      "pr_heads": 0,
+      "refs_sha256": "2df2c2bb19f212e01d223346708ba3ff33bdb9a0e2c1156860c75d93d52c7d79",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "nmoya/BBSC-Yharnam-Together-linux",
+      "heads": 1,
+      "pr_heads": 0,
+      "refs_sha256": "c7161b3569b5ee8db0c808b0654086f7d590f837120831e5d018108e30958afc",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "deadinside28/bloodborne_pc",
+      "heads": 2,
+      "pr_heads": 82,
+      "refs_sha256": "40e0b8cacd91e94ea1959356fb89dd92d0851f5e8f145569f6781652129dfdff",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "Supermedo/bloodborne_pc",
+      "heads": 11,
+      "pr_heads": 173,
+      "refs_sha256": "2b4df27b00e6841ccf13fab1ccfc71bb63227f3571532021d4d4f1defad0260e",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "Mrsuss60/bloodborne_pc_windows_port",
+      "heads": 1,
+      "pr_heads": 26,
+      "refs_sha256": "dc0dcecf6700d9d38e0973073f410b180594095ef601683e71500ff428582dc7",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "Awakenchan/LanternEngine",
+      "heads": 2,
+      "pr_heads": 42,
+      "refs_sha256": "acf11ade6b798ce6f664f32203b3ec001ea1c5c2ed17e284b490d18a6209c903",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "bloodborne-native/bloodborne-runtime",
+      "heads": 1,
+      "pr_heads": 12,
+      "refs_sha256": "475d0dab0cad900fa80a3d13ad0b93dd3ff8f94fde442bfe463ac7119cd40e3e",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "Jgamrot/yharnam-pc",
+      "heads": 66,
+      "pr_heads": 60,
+      "refs_sha256": "7180835b18ed9808d64240587fdd861bc092857edecf789d544d16bd0ba44961",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "Wozzardman/shadnet-p2p",
+      "heads": 2,
+      "pr_heads": 3,
+      "refs_sha256": "f83d43b2c1d372f85e58a865b85c6a63c510e5c4dd0ca77fae907bda267ca190",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "shadps4-emu/shadPS4",
+      "heads": 2,
+      "pr_heads": 3984,
+      "refs_sha256": "25f0df932ddd0e67a80d11e3001f4606d5a9c378918010a518bc11579253ef86",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "shadps4-emu/shadNet",
+      "heads": 5,
+      "pr_heads": 56,
+      "refs_sha256": "38716ce3b221f7a340fe9122fcb224e99cf1ccb76a27bbc41f0168eb1462fef8",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "droogie/bbhost",
+      "heads": 86,
+      "pr_heads": 124,
+      "refs_sha256": "7767a60f3be256a79107eb1fc8c044368b9fe0adaffdb2a42d12d73cfcc5e4fc",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "mark3317/bbgl",
+      "heads": 2,
+      "pr_heads": 0,
+      "refs_sha256": "63f2768061965b35274c58f6e01833a3f8bdec7c883fcd249ab97446990cbcb3",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "mark3317/bbsc-gl",
+      "heads": 2,
+      "pr_heads": 0,
+      "refs_sha256": "f98bf418ce8645cf545413d9dac6da9f577e72cea9358ab280bb9a8ccfd53a66",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "vladtepes22/NightwatchCoop",
+      "heads": 3,
+      "pr_heads": 8,
+      "refs_sha256": "8984b77bd128ddf2cc1ea0df849da27d75f7d7d77d115bfc12485a3216a9e4f4",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "AlanBacker/dlss5-vk-bridge",
+      "heads": 1,
+      "pr_heads": 0,
+      "refs_sha256": "735359c881fdd8743a04a29282871f8d6c682a92ebedc78b6657d54e1631fb19",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "NIGos/dlss5-bridge",
+      "heads": 18,
+      "pr_heads": 24,
+      "refs_sha256": "cef7d61c32a4ff7ec0d76b2e0b28091e990baf4d363572ab979ef58b37a074d4",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "maanHimself/OpenDLSS-NR",
+      "heads": 1,
+      "pr_heads": 8,
+      "refs_sha256": "7935f8a2e65c88526473d7830f2a475a14cb1e610f25fad850f465343979e99a",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "praveenkumarappu/DLSS5ForUE5",
+      "heads": 1,
+      "pr_heads": 4,
+      "refs_sha256": "5d6c68a6dcb625a6917b43bf07b10c293eec1d3fe4839af219c14347c4fdabe8",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "al4xdev/dlss5-enabler",
+      "heads": 1,
+      "pr_heads": 0,
+      "refs_sha256": "45564450ceb716c00149ac28ed3e2e38880ec27acdb068659b13a053d239a296",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "NVIDIA-RTX/RTXPT",
+      "heads": 7,
+      "pr_heads": 23,
+      "refs_sha256": "8f893804331d39ec3fb826c1bd2f6dfb874b002444d32a32472cf701de03ed6c",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "NVIDIAGameWorks/rtx-remix",
+      "heads": 13,
+      "pr_heads": 20,
+      "refs_sha256": "128de0fb99d2d7683da0cf73a84640e88a3eda92fa33ea4fbfa282ad6a901c15",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "NVIDIAGameWorks/dxvk-remix",
+      "heads": 13,
+      "pr_heads": 102,
+      "refs_sha256": "f59c311ae93ec2cd04ce9c3a0fc4f8e5acc3e5a4a5e61ddc5b4f12fa1300a086",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "GPUOpen-LibrariesAndSDKs/FidelityFX-SDK",
+      "heads": 3,
+      "pr_heads": 34,
+      "refs_sha256": "dea65595755870b184625f644dfdbc4b8e5eb86eea496544c86fca679d0632be",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "GPUOpen-LibrariesAndSDKs/RadeonRays_SDK",
+      "heads": 20,
+      "pr_heads": 111,
+      "refs_sha256": "2ef85cb0da235740f03e7ed0e1edca0a53d15141352b4fb93dc6c7bfada6aca5",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "RenderKit/embree",
+      "heads": 80,
+      "pr_heads": 218,
+      "refs_sha256": "b45207789b6ab02bd64a9c698ae9afdc02bce4b5a00b222e06be8bdf33391117",
+      "source_review": "not_complete"
+    },
+    {
+      "repository": "NVIDIA-RTX/NRD",
+      "heads": 2,
+      "pr_heads": 18,
+      "refs_sha256": "46429f7a4c24d941ceea19948c9ca82412a9294d1b4b1b79a778b70ea7fd7407",
+      "source_review": "not_complete"
+    }
+  ],
+  "full_snapshot_filename": "source_refs_snapshot_final.json",
+  "full_snapshot_sha256": "630be610b1ace7bbafc384e987f8c3df06a99014108cce395baf3e16bb0be6b6"
+}

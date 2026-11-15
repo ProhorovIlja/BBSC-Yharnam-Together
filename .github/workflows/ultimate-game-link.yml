@@ -6,6 +6,7 @@ on:
       - server/coop/**
       - server/tests/test_game_link_restart.cpp
       - server/tests/test_game_link_resend.cpp
+      - server/tests/test_game_link_allocations.cpp
       - emulator/src/core/bloodborne_game_link.h
       - emulator/tests/bloodborne/test_bloodborne_game_link.cpp
       - emulator/src/core/bloodborne_team.*
@@ -15,6 +16,7 @@ on:
       - tools/re/tests/fixtures/team_world.cpp.in
       - tools/re/tests/test_team_travel_locking.py
       - tools/re/tests/fixtures/team_travel.cpp.in
+      - tools/rig/**
       - tools/ultimate/network-tests/**
       - .github/workflows/ultimate-game-link.yml
   workflow_dispatch:
@@ -36,6 +38,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: GoogleTest v1.17.0 (pinned source)
         uses: actions/checkout@v4
         with:
@@ -51,3 +56,5 @@ jobs:
       - name: Existing RE regression suite (four retail-file checks may skip)
         if: runner.os != 'Windows'
         run: python3 -m unittest discover -s tools/re/tests -p "test_*.py" -v
+      - name: Cross-platform rig scenario and socket lifecycle tests
+        run: python -m unittest discover -s tools/rig/tests -p "test_*.py" -v
