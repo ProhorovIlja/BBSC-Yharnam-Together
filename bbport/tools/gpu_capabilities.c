@@ -15,6 +15,7 @@
 #include <string.h>
 #include <vulkan/vulkan.h>
 #include <SDL3/SDL.h>
+#include "../src/runtime_key_names.h"
 
 static VkDeviceSize largest_local_heap(VkPhysicalDevice device) {
     VkPhysicalDeviceMemoryProperties memory;
@@ -151,8 +152,7 @@ static const char *mouse_button_name(int button) {
     default: return NULL;
     }
 }
-static void print_mouse_input(const char *name) {
-    const SDL_Keymod mods = SDL_GetModState();
+static void print_modified_input(const char *name, SDL_Keymod mods) {
     printf("key %s%s%s%s\n", mods & SDL_KMOD_SHIFT ? "Shift+" : "", mods & SDL_KMOD_CTRL ? "Ctrl+" : "",
            mods & SDL_KMOD_ALT ? "Alt+" : "", name);
 }
@@ -202,25 +202,25 @@ static int read_input(const char *kind) {
                 } else if (want_key && is_modifier(e.key.scancode)) {
                     pending_modifier = e.key.scancode;
                 } else if (want_key) {
-                    printf("key %s\n", SDL_GetScancodeName(e.key.scancode));
+                    print_modified_input(bbport_key_binding_name(e.key.scancode),e.key.mod);
                     done = 1;
                 }
                 break;
             case SDL_EVENT_KEY_UP:
                 if (want_key && e.key.scancode == pending_modifier) {
-                    printf("key %s\n", SDL_GetScancodeName(pending_modifier));
+                    printf("key %s\n", bbport_key_binding_name(pending_modifier));
                     done = 1;
                 }
                 break;
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
                 if (want_key && mouse_button_name(e.button.button)) {
-                    print_mouse_input(mouse_button_name(e.button.button));
+                    print_modified_input(mouse_button_name(e.button.button),SDL_GetModState());
                     done = 1;
                 }
                 break;
             case SDL_EVENT_MOUSE_WHEEL:
                 if (want_key && e.wheel.y != 0) {
-                    print_mouse_input((e.wheel.y > 0) == (e.wheel.direction == SDL_MOUSEWHEEL_NORMAL) ? "Wheel Up" : "Wheel Down");
+                    print_modified_input((e.wheel.y > 0) == (e.wheel.direction == SDL_MOUSEWHEEL_NORMAL) ? "Wheel Up" : "Wheel Down",SDL_GetModState());
                     done = 1;
                 }
                 break;

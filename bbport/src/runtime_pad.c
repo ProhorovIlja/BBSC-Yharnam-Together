@@ -44,6 +44,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <SDL3/SDL.h>
+#include "runtime_key_names.h"
 #include <sys/stat.h>
 
 #define ERR_INVALID_ARG ((int32_t)0x80920001)
@@ -450,7 +451,7 @@ static int parse_input(const char *s, KeyInput *in) {
     const size_t mouse_count=sizeof(mouse_names)/sizeof(*mouse_names);
     for (size_t i=0;i<mouse_count;++i)
         if (!SDL_strcasecmp(s,mouse_names[i].name)) { in->kind=mouse_names[i].kind; in->code=mouse_names[i].code; return 1; }
-    const SDL_Scancode code=SDL_GetScancodeFromName(s);
+    const SDL_Scancode code=bbport_key_from_binding(s);
     if (code==SDL_SCANCODE_UNKNOWN) return 0;
     in->kind=KIND_KEY; in->code=(int16_t)code;
     return 1;
@@ -545,7 +546,7 @@ void runtime_pad_binding_text(int input, int pad, char *out, size_t size) {
         if (in->mods&BIND_SHIFT) append_text(out,size,&length,"Shift+");
         if (in->mods&BIND_CTRL) append_text(out,size,&length,"Ctrl+");
         if (in->mods&BIND_ALT) append_text(out,size,&length,"Alt+");
-        if (in->kind==KIND_KEY) { append_text(out,size,&length,SDL_GetScancodeName((SDL_Scancode)in->code)); continue; }
+        if (in->kind==KIND_KEY) { append_text(out,size,&length,bbport_key_binding_name((SDL_Scancode)in->code)); continue; }
         for (size_t m=0;m<sizeof(mouse_names)/sizeof(*mouse_names);++m)
             if (mouse_names[m].kind==in->kind && mouse_names[m].code==in->code) append_text(out,size,&length,mouse_names[m].name);
     }

@@ -149,6 +149,35 @@ static void held(void) {
 }
 
 /* The mouse lines of bbport.ini, next to key.<input>= lines that use the new names. */
+static void keyboard_chords(void) {
+    const char *path="mouse-camera-test.ini";
+    write_config(path,"key.cross=F5\nkey.square=Ctrl+F5\nkey.triangle=Shift+Ctrl+Alt+F5\n"
+                      "key.circle=Comma\nkey.r1=Ctrl+Comma\n");
+    SETENV("BB_CONFIG",path);
+    load_bindings();
+    bool keys[SDL_SCANCODE_COUNT]={0};
+    keys[SDL_SCANCODE_F5]=true;
+    assert(key_down(keys,IN_CROSS,1000000) && !key_down(keys,IN_SQUARE,1000000));
+    keys[SDL_SCANCODE_RCTRL]=true;
+    assert(!key_down(keys,IN_CROSS,1000000) && key_down(keys,IN_SQUARE,1000000));
+    keys[SDL_SCANCODE_LSHIFT]=keys[SDL_SCANCODE_RALT]=true;
+    assert(!key_down(keys,IN_CROSS,1000000) && !key_down(keys,IN_SQUARE,1000000));
+    assert(key_down(keys,IN_TRIANGLE,1000000));
+    memset(keys,0,sizeof keys);
+    keys[SDL_SCANCODE_COMMA]=true;
+    assert(key_down(keys,IN_CIRCLE,1000000) && !key_down(keys,IN_R1,1000000));
+    keys[SDL_SCANCODE_LCTRL]=true;
+    assert(!key_down(keys,IN_CIRCLE,1000000) && key_down(keys,IN_R1,1000000));
+    char text[64];
+    bindings_ready=1;
+    runtime_pad_binding_text(IN_R1,0,text,sizeof text);
+    assert(!strcmp(text,"Ctrl+Comma"));
+    KeyInput in;
+    assert(parse_input(text,&in) && in.code==SDL_SCANCODE_COMMA && in.mods==BIND_CTRL);
+    assert(bbport_key_from_binding(bbport_key_binding_name(SDL_SCANCODE_COMMA))==SDL_SCANCODE_COMMA);
+    remove(path);
+}
+
 static void settings(void) {
     char path[]="mouse-camera-test.ini";
     write_config(path,"upscaler=fsr3\nkey.r1=Mouse Left, X\nkey.r2=Shift+Mouse Left\nkey.up=Up,Wheel Up\n"
@@ -673,6 +702,7 @@ int main(void) {
     names();
     held_setup();
     held();
+    keyboard_chords();
     settings();
     defaults();
     sprint();

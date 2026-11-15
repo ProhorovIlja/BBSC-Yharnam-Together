@@ -1,0 +1,27 @@
+name: Ultimate keyboard capture
+on:
+  pull_request:
+    paths:
+      - bbport/launcher/bbport_controls.py
+      - bbport/launcher/bbport_launcher_win.py
+      - bbport/tests/test_launcher_controls.py
+      - .github/workflows/ultimate-controls.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install launcher image dependency
+        run: python -m pip install pillow
+      - run: python -m unittest discover -s bbport/tests -p test_launcher_controls.py -v
