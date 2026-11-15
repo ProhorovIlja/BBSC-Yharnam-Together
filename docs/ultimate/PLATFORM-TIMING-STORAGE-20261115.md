@@ -99,8 +99,12 @@ Current timing patches in scripts/cloth*.py, foliage_time.py, air_drag.py and ef
 per-subsystem fixes, not proof of the clock split above. Inspected Supermedo/bloodborne_pc PR156,
 head 630472865482c8175cbfdabc741df047b4fcdf60, adjusts per-frame values to the main loop's step;
 that is not a global fixed-60 simulation implementation or measured gameplay equivalence here.
-The private native startup diagnostic currently reaches 128 constructors, not game main. GPU
-configuration progressed through Vulkan discovery/fmt and currently stops at missing Boost.
+The private native startup diagnostic currently reaches 128 constructors, not game main.
+The Linux GPU library and C loader now compile/link, and the loader's eager dynamic symbol
+resolution passes with the staged dependency SDK. Six existing CPU tests pass after correcting
+their allocator fixture and obsolete touchpad expectations. Vulkan instance creation is
+unavailable in this environment, so graphics/gameplay remain unverified. See
+[GPU-BUILD-20261115.md](GPU-BUILD-20261115.md) for the build evidence and limits.
 
 ## Primary references checked for this requirement update
 

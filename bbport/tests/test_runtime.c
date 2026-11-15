@@ -13,6 +13,9 @@ void runtime_restart(void) { abort(); }
 #include <pthread.h>
 #include <stdatomic.h>
 #include <time.h>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 
 typedef int (ABI *Register)(GuestCallback);
 typedef int (ABI *RegisterCxa)(void (ABI *)(void *), void *, void *);
@@ -424,6 +427,12 @@ static void rw_nested_read(void) {
 }
 static void atexit_ran(void) { puts("atexit handler ran"); }
 int main(int argc,char **argv) {
+#ifdef __GLIBC__
+    /* Match probe.c's pre-image heap policy: thread handles must fit in 40 bits,
+       including host-owned worker records allocated before a guest image exists. */
+    mallopt(M_ARENA_MAX,1);
+    mallopt(M_MMAP_THRESHOLD,32*1024*1024);
+#endif
     runtime_start(0); assert(runtime_resolve("bzQExy189ZI#q#q",0)==0);
     runtime_start(1);
     assert(runtime_resolve("bzQExy189ZI#wrong#module",0)==0);
