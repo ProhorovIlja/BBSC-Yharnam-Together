@@ -78,6 +78,44 @@ TEST(GameLink, ReliablePacketsArriveInOrderThoughOneIsLost) {
     EXPECT_TRUE(host.Flush(1000).empty()) << "all acked: nothing more to send";
 }
 
+// B83: the sender has already queued a join hello but has not flushed it.
+// An ACK for the unsent sequence is impossible and must not remove the
+// earlier world/state from the reliable retry queue.
+TEST(GameLink, FutureAckNeverDiscardsPreviouslySentOrQueuedJoinData) {
+    GameLinkPeer host{"rig_host", 1};
+    GameLinkPeer guest{"rig_guest", 2};
+    host.Send(PacketClass::Reliable, Packet(0x29, 41), 0);
+    EXPECT_EQ(Marks(Carry(host, guest, 0)), (std::vector<u8>{41}));
+    // Guest's legitimate ACK is lost; host retains sequence 0 for retry.
+    guest.Flush(10);
+    host.Send(PacketClass::Reliable, Packet(0x42, 42), 10); // seq1 queued, not sent
+    EXPECT_EQ(host.Unacked(), 2u);
+    const GameFrame impossible{.sender = "rig_guest", .instance = 2,
+                               .peer_instance = 1, .ack = 2, .entries = {}};
+    host.Receive(impossible, 20);
+    EXPECT_EQ(host.Unacked(), 2u);
+    const GameFrame extreme{.sender = "rig_guest", .instance = 2,
+                            .peer_instance = 1, .ack = 0xFFFFFFFFu, .entries = {}};
+    host.Receive(extreme, 30);
+    EXPECT_EQ(host.Unacked(), 2u);
+    const GameFrame valid{.sender = "rig_guest", .instance = 2,
+                          .peer_instance = 1, .ack = 1, .entries = {}};
+    host.Receive(valid, 40);
+    EXPECT_EQ(host.Unacked(), 1u);
+    EXPECT_EQ(Marks(Carry(host, guest, 50)), (std::vector<u8>{42}));
+    Carry(guest, host, 60);
+    EXPECT_EQ(host.Unacked(), 0u);
+}
+
+TEST(GameLink, FutureAckDoesNotDiscardInboundReliableData) {
+    GameLinkPeer host{"rig_host", 1};
+    GameFrame impossible{.sender = "rig_guest", .instance = 2,
+                         .peer_instance = 1, .ack = 500, .entries = {}};
+    impossible.entries.push_back({PacketClass::Reliable, 0, Packet(0x42, 55)});
+    EXPECT_EQ(Marks(host.Receive(impossible, 10)), (std::vector<u8>{55}));
+    EXPECT_EQ(host.Unacked(), 0u);
+}
+
 TEST(GameLink, AnAckThatIsLostMeansAResendTheReceiverIgnores) {
     GameLinkPeer host{"rig_host", 1};
     GameLinkPeer guest{"rig_guest", 2};
@@ -190,6 +228,39 @@ TEST(GameLink, WhatGreetedTheMembersNewGameGoesToItAfterTheRestart) {
     EXPECT_EQ(host.Unacked(), 3u);
 }
 
+// Synthetic 2/3/5-hunter party: each member's independent game-link peer has its own
+// instance, reliable stream, join hello and world head. A member's crash/rejoin may
+// never poison another member's stream or deliver pre-crash packets.
+TEST(GameLink, AThreeOrFiveHunterPartyKeepsEachRejoinStreamSeparate) {
+    for (const u8 team_size : {u8{2}, u8{3}, u8{5}}) {
+        for (u8 member = 1; member < team_size; ++member) {
+            const std::string id = "rig_guest_" + std::to_string(member);
+            GameLinkPeer host_to_guest{"rig_host", 1};
+            GameLinkPeer old_guest{id, static_cast<u32>(member + 10)};
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x31, 1), 0);
+            Carry(host_to_guest, old_guest, 0);
+            Carry(old_guest, host_to_guest, 10);
+            // Old host state is never delivered after the guest's game restarted.
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x31, 2), 50);
+            host_to_guest.Flush(50);
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x42, static_cast<u8>(30 + member)), 60'000);
+            host_to_guest.Send(PacketClass::Reliable, Packet(0x29, static_cast<u8>(40 + member)), 60'010);
+
+            GameLinkPeer new_guest{id, static_cast<u32>(member + 20)};
+            EXPECT_TRUE(Carry(host_to_guest, new_guest, 60'010).empty())
+                << "old instance packet accepted in a " << int(team_size) << "-hunter party";
+            new_guest.Send(PacketClass::Reliable, Packet(0x42, static_cast<u8>(50 + member)), 60'020);
+            EXPECT_EQ(Marks(Carry(new_guest, host_to_guest, 60'020)),
+                      (std::vector<u8>{static_cast<u8>(50 + member)}));
+            EXPECT_EQ(Marks(Carry(host_to_guest, new_guest, 60'030)),
+                      (std::vector<u8>{static_cast<u8>(30 + member), static_cast<u8>(40 + member)}))
+                << "member " << int(member) << " of party " << int(team_size);
+            Carry(new_guest, host_to_guest, 60'040); // ack the new stream
+            EXPECT_EQ(host_to_guest.Unacked(), 0u) << "stuck reliable resend";
+        }
+    }
+}
+
 // An idle member still hears from this game once a second: its silence means a dead link, and a
 // restarted game learns of the other's instance without waiting for a packet.
 TEST(GameLink, AnIdleLinkSaysItIsThereOnceASecond) {
@@ -201,6 +272,86 @@ TEST(GameLink, AnIdleLinkSaysItIsThereOnceASecond) {
     ASSERT_EQ(frames.size(), 1u);
     EXPECT_TRUE(frames[0].entries.empty());
     EXPECT_TRUE(host.Flush(1500).empty());
+}
+
+// B82: all native unreliable packets remain distinct. Same-channel packets
+// may carry separate enemy state; never compress them just because the
+// receiver rejects older ones that arrive OUT OF ORDER.
+TEST(GameLink, SameChannelUnreliablePacketsAreNotCoalescedAcrossEnemies) {
+    GameLinkPeer host{"rig_host", 1};
+    GameLinkPeer guest{"rig_guest", 2};
+    for (u8 i = 0; i < 25; ++i) {
+        host.Send(PacketClass::Unreliable, Packet(4, i), 0);
+    }
+    const auto frames = host.Flush(0);
+    size_t sent = 0;
+    std::vector<u8> received;
+    for (const auto& frame : frames) {
+        sent += frame.entries.size();
+        const auto marks = Marks(guest.Receive(frame, 0));
+        received.insert(received.end(), marks.begin(), marks.end());
+    }
+    EXPECT_EQ(sent, 25u) << "independent enemy updates must NOT be dropped";
+    ASSERT_EQ(received.size(), 25u);
+    for (u8 i = 0; i < 25; ++i) EXPECT_EQ(received[i], i);
+}
+
+TEST(GameLink, FreshReliableBacklogAndOldResendsNeverDuplicateOrReorder) {
+    GameLinkPeer host{"rig_host", 1};
+    // 100 packets were sent, but their datagrams never reached the peer.
+    for (int i = 0; i < 100; ++i) {
+        host.Send(PacketClass::Reliable, Packet(0x31, static_cast<u8>(i)), 0);
+    }
+    const auto lost = host.Flush(0);
+    size_t lost_entries = 0;
+    for (const auto& frame : lost) lost_entries += frame.entries.size();
+    EXPECT_EQ(lost_entries, 100u);
+    // The scene hitch queues 1000 MORE distinct reliable packets, while
+    // old ones are due for resend. Do not scan all 1000 fresh entries for
+    // every old resend or change any sequence, control, or ACK behavior.
+    for (int i = 0; i < 1000; ++i) {
+        host.Send(PacketClass::Reliable, Packet(0x42, static_cast<u8>(i)), 200);
+    }
+    const auto frames = host.Flush(200);
+    std::vector<u32> seqs;
+    for (const auto& frame : frames) {
+        for (const auto& entry : frame.entries) {
+            ASSERT_EQ(entry.packet_class, PacketClass::Reliable);
+            seqs.push_back(entry.seq);
+        }
+    }
+    ASSERT_EQ(seqs.size(), 1064u); // 1000 fresh + exactly 64 capped resends
+    for (u32 i = 0; i < 1000; ++i) EXPECT_EQ(seqs[i], i + 100);
+    for (u32 i = 0; i < 64; ++i) EXPECT_EQ(seqs[i + 1000], i);
+    EXPECT_EQ(host.Resends(), 64u);
+    EXPECT_EQ(host.Unacked(), 1100u);
+    // The next flush covers 36 old packets deferred by the 64/flush
+    // resend budget. Those packets did not go at t=200, so they are due.
+    const auto second = host.Flush(201);
+    std::vector<u32> resend_seqs;
+    for (const auto& frame : second) {
+        for (const auto& entry : frame.entries) {
+            ASSERT_EQ(entry.packet_class, PacketClass::Reliable);
+            resend_seqs.push_back(entry.seq);
+        }
+    }
+    ASSERT_EQ(resend_seqs.size(), 36u);
+    for (u32 i = 0; i < 36; ++i) EXPECT_EQ(resend_seqs[i], i + 64);
+    EXPECT_EQ(host.Resends(), 100u);
+    EXPECT_TRUE(host.Flush(202).empty()) << "none of 100 just-resend packets repeat early";
+}
+
+TEST(GameLink, EvenZeroResendIntervalDoesNotDuplicateFreshReliablePackets) {
+    GameLinkPeer::Settings settings;
+    settings.resend_ms = 0; // artificial edge case, not shipped network timing
+    GameLinkPeer host{"rig_host", 1, settings};
+    host.Send(PacketClass::Reliable, Packet(0x42, 1), 0);
+    host.Send(PacketClass::Reliable, Packet(0x29, 2), 0);
+    size_t entries = 0;
+    for (const auto& frame : host.Flush(0)) entries += frame.entries.size();
+    EXPECT_EQ(entries, 2u);
+    EXPECT_EQ(host.Resends(), 0u);
+    EXPECT_EQ(host.Unacked(), 2u);
 }
 
 // Lisara's playtest 2026-10-16: her link to the server dropped with ~4500 packets unacked per

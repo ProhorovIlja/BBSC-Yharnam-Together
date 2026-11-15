@@ -5,6 +5,7 @@ on:
     paths:
       - server/coop/**
       - server/tests/test_game_link_restart.cpp
+      - server/tests/test_game_link_resend.cpp
       - emulator/src/core/bloodborne_game_link.h
       - emulator/tests/bloodborne/test_bloodborne_game_link.cpp
       - emulator/src/core/bloodborne_team.*

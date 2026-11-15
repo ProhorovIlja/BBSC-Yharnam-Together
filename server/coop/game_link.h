@@ -175,13 +175,24 @@ public:
 
     // The frames to send now: new packets, reliable ones due again, and an ack when one is owed.
     std::vector<GameFrame> Flush(s64 now_ms) {
+        if (++flush_serial == 0) {
+            // Keep tags distinct even across a counter wrap. Only existing entries need
+            // clearing; fresh entries receive the new tag below.
+            for (auto& [seq, out] : unacked) out.emitted_flush = 0;
+            flush_serial = 1;
+        }
         std::vector<GameFrameEntry> entries;
         for (Outgoing& out : fresh) {
             entries.push_back({out.packet_class, out.seq, out.packet});
             if (out.packet_class == PacketClass::Reliable) {
+                // Queued sequence numbers have not necessarily been sent yet.
+                sent_reliable_end = out.seq + 1;
                 out.sent_ms = now_ms;
                 out.wait_ms = settings.resend_ms;
-                unacked.emplace(out.seq, std::move(out));
+                // This also marks a key that was already present: membership in this
+                // flush must follow the emitted packets, even on sequence collision.
+                auto sent = unacked.emplace(out.seq, std::move(out)).first;
+                sent->second.emitted_flush = flush_serial;
             }
         }
         fresh.clear();
@@ -200,16 +211,17 @@ public:
             if (quiet || resent >= settings.max_resends) {
                 break;
             }
-            if (now_ms - out.sent_ms >= out.wait_ms &&
-                std::ranges::none_of(entries, [&](const GameFrameEntry& entry) {
-                    return entry.packet_class == PacketClass::Reliable && entry.seq == seq;
-                })) {
-                out.sent_ms = now_ms;
-                out.wait_ms = (std::min)(out.wait_ms * 2, settings.max_resend_ms);
-                ++resends;
-                ++resent;
-                entries.push_back({out.packet_class, out.seq, out.packet});
+            // No scan or temporary index: each outstanding packet remembers the flush
+            // that emitted it. Unreliable packets are never folded by channel.
+            if (now_ms - out.sent_ms < out.wait_ms || out.emitted_flush == flush_serial) {
+                continue;
             }
+            out.emitted_flush = flush_serial;
+            out.sent_ms = now_ms;
+            out.wait_ms = (std::min)(out.wait_ms * 2, settings.max_resend_ms);
+            ++resends;
+            ++resent;
+            entries.push_back({out.packet_class, out.seq, out.packet});
         }
         std::vector<GameFrame> frames;
         size_t bytes = 0;
@@ -251,7 +263,7 @@ public:
             }
             peer_instance = frame.instance;
         }
-        if (frame.peer_instance == instance) {
+        if (frame.peer_instance == instance && frame.ack <= sent_reliable_end) {
             const auto acked = unacked.lower_bound(frame.ack);
             for (auto out = unacked.begin(); out != acked; ++out) {
                 reliable_bytes -= out->second.packet.size();
@@ -307,6 +319,7 @@ private:
         s64 sent_ms;
         s64 wait_ms = 0; // until its next resend (backs off)
         s64 queued_ms = 0;
+        u64 emitted_flush = 0;
     };
     // The game's join hello: the first it sends a member's game in a session.
     static constexpr u32 JoinHelloChannel = 0x42;
@@ -323,7 +336,8 @@ private:
         return GameFrame{.sender = self,
                          .instance = instance,
                          .peer_instance = peer_instance.value_or(0),
-                         .ack = expected};
+                         .ack = expected,
+                         .entries = {}};
     }
 
     // The member's game restarted: what it had not taken is dropped, both ways start again. But
@@ -351,6 +365,7 @@ private:
         held_bytes = 0;
         newest_unreliable.clear();
         next_reliable = 0;
+        sent_reliable_end = 0;
         next_unreliable = 0;
         unacked.clear();
         reliable_bytes = 0;
@@ -409,11 +424,13 @@ private:
     std::optional<s64> last_heard_ms;
 
     u32 next_reliable = 0;
+    u32 sent_reliable_end = 0; // exclusive end of the reliable sequences actually flushed
     u32 next_unreliable = 0;
     std::deque<Outgoing> fresh;
     std::map<u32, Outgoing> unacked;
     size_t reliable_bytes = 0; // the reliable packets' in fresh and unacked
     u64 resends = 0;
+    u64 flush_serial = 0;
     bool was_quiet = false;         // the last flush found the member silent
     bool heard_since_quiet = false; // and it was heard since
 
