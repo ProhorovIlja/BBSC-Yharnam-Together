@@ -82,6 +82,14 @@ struct Attributes {
     };
     return mask < names.size() ? names[mask] : "Unknown";
 }
+// Keep legacy compact labels available; use explicit combinations on the RPC card.
+[[nodiscard]] constexpr std::string_view DiscordCardLabel(std::uint8_t mask) {
+    if (mask == 3) return "Quality";
+    if (mask == 7) return "STR/SKL/BLT";
+    if (mask == 11) return "STR/SKL/ARC";
+    if (mask == 15) return "STR/SKL/BLT/ARC";
+    return DiscordShort(mask);
+}
 [[nodiscard]] constexpr std::string_view Russian(std::uint8_t mask) {
     constexpr std::array<std::string_view, 16> names{
         "Без специализации", "Сила", "Ловкость", "Качество",
