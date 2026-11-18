@@ -303,15 +303,16 @@ $probe = Join-Path $release "scripts\launcher_probe.py"
 $probeOut = Join-Path $probeDir "probe.txt"
 Write-Utf8 $probe (@(
     "import pathlib",
+    "import sys",
     "import hud_patch",
     "import bbport_coop",
-    "pathlib.Path(r'$probeOut').write_text(f'{pathlib.Path(hud_patch.__file__).resolve()}|{hud_patch.HUD_ICONS.is_file()}|{bbport_coop.use_system_certificates()}', encoding='utf-8')"
+    "pathlib.Path(sys.argv[1]).write_text(f'{pathlib.Path(hud_patch.__file__).resolve()}|{hud_patch.HUD_ICONS.is_file()}|{bbport_coop.use_system_certificates()}', encoding='utf-8')"
 ) -join "`n")
 $run = Start-Process -FilePath (Join-Path $release "BLauncher.exe") -Wait -PassThru -NoNewWindow `
-    -ArgumentList @("--script", "`"$probe`"") `
+    -ArgumentList @("--script", "`"$probe`"", "`"$probeOut`"") `
     -RedirectStandardOutput (Join-Path $probeDir "out.txt") -RedirectStandardError (Join-Path $probeDir "err.txt")
 Remove-Item -Force $probe
-$answer = if (Test-Path $probeOut) { (Get-Content -Raw $probeOut).Trim() } else { "" }
+$answer = if (Test-Path $probeOut) { (Get-Content -LiteralPath $probeOut -Raw -Encoding UTF8).Trim() } else { "" }
 $expected = (Join-Path $release "scripts\hud_patch.py")
 if ($run.ExitCode -ne 0 -or $answer -ne "$((Resolve-Path $expected).Path)|True|True") {
     Get-Content (Join-Path $probeDir "err.txt") -ErrorAction SilentlyContinue | Select-Object -Last 10

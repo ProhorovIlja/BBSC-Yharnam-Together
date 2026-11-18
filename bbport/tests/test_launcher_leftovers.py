@@ -261,6 +261,7 @@ class EditionWithTheOldHuntersTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
     def test_the_plain_launchers_game_is_told_too(self):
+        self.enterContext(mock.patch.object(launcher, 'LANG', 'en'))
         make_game(self.root / 'game')
         settings = {**launcher.APP_DEFAULTS, 'game_dir': str(self.root / 'game')}
         self.assertEqual(launcher.game_environment(settings)['BB_ADDCONT'], 'SPEXPANSIONDLC03')
