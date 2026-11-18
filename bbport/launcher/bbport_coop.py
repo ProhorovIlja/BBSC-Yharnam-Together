@@ -2145,7 +2145,7 @@ def allow_through_firewall(install, host):
 # .sha256; the update downloads both, checks the file against the sum, and runs the setup silently
 # into this install (it keeps user\), which starts the launcher again when it is done.
 # By repository id, not owner/name: the id survives a rename of the owner.
-RELEASES_API = 'https://api.github.com/repositories/1405692683/releases?per_page=100'  # every one: Home's notes
+RELEASES_API = 'https://api.github.com/repositories/1450213757/releases?per_page=100'  # every one: Home's notes
 SETUP_SUFFIX = '-setup.exe'
 
 

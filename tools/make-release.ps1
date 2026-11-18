@@ -17,7 +17,8 @@
 #      bat files), builds the setup .exe from it (tools\release\setup.iss) and writes its SHA-256,
 #      and the portable zip: the same folder with portable.txt, played without a setup (Provi 2026-10-30)
 #   5. with -Publish: creates a draft release v<Version> on GitHub at the build's commit with the
-#      setup attached (gh when installed, else the REST API with GITHUB_TOKEN or git's credential)
+#      setup, portable ZIP, source ZIP and Linux server image archive attached with SHA-256 files
+#      (gh when installed, else the REST API with GITHUB_TOKEN or git's credential)
 #
 # Usage: make-release.ps1 -Version 0.1.0 [-Out <dir>] [-GameDir <game event source>]
 #            [-SkipPortBuild] [-SkipServerBuild] [-AllowDirty] [-Publish [-Prerelease]] [-Repo owner/name]
@@ -34,6 +35,7 @@
 #   -NotesFile      with -Publish, required: the release's what's-new list (bullets, under bold
 #                   sub-headings if wanted, no what's-new heading). Discord posts only this list
 #   -Iscc           Inno Setup 6's ISCC.exe (default: its per-user or Program Files install)
+#   -LinuxServer    also build the Linux x86-64 Docker archive locally; required for publishing
 param(
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$')][string]$Version,
     [string]$Out,
@@ -46,9 +48,10 @@ param(
     [switch]$SkipPortBuild,
     [switch]$SkipServerBuild,
     [switch]$AllowDirty,
+    [switch]$LinuxServer,
     [switch]$Publish,
     [switch]$Prerelease,
-    [string]$Repo = "Amanises-Yharnam-Together/BBSC-Yharnam-Together"
+    [string]$Repo = "ProhorovIlja/BBSC-Yharnam-Together"
 )
 . "$PSScriptRoot\build-lock.ps1"
 Invoke-UnderBuildLock $PSCommandPath $PSBoundParameters "make-release"
@@ -84,6 +87,10 @@ if (-not $commit) { throw "$root is neither a jj nor a git checkout" }
 Write-Host "  $tag from $commit$(if ($dirty) { ' (with uncommitted changes)' })"
 if ($dirty -and -not $AllowDirty) { throw "The checkout has uncommitted changes: commit them, or pass -AllowDirty for a test build." }
 if ($dirty -and $Publish) { throw "Only a committed (and pushed) tree can be published." }
+
+if (($LinuxServer -or $Publish) -and -not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    throw "Building the Linux server archive requires Docker with a Linux container engine."
+}
 
 if ($Publish) {  # before anything builds
     if (-not $NotesFile) { throw "-Publish needs -NotesFile: the what's-new list Discord posts" }
@@ -358,6 +365,34 @@ $portableSha = (Get-FileHash -Algorithm SHA256 $portable).Hash.ToLowerInvariant(
 Write-Utf8 "$portable.sha256" "$portableSha *$portableName`n"
 Write-Host "  $portable ($([math]::Round((Get-Item $portable).Length / 1MB)) MB, sha256 $portableSha)"
 
+$assets = @(
+    @{ Path = $setup; Type = "application/octet-stream" }, @{ Path = "$setup.sha256"; Type = "text/plain" }
+    @{ Path = $portable; Type = "application/zip" }, @{ Path = "$portable.sha256"; Type = "text/plain" }
+)
+if ($LinuxServer -or $Publish) {
+    Step "Linux server archive"
+    $serverImage = "yharnam-shadnet:${tag}-linux-amd64"
+    $serverArchive = Join-Path $Out "YharnamTogether-$tag-server-linux-amd64.tar"
+    docker build --platform linux/amd64 --build-arg RUN_WORLD_TESTS=1 -t $serverImage `
+        -f (Join-Path $root "server/hosting/Dockerfile") $root
+    if ($LASTEXITCODE -ne 0) { throw "Linux server build or world tests failed." }
+    docker image save -o $serverArchive $serverImage
+    if ($LASTEXITCODE -ne 0) { throw "Linux server image export failed." }
+    $assets += @{ Path = $serverArchive; Type = "application/x-tar" }
+}
+if ($Publish) {
+    Step "Source archive"
+    $sourceArchive = Join-Path $Out "YharnamTogether-$tag-source.zip"
+    git -C $root archive --format=zip "--prefix=YharnamTogether-$tag/" "--output=$sourceArchive" $commit
+    if ($LASTEXITCODE -ne 0) { throw "Source archive export failed." }
+    $assets += @{ Path = $sourceArchive; Type = "application/zip" }
+}
+foreach ($archive in @($serverArchive, $sourceArchive) | Where-Object { $_ }) {
+    $archiveSha = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+    Write-Utf8 "$archive.sha256" "$archiveSha *$(Split-Path -Leaf $archive)`n"
+    $assets += @{ Path = "$archive.sha256"; Type = "text/plain" }
+}
+
 # --- 5. publish --------------------------------------------------------------------------------
 if (-not $Publish) { Write-Host ""; Write-Host "Release built (not published: pass -Publish for a draft on GitHub)."; exit 0 }
 Step "Publish (draft)"
@@ -381,6 +416,10 @@ The full setup guide, with pictures: https://bloodborne.seamlesscoop.dev/docs/in
 
 Everyone in a team must use this same release. Co-op runs at 60 FPS; a higher frame rate (Unlocked or 90 FPS) is still in testing.
 
+**Linux dedicated server** (x86-64, Docker): load the archive with ``docker load -i $(Split-Path -Leaf $serverArchive)``.
+Use image ``$serverImage`` with the persistent data and port configuration in the repository's hosted-server guide.
+The source ZIP contains tracked project files. To build with dependencies, clone tag ``$tag`` and initialize its submodules.
+
 Built from $commit. SHA-256 of the setup: ``$sha``, of the portable zip: ``$portableSha``
 "@
 $notesFile = Join-Path $Out "notes.md"
@@ -390,7 +429,8 @@ if ($LASTEXITCODE -ne 0) { throw "the release notes would post nothing on Discor
 if (Get-Command gh -ErrorAction SilentlyContinue) {
     $flags = @("--draft", "--target", $commit, "--title", "Yharnam Together: Bloodborne Seamless Co-op $tag", "--notes-file", $notesFile)
     if ($Prerelease) { $flags += "--prerelease" }
-    gh release create $tag $setup "$setup.sha256" $portable "$portable.sha256" --repo $Repo @flags
+    $assetPaths = @($assets | ForEach-Object { $_.Path })
+    gh release create $tag @assetPaths --repo $Repo @flags
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
 } else {
     $token = $env:GITHUB_TOKEN
@@ -404,8 +444,7 @@ if (Get-Command gh -ErrorAction SilentlyContinue) {
                draft = $true; prerelease = [bool]$Prerelease } | ConvertTo-Json
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $created = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$Repo/releases" -Headers $headers -Body $body -ContentType "application/json"
-    foreach ($asset in @(@{ Path = $setup; Type = "application/octet-stream" }, @{ Path = "$setup.sha256"; Type = "text/plain" },
-                         @{ Path = $portable; Type = "application/zip" }, @{ Path = "$portable.sha256"; Type = "text/plain" })) {
+    foreach ($asset in $assets) {
         $assetName = [Uri]::EscapeDataString((Split-Path -Leaf $asset.Path))
         Invoke-RestMethod -Method Post -Uri "https://uploads.github.com/repos/$Repo/releases/$($created.id)/assets?name=$assetName" `
             -Headers $headers -InFile $asset.Path -ContentType $asset.Type -TimeoutSec 3600 | Out-Null
