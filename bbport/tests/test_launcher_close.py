@@ -232,6 +232,16 @@ class CloseOnPlayTests(unittest.TestCase):
     PREPARATION = ['Mods: preparing 12 files\n', 'Patches: 247 writes applied\n', 'Shaders: compiling 3000\n']
     UP = ['GPU: window and Vulkan presenter ready; SDK 0x02000071\n', 'Entering original x86-64 code at guest offset 0xa0\n']
 
+    def test_window_destruction_cancels_polls_but_child_destruction_does_not(self):
+        root = mock.Mock()
+        window = types.SimpleNamespace(root=root, output_poll='after#1', server_poll='after#2',
+                                       count_poll='after#3')
+        launcher.Launcher.cancel_window_polls(window, types.SimpleNamespace(widget=object()))
+        root.after_cancel.assert_not_called()
+        launcher.Launcher.cancel_window_polls(window, types.SimpleNamespace(widget=root))
+        self.assertEqual(root.after_cancel.call_args_list,
+                         [mock.call('after#1'), mock.call('after#2'), mock.call('after#3')])
+
     def drain(self, close_on_play, lines):
         scheduled = []
         self.released = []  # the co-op server handed to the watcher that stops it after the game (A15)

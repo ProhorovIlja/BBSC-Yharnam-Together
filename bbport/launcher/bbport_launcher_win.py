@@ -3030,10 +3030,11 @@ class Launcher:
         if COOP_INSTALL:
             self.coop_offer_public()
         root.protocol('WM_DELETE_WINDOW', self.close)
-        root.after(100, self.drain_output)
-        root.after(30, self.start_motion)
+        root.bind('<Destroy>', self.cancel_window_polls, add='+')
+        self.output_poll = root.after(100, self.drain_output)
+        self.motion_start = root.after(30, self.start_motion)
         if COOP_INSTALL:
-            root.after(500, self.coop_watch_server)
+            self.server_poll = root.after(500, self.coop_watch_server)
         threading.Thread(target=self.detect_gpu, daemon=True).start()
         if self.app.get('check_updates', True) and not COOP_TEST:
             threading.Thread(target=self.check_update, daemon=True).start()
@@ -3512,18 +3513,18 @@ class Launcher:
         self.refresh_status()
         threading.Thread(target=self.load_news, daemon=True).start()
         if COOP_INSTALL:
-            self.root.after(1000, self.poll_seamless_hunt_count)
+            self.count_poll = self.root.after(1000, self.poll_seamless_hunt_count)
 
     def poll_seamless_hunt_count(self):
         """Public site snapshot only; never send account information or block Tk."""
         if self.root.state() in ('iconic', 'withdrawn'):
-            self.root.after(30000, self.poll_seamless_hunt_count)
+            self.count_poll = self.root.after(30000, self.poll_seamless_hunt_count)
             return
 
         def show(count):
             value = '—' if count is None else str(count)
             self.side.canvas.itemconfigure(self.side.online_count, text=f'Seamless Hunt: {value} Hunters online')
-            self.root.after(30000 if count is not None else 60000, self.poll_seamless_hunt_count)
+            self.count_poll = self.root.after(30000 if count is not None else 60000, self.poll_seamless_hunt_count)
 
         def fetch():
             from datetime import datetime, timezone
@@ -5181,7 +5182,7 @@ class Launcher:
         if not self.server_checking and not self.server_starting:
             self.server_checking = True
             threading.Thread(target=self.coop_check_server, daemon=True).start()
-        self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
+        self.server_poll = self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
 
     def coop_check_server(self):
         try:
@@ -6604,7 +6605,7 @@ class Launcher:
                     self.append(item)
         except queue.Empty:
             pass
-        self.root.after(100, self.drain_output)
+        self.output_poll = self.root.after(100, self.drain_output)
 
     def stop(self):
         if self.installing:  # Stop also ends a package installation
@@ -7398,6 +7399,14 @@ class Launcher:
             bbport_coop.stop_servers_later(PORT_DIR, stop_servers_command())
         except Exception:  # never keep the window open over it
             pass
+
+    def cancel_window_polls(self, event):
+        # Close-on-PLAY destroys the root directly. Ignore child widgets' destroy events.
+        if event.widget is self.root:
+            for name in ('output_poll', 'motion_start', 'server_poll', 'count_poll'):
+                job = getattr(self, name, None)
+                if job is not None:
+                    self.root.after_cancel(job)
 
     def close(self):
         self.coop_release_server()
