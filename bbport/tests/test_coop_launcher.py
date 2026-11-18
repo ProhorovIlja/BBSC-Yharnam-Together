@@ -438,8 +438,41 @@ class AnswersTests(unittest.TestCase):
             self.assertEqual(json.loads((install / 'user' / 'coop.json').read_text('utf-8'))['account'], 'Lisara')
             self.assertEqual(coop.load_settings(install)['account'], 'Lisara')
 
+    def test_failed_settings_replacement_preserves_existing_profile(self):
+        with tempfile.TemporaryDirectory() as folder:
+            install = Path(folder)
+            coop.save_settings(install, dict(coop.DEFAULTS, account='first'))
+            path = coop.settings_path(install)
+            original = path.read_bytes()
+            with mock.patch.object(coop.os, 'replace', side_effect=PermissionError('locked')):
+                with self.assertRaises(PermissionError):
+                    coop.save_settings(install, dict(coop.DEFAULTS, account='second'))
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(list(path.parent.iterdir()), [path])
+            coop.save_settings(install, dict(coop.DEFAULTS, account='second'))
+            self.assertEqual(coop.read_settings(install)['account'], 'second')
+
 
 class FindGameTests(unittest.TestCase):
+    def test_browse_searches_in_background_and_late_results_do_not_win(self):
+        import bbport_launcher_win as launcher
+
+        ui = mock.Mock()
+        ui.coop = {}
+        ui.coop_vars = {'game': mock.Mock()}
+        ui.coop_search.side_effect = lambda near: launcher.Launcher.coop_search(ui, near)
+        ui.filedialog.askdirectory.side_effect = ['first', 'second']
+        with mock.patch.object(launcher.threading, 'Thread') as threads, \
+                mock.patch.object(coop, 'search_game', side_effect=lambda _install, near: Path(near)) as search:
+            launcher.Launcher.coop_browse(ui)
+            launcher.Launcher.coop_browse(ui)
+            search.assert_not_called()
+            for thread in reversed(threads.call_args_list):
+                thread.kwargs['target']()
+                ui.ui_calls.put.call_args.args[0]()
+        ui.coop_vars['game'].set.assert_called_once_with('second')
+        self.assertFalse(ui.coop_searching)
+
     def test_a_game_folder_is_found_inside_the_one_picked(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

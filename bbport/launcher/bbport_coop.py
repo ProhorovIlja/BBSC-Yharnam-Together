@@ -724,7 +724,16 @@ def save_settings(install, settings):
         saved['server_ids'] = settings['server_ids']
     if settings.get('server_keys'):
         saved['server_keys'] = settings['server_keys']
-    path.write_text(json.dumps(saved, indent=2) + '\n', encoding='utf-8')
+    pending = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                         prefix='.coop-', suffix='.tmp', delete=False) as out:
+            pending = Path(out.name)
+            out.write(json.dumps(saved, indent=2) + '\n')
+        os.replace(pending, path)
+    finally:
+        if pending is not None:
+            pending.unlink(missing_ok=True)
 
 
 # --- the game ---------------------------------------------------------------------------------
@@ -851,17 +860,17 @@ def search_game(install, drives=None, homes=None, depth=5, budget_s=20.0, near=N
     first = []
     if near:
         near = Path(near)
-        first += [near, near.parent]
-    first.append(install / 'game')
+        first += [(near, 3), (near.parent, 2)]
+    first.append((install / 'game', 2))
     # Beside the install, unless that is a folder of many programs: installed per user, the parents
     # are %LOCALAPPDATA%\Programs and %LOCALAPPDATA% (thousands of folders, walked with no time
     # limit while the launcher waited).
     # A drive's root is left to the timed search below (the setup's default is D:\Games\Yharnam Together).
     for folder in (install.parent, install.parent.parent):
         if folder.name.lower() not in CROWDED and folder.parent != folder:
-            first.append(folder)
-    for folder in first:
-        found = find_game_folder(folder, 2, matches=is_bloodborne, deadline=deadline)
+            first.append((folder, 2))
+    for folder, nearby_depth in first:
+        found = find_game_folder(folder, nearby_depth, matches=is_bloodborne, deadline=deadline)
         if found:
             return found
     queue = collections.deque((Path(root), 0) for root in [*homes, *drives])

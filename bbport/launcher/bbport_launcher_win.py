@@ -4939,12 +4939,7 @@ class Launcher:
     def coop_browse(self):
         chosen = self.filedialog.askdirectory(title=_('Choose your Bloodborne folder', 'Выберите папку Bloodborne'),
                                               initialdir=self.coop.get('game') or str(PORT_DIR))
-        if not chosen:
-            return
-        found = bbport_coop.find_game_folder(chosen)
-        if found:
-            self.coop_vars['game'].set(str(found))
-        else:
+        if chosen:
             self.coop_search(chosen)
 
     def coop_search(self, near, quiet=False):
@@ -4952,11 +4947,14 @@ class Launcher:
         install, in the usual folders and on the drives."""
         self.coop_game_line.set(_('Looking for Bloodborne on this PC…', 'Поиск Bloodborne на этом ПК…'), busy=True)
         self.coop_searching = True
+        request = self.coop_search_request = object()
 
         def work():
             found = bbport_coop.search_game(PORT_DIR, near=near)
 
             def done():
+                if self.coop_search_request is not request:
+                    return
                 self.coop_searching = False
                 if found:
                     self.coop_vars['game'].set(str(found))
