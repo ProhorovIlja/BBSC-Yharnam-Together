@@ -1,6 +1,9 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
+mod theme;
+
+#[cfg(windows)]
 mod preview {
     use std::env;
     use std::ffi::OsStr;
@@ -11,14 +14,16 @@ mod preview {
     use std::ptr::null_mut;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::Graphics::Gdi::InvalidateRect;
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::Controls::DRAWITEMSTRUCT;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
     const OPEN: usize = 100;
     const PLAY: usize = 101;
     static LAUNCHER: OnceLock<PathBuf> = OnceLock::new();
 
-    fn wide(text: impl AsRef<OsStr>) -> Vec<u16> {
+    pub(super) fn wide(text: impl AsRef<OsStr>) -> Vec<u16> {
         text.as_ref().encode_wide().chain(Some(0)).collect()
     }
 
@@ -52,6 +57,24 @@ mod preview {
         hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM,
     ) -> LRESULT {
         match message {
+            WM_PAINT => {
+                super::theme::paint(hwnd, LAUNCHER.get().is_some());
+                0
+            }
+            WM_SIZE => {
+                InvalidateRect(hwnd, std::ptr::null(), 0);
+                0
+            }
+            WM_GETMINMAXINFO => {
+                let bounds = &mut *(lparam as *mut MINMAXINFO);
+                bounds.ptMinTrackSize.x = 740;
+                bounds.ptMinTrackSize.y = 465;
+                0
+            }
+            WM_DRAWITEM if matches!(wparam, OPEN | PLAY) => {
+                super::theme::paint_button(&*(lparam as *const DRAWITEMSTRUCT), wparam == PLAY);
+                1
+            }
             WM_COMMAND if matches!(wparam, OPEN | PLAY) && LAUNCHER.get().is_some() => {
                 if let Err(error) = start_launcher(wparam == PLAY) {
                     MessageBoxW(hwnd, wide(error.to_string()).as_ptr(),
@@ -73,6 +96,7 @@ mod preview {
                 let _ = LAUNCHER.set(path);
             }
         }
+        super::theme::load_street_art()?;
         let class = wide("YharnamLauncherPreview");
         unsafe {
             let instance = GetModuleHandleW(std::ptr::null());
@@ -83,7 +107,6 @@ mod preview {
                 lpfnWndProc: Some(window_proc),
                 hInstance: instance,
                 hCursor: LoadCursorW(null_mut(), IDC_ARROW),
-                hbrBackground: (windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW + 1) as _,
                 lpszClassName: class.as_ptr(),
                 ..std::mem::zeroed()
             };
@@ -92,33 +115,25 @@ mod preview {
             }
             let hwnd = CreateWindowExW(
                 0, class.as_ptr(), wide("Yharnam Together - Native Launcher Preview").as_ptr(),
-                WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 620, 360,
+                WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 957, 520,
                 null_mut(), null_mut(), instance, std::ptr::null(),
             );
             if hwnd.is_null() {
                 return Err(io::Error::last_os_error());
             }
-            let detail = if LAUNCHER.get().is_some() {
-                "The buttons use the existing launcher and its saved settings."
-            } else {
-                "Window test only. Pass --launcher with a full path to enable the buttons."
-            };
-            for (class, label, id, x, y, width) in [
-                ("STATIC", "Drag the title bar or resize the window to compare responsiveness.", 0, 20, 24, 560),
-                ("STATIC", detail, 0, 20, 68, 560),
-                ("BUTTON", "Open existing launcher", OPEN, 20, 112, 195),
-                ("BUTTON", "Play with saved settings", PLAY, 230, 112, 195),
+            for (text, id, x, y, width) in [
+                ("Settings (existing launcher)", OPEN, 15, 193, 203),
+                ("Play with saved settings", PLAY, 264, 352, 160),
             ] {
-                let button_style = if id == 0 {
-                    0
-                } else if LAUNCHER.get().is_some() {
+                let button_style = if LAUNCHER.get().is_some() {
                     WS_TABSTOP
                 } else {
                     WS_DISABLED
                 };
                 let control = CreateWindowExW(
-                    0, wide(class).as_ptr(), wide(label).as_ptr(), WS_CHILD | WS_VISIBLE | button_style,
-                    x, y, width, 32, hwnd, id as _, instance, std::ptr::null(),
+                    0, wide("BUTTON").as_ptr(), wide(text).as_ptr(),
+                    WS_CHILD | WS_VISIBLE | BS_OWNERDRAW as u32 | button_style,
+                    x, y, width, 42, hwnd, id as _, instance, std::ptr::null(),
                 );
                 if control.is_null() {
                     return Err(io::Error::last_os_error());

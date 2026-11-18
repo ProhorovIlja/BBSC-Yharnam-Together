@@ -1,6 +1,7 @@
 # Native Windows launcher preview
 
-This preview uses Win32 controls and the system title bar. It can run beside the existing launcher
+This preview uses Win32 controls, the system title bar, and the existing launcher's street artwork
+and palette. It can run beside the existing launcher
 for a drag, resize, startup, and idle resource comparison. It is independent of the installer.
 
 Build on Windows with Rust and a Windows linker:
@@ -14,5 +15,5 @@ The preview does not read game files, settings, or the network in this mode.
 
 To enable the two buttons, run the preview with
 `--launcher "C:\Games\Yharnam Together\BLauncher.exe"`, using the full path to your installed
-launcher. **Open existing launcher** opens its UI. **Play with saved settings** calls its existing
+launcher. **Settings** opens its UI. **PLAY** calls its existing
 `--play` entry point. These actions behave like running the installed launcher directly.
