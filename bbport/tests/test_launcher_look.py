@@ -97,9 +97,11 @@ class LookTests(unittest.TestCase):
         self.assertNotIn('SendMessage', inspect.getsource(launcher.WindowChrome))
         top = self.app.caption_buttons['min'].canvas.master
         x0, y0 = self.root.winfo_x(), self.root.winfo_y()
-        top.event_generate('<ButtonPress-1>', x=40, y=10, rootx=x0 + 400, rooty=y0 + 10)
-        top.event_generate('<B1-Motion>', x=140, y=60, rootx=x0 + 500, rooty=y0 + 60)
-        top.event_generate('<ButtonRelease-1>', x=140, y=60, rootx=x0 + 500, rooty=y0 + 60)
+        # Synthetic Tk events do not move the physical Win32 cursor.
+        with mock.patch.object(self.app.chrome, 'applied', False):
+            top.event_generate('<ButtonPress-1>', x=40, y=10, rootx=x0 + 400, rooty=y0 + 10)
+            top.event_generate('<B1-Motion>', x=140, y=60, rootx=x0 + 500, rooty=y0 + 60)
+            top.event_generate('<ButtonRelease-1>', x=140, y=60, rootx=x0 + 500, rooty=y0 + 60)
         self.settle()
         self.assertEqual((self.root.winfo_x(), self.root.winfo_y()), (x0 + 100, y0 + 50))
 

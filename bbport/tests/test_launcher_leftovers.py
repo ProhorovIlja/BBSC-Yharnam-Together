@@ -261,14 +261,14 @@ class EditionWithTheOldHuntersTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
     def test_the_plain_launchers_game_is_told_too(self):
-        self.enterContext(mock.patch.object(launcher, 'LANG', 'en'))
         make_game(self.root / 'game')
         settings = {**launcher.APP_DEFAULTS, 'game_dir': str(self.root / 'game')}
         self.assertEqual(launcher.game_environment(settings)['BB_ADDCONT'], 'SPEXPANSIONDLC03')
-        self.assertEqual(launcher.dlc_text(settings['game_dir'], ''), ('Included in this edition', True))
-        self.assertEqual(launcher.dlc_text(settings['game_dir'], 'MYLABEL'), ('MYLABEL', True))
         make_game(self.root / 'base', title='CUSA00207')
-        self.assertEqual(launcher.dlc_text(str(self.root / 'base'), ''), ('Not installed', False))
+        with mock.patch.object(launcher, 'LANG', 'en'):
+            self.assertEqual(launcher.dlc_text(settings['game_dir'], ''), ('Included in this edition', True))
+            self.assertEqual(launcher.dlc_text(settings['game_dir'], 'MYLABEL'), ('MYLABEL', True))
+            self.assertEqual(launcher.dlc_text(str(self.root / 'base'), ''), ('Not installed', False))
 
 
 class StrayGameFolderEntryTests(unittest.TestCase):

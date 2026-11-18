@@ -15,7 +15,9 @@ if sys.platform in ('win32', 'linux'):
 @unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
 class DlssFilesHintTests(unittest.TestCase):
     def setUp(self):
-        self.enterContext(mock.patch.object(launcher, 'LANG', 'en'))
+        language = mock.patch.object(launcher, 'LANG', 'en')
+        language.start()
+        self.addCleanup(language.stop)
 
     def install(self, files):
         root = Path(tempfile.mkdtemp())
