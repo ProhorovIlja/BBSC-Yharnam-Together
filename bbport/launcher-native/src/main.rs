@@ -4,24 +4,31 @@
 mod theme;
 
 #[cfg(windows)]
+mod game;
+
+#[cfg(windows)]
 mod preview {
     use std::env;
-    use std::ffi::OsStr;
+    use std::ffi::{OsStr, OsString};
     use std::io;
-    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::path::PathBuf;
     use std::process::Command;
     use std::ptr::null_mut;
-    use std::sync::OnceLock;
+    use std::sync::{Mutex, OnceLock};
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::Graphics::Gdi::InvalidateRect;
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::Controls::DRAWITEMSTRUCT;
+    use windows_sys::Win32::UI::Controls::Dialogs::*;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
     const OPEN: usize = 100;
     const PLAY: usize = 101;
+    const BROWSE: usize = 102;
+    const GAME_CHECKED: u32 = WM_APP + 1;
     static LAUNCHER: OnceLock<PathBuf> = OnceLock::new();
+    static GAME_STATUS: Mutex<(u64, String)> = Mutex::new((0, String::new()));
 
     pub(super) fn wide(text: impl AsRef<OsStr>) -> Vec<u16> {
         text.as_ref().encode_wide().chain(Some(0)).collect()
@@ -53,27 +60,77 @@ mod preview {
         command.spawn().map(|_| ())
     }
 
+    unsafe fn browse_game(hwnd: HWND) {
+        let mut selected = vec![0u16; 32768];
+        let filter = wide("Bloodborne executable\0eboot.bin\0");
+        let prompt = wide("Choose eboot.bin in your Bloodborne folder");
+        let mut dialog = OPENFILENAMEW {
+            lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+            hwndOwner: hwnd,
+            lpstrFile: selected.as_mut_ptr(),
+            nMaxFile: selected.len() as u32,
+            lpstrFilter: filter.as_ptr(),
+            lpstrTitle: prompt.as_ptr(),
+            Flags: OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
+            ..OPENFILENAMEW::default()
+        };
+        if GetOpenFileNameW(&mut dialog) == 0 {
+            return;
+        }
+        let length = selected.iter().position(|&unit| unit == 0).unwrap_or(selected.len());
+        let eboot = PathBuf::from(OsString::from_wide(&selected[..length]));
+        let mut state = GAME_STATUS.lock().unwrap();
+        state.0 += 1;
+        state.1 = "Checking game files…".into();
+        let request = state.0;
+        drop(state);
+        InvalidateRect(hwnd, std::ptr::null(), 0);
+
+        let target = hwnd as usize;
+        std::thread::spawn(move || {
+            let summary = match super::game::Game::inspect(&eboot) {
+                Ok(game) => game.summary(),
+                Err(error) => error.to_string(),
+            };
+            let mut state = GAME_STATUS.lock().unwrap();
+            if state.0 == request {
+                state.1 = summary;
+                PostMessageW(target as HWND, GAME_CHECKED, 0, 0);
+            }
+        });
+    }
+
     unsafe extern "system" fn window_proc(
         hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM,
     ) -> LRESULT {
         match message {
             WM_PAINT => {
-                super::theme::paint(hwnd, LAUNCHER.get().is_some());
+                let state = GAME_STATUS.lock().unwrap();
+                super::theme::paint(hwnd, LAUNCHER.get().is_some(), &state.1);
                 0
             }
-            WM_SIZE => {
+            WM_SIZE | GAME_CHECKED => {
                 InvalidateRect(hwnd, std::ptr::null(), 0);
                 0
             }
             WM_GETMINMAXINFO => {
                 let bounds = &mut *(lparam as *mut MINMAXINFO);
                 bounds.ptMinTrackSize.x = 740;
-                bounds.ptMinTrackSize.y = 465;
+                bounds.ptMinTrackSize.y = 515;
                 0
             }
-            WM_DRAWITEM if matches!(wparam, OPEN | PLAY) => {
-                super::theme::paint_button(&*(lparam as *const DRAWITEMSTRUCT), wparam == PLAY);
+            WM_DRAWITEM if matches!(wparam, OPEN | PLAY | BROWSE) => {
+                let label = match wparam {
+                    PLAY => "PLAY",
+                    BROWSE => "Browse game files…",
+                    _ => "Settings",
+                };
+                super::theme::paint_button(&*(lparam as *const DRAWITEMSTRUCT), label, wparam == PLAY);
                 1
+            }
+            WM_COMMAND if wparam == BROWSE => {
+                browse_game(hwnd);
+                0
             }
             WM_COMMAND if matches!(wparam, OPEN | PLAY) && LAUNCHER.get().is_some() => {
                 if let Err(error) = start_launcher(wparam == PLAY) {
@@ -124,8 +181,9 @@ mod preview {
             for (text, id, x, y, width) in [
                 ("Settings (existing launcher)", OPEN, 15, 193, 203),
                 ("Play with saved settings", PLAY, 264, 352, 160),
+                ("Browse game files", BROWSE, 440, 352, 184),
             ] {
-                let button_style = if LAUNCHER.get().is_some() {
+                let button_style = if id == BROWSE || LAUNCHER.get().is_some() {
                     WS_TABSTOP
                 } else {
                     WS_DISABLED

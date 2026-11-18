@@ -93,7 +93,7 @@ unsafe fn street(dc: HDC, x: i32, y: i32, width: i32) {
                   art.pixels.as_ptr().cast(), &info, DIB_RGB_COLORS, SRCCOPY);
 }
 
-pub unsafe fn paint(hwnd: HWND, has_launcher: bool) {
+pub unsafe fn paint(hwnd: HWND, has_launcher: bool, game_status: &str) {
     let mut paint = PAINTSTRUCT::default();
     let dc = BeginPaint(hwnd, &mut paint);
     if !dc.is_null() {
@@ -122,11 +122,17 @@ pub unsafe fn paint(hwnd: HWND, has_launcher: bool) {
             "Attach an existing launcher to enable Play and Settings."
         };
         label(dc, rect(CONTENT_LEFT, 306, right, 335), detail, 16, MUTED, false);
+        let game_status = if game_status.is_empty() {
+            "Choose eboot.bin to check your installation."
+        } else {
+            game_status
+        };
+        label(dc, rect(CONTENT_LEFT, 406, right, 440), game_status, 16, TEXT, false);
     }
     EndPaint(hwnd, &paint);
 }
 
-pub unsafe fn paint_button(item: &DRAWITEMSTRUCT, play: bool) {
+pub unsafe fn paint_button(item: &DRAWITEMSTRUCT, text: &str, play: bool) {
     let disabled = item.itemState & ODS_DISABLED != 0;
     let active = item.itemState & ODS_SELECTED != 0;
     let focused = item.itemState & ODS_FOCUS != 0;
@@ -134,5 +140,5 @@ pub unsafe fn paint_button(item: &DRAWITEMSTRUCT, play: bool) {
     fill(item.hDC, &item.rcItem, if focused || active { GOLD } else { LINE });
     let inner = rect(item.rcItem.left + 1, item.rcItem.top + 1, item.rcItem.right - 1, item.rcItem.bottom - 1);
     fill(item.hDC, &inner, if active { PANEL } else { CARD });
-    label(item.hDC, inner, if play { "PLAY" } else { "Settings" }, 16, color, true);
+    label(item.hDC, inner, text, 16, color, true);
 }

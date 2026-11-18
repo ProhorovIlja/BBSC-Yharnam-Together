@@ -27,6 +27,8 @@ jobs:
           persist-credentials: false
       - name: Compile the native preview
         run: cargo build --release --locked
+      - name: Test native game metadata checks
+        run: cargo test --locked
       - name: Verify Windows GUI startup
         shell: pwsh
         run: |

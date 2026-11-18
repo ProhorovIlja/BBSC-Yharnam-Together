@@ -11,7 +11,8 @@ cargo build --release --locked --manifest-path bbport/launcher-native/Cargo.toml
 ```
 
 Open `bbport/launcher-native/target/release/yharnam-launcher-preview.exe` for the window test.
-The preview does not read game files, settings, or the network in this mode.
+**Browse game files** checks the selected `eboot.bin`, edition metadata, and any adjacent 1.09
+update on a worker thread. This preview does not save the selection or change your installation.
 
 To enable the two buttons, run the preview with
 `--launcher "C:\Games\Yharnam Together\BLauncher.exe"`, using the full path to your installed
