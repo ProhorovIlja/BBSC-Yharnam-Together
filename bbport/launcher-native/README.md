@@ -11,12 +11,15 @@ cargo build --release --locked --manifest-path bbport/launcher-native/Cargo.toml
 ```
 
 Open `bbport/launcher-native/target/release/yharnam-launcher-preview.exe` for the window test.
+**Attach installation** lets you choose your existing `BLauncher.exe` from the window.
 **Browse game files** checks the selected `eboot.bin`, edition metadata, and any adjacent 1.09
-update on a worker thread. This preview does not save the selection or change your installation.
+update on a worker thread. **Save setup** applies the selected game and host address to the attached
+installation's `user/coop.json`. Existing fields such as server keys and sign-in data are preserved.
+Use **Open legacy settings** for account sign-in, server mode, and settings that are still handled there.
 
 To enable the two buttons, run the preview with
 `--launcher "C:\Games\Yharnam Together\BLauncher.exe"`, using the full path to your installed
-launcher. **Settings** opens its UI. **PLAY** calls its existing
+launcher. **Open legacy settings** opens its UI. **PLAY** calls its existing
 `--play` entry point. These actions behave like running the installed launcher directly.
 
 **Back up saves** snapshots the attached installation's `user/savedata`, per-profile saves,

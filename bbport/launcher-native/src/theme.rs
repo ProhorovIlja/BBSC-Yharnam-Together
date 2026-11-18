@@ -117,9 +117,9 @@ pub unsafe fn paint(hwnd: HWND, has_launcher: bool, game_status: &str) {
         fill(dc, &rect(CONTENT_LEFT, 239, right, 241), GOLD);
         label(dc, rect(CONTENT_LEFT, 259, right, 300), "Bloodborne Seamless Co-op", 30, GOLD, false);
         let detail = if has_launcher {
-            "Play uses your existing installation and settings."
+            "Play uses the attached installation and its saved setup."
         } else {
-            "Attach an existing launcher to enable Play and Settings."
+            "Attach your existing installation to enable setup and Play."
         };
         label(dc, rect(CONTENT_LEFT, 306, right, 335), detail, 16, MUTED, false);
         let game_status = if game_status.is_empty() {
@@ -128,6 +128,7 @@ pub unsafe fn paint(hwnd: HWND, has_launcher: bool, game_status: &str) {
             game_status
         };
         label(dc, rect(CONTENT_LEFT, 406, right, 440), game_status, 16, TEXT, false);
+        label(dc, rect(CONTENT_LEFT, 440, right, 466), "Host address or region directory", 16, GOLD, false);
     }
     EndPaint(hwnd, &paint);
 }
