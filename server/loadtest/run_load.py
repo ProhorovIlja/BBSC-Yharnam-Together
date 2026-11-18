@@ -89,8 +89,9 @@ def local_build_fingerprint(log_path, server, timeout=10):
                     continue
                 value = line.partition(BUILD_LOG_MARKER)[2].strip()
                 fields = {part.partition("=")[0] for part in value.split(";")[1:-1]}
+                # Source-only container builds encode an empty revision when Git metadata is absent.
                 if (len(value) > 255 or not re.fullmatch(
-                        r"bb-build 1;(?:[a-z]+=[A-Za-z0-9.+_-]+;)+", value)
+                        r"bb-build 1;(?:(?:revision=|[a-z]+=[A-Za-z0-9.+_-]+);)+", value)
                         or not {"version", "protocol"} <= fields):
                     raise RuntimeError("invalid checked build fingerprint in shadNet startup log")
                 return value
