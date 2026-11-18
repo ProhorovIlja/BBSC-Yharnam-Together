@@ -1739,6 +1739,7 @@ class Motion:
         self.root, self.tcl_error, self.enabled = root, tcl_error, enabled
         self.tweens, self.loops, self.job = {}, {}, None
         self.fine_timer = False
+        self.paused = False
         if enabled:  # 1 ms timer resolution for this process: Tk's after() is 15.6 ms otherwise
             try:
                 ctypes.windll.winmm.timeBeginPeriod(1)
@@ -1787,6 +1788,9 @@ class Motion:
 
     def tick(self):
         self.job = None
+        if self.paused:
+            self.job = self.root.after(32, self.tick)
+            return
         began = time.perf_counter()
         for key, entry in list(self.tweens.items()):
             if self.tweens.get(key) is not entry:
@@ -2517,11 +2521,11 @@ class WindowChrome:
     def drag(self, event):
         """A press on the title bar (or the empty top of the side column, or around the co-op settings):
         the window follows the pointer while the button is held (drag_move, bound beside it)."""
-        self.grab = None
-        self.native_grab = None
+        self.drag_end()
         if self.restore:
             return
         self.grab = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
+        self.ui.motion.paused = True
         if self.applied and sys.platform == 'win32':
             try:
                 from ctypes.wintypes import POINT, RECT
@@ -2546,6 +2550,7 @@ class WindowChrome:
 
     def drag_end(self, _event=None):
         self.grab = self.native_grab = None
+        self.ui.motion.paused = False
 
     def bind_drag(self, widget):
         widget.bind('<ButtonPress-1>', self.drag, add='+')
@@ -3293,6 +3298,8 @@ class Launcher:
 
     def pointer_moved(self, event):
         """Lights the card under the pointer (border eases to the accent and back)."""
+        if self.chrome.grab is not None:
+            return
         widget, hot = event.widget, None
         while widget is not None and not isinstance(widget, str):
             if widget in self.cards:
@@ -6573,10 +6580,19 @@ class Launcher:
             self.output.put((code,))  # the window learns the game ended whatever went wrong above
 
     def drain_output(self):
-        while not self.ui_calls.empty():
-            self.ui_calls.get_nowait()()
+        if getattr(getattr(self, 'chrome', None), 'grab', None) is not None:
+            self.output_poll = self.root.after(32, self.drain_output)
+            return
+        began = time.perf_counter()
+        try:
+            while time.perf_counter() - began < 0.003:
+                self.ui_calls.get_nowait()()
+        except queue.Empty:
+            pass
         try:
             for _i in range(500):
+                if _i and time.perf_counter() - began >= 0.006:
+                    break
                 item = self.output.get_nowait()
                 if isinstance(item, tuple):
                     self.append(_('\n— the game exited (code {}) —\n', '\n— игра завершилась (код {}) —\n').format(item[0]))
@@ -6605,7 +6621,8 @@ class Launcher:
                     self.append(item)
         except queue.Empty:
             pass
-        self.output_poll = self.root.after(100, self.drain_output)
+        delay = 16 if not self.ui_calls.empty() or not self.output.empty() else 100
+        self.output_poll = self.root.after(delay, self.drain_output)
 
     def stop(self):
         if self.installing:  # Stop also ends a package installation
