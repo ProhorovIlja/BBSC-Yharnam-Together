@@ -2476,7 +2476,8 @@ class CaptionButton(Widget):
 
 
 class WindowChrome:
-    """The launcher draws its own title bar (Kaniel 2026-10-16: no Windows caption buttons). The window is
+    """Windows normally owns the title bar and resize border. With BB_LAUNCHER_CUSTOM_CHROME=1,
+    the launcher draws its own title bar (Kaniel 2026-10-16: no Windows caption buttons). The window is
     Tk's override-redirect kind (no frame at all, so Tk's sizes stay right; taking the caption style bits off
     a framed window left Tk computing its size with the old borders), given back its taskbar button and
     Alt+Tab with WS_EX_APPWINDOW. The launcher moves the window itself while the button is held (handing
@@ -2488,7 +2489,8 @@ class WindowChrome:
 
     def __init__(self, ui):
         self.ui, self.root = ui, ui.root
-        self.enabled = sys.platform == 'win32'
+        self.native_frame = sys.platform == 'win32' and os.environ.get('BB_LAUNCHER_CUSTOM_CHROME') != '1'
+        self.enabled = sys.platform == 'win32' and not self.native_frame
         self.applied, self.restore, self.sizing, self.grab = False, None, None, None
 
     def hwnd(self):
@@ -2522,7 +2524,7 @@ class WindowChrome:
         """A press on the title bar (or the empty top of the side column, or around the co-op settings):
         the window follows the pointer while the button is held (drag_move, bound beside it)."""
         self.drag_end()
-        if self.restore:
+        if self.native_frame or self.restore:
             return
         self.grab = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
         self.ui.motion.paused = True
@@ -3468,19 +3470,19 @@ class Launcher:
         self.side.canvas.pack(side='left', fill='y')
         main = tk.Frame(root, bg=PANEL)
         main.pack(side='left', fill='both', expand=True)
-        self.build_footer(main)
-        # The launcher's own title bar (no Windows caption): a strip to drag by, and the window buttons.
         self.chrome = WindowChrome(self)
-        top = tk.Frame(main, bg=PANEL, height=px(34))
-        top.pack(side='top', fill='x')
-        top.pack_propagate(False)
+        self.build_footer(main)
         self.caption_buttons = {}
-        for kind, command in (('close', self.close), ('max', self.chrome.toggle_zoom), ('min', self.chrome.minimize)):
-            self.caption_buttons[kind] = CaptionButton(self, top, kind, command)
-            self.caption_buttons[kind].pack(side='right')
-        self.chrome.bind_drag(top)
-        top.bind('<Double-Button-1>', self.chrome.toggle_zoom)
-        root.bind('<Alt-F4>', lambda _e: self.close())  # no system menu to do it without a caption
+        if not self.chrome.native_frame:
+            top = tk.Frame(main, bg=PANEL, height=px(34))
+            top.pack(side='top', fill='x')
+            top.pack_propagate(False)
+            for kind, command in (('close', self.close), ('max', self.chrome.toggle_zoom), ('min', self.chrome.minimize)):
+                self.caption_buttons[kind] = CaptionButton(self, top, kind, command)
+                self.caption_buttons[kind].pack(side='right')
+            self.chrome.bind_drag(top)
+            top.bind('<Double-Button-1>', self.chrome.toggle_zoom)
+            root.bind('<Alt-F4>', lambda _e: self.close())  # no system menu to do it without a caption
         self.subtabs = SubTabs(self, main, self.settings_tabs, self.show)
         self.content = tk.Frame(main, bg=PANEL)
         self.content.pack(side='top', fill='both', expand=True)
@@ -3605,6 +3607,8 @@ class Launcher:
         self.status = tk.Label(line, text='', bg=BG, fg=MUTED, font=self.fonts['small'], anchor='w', justify='left')
         self.status.pack(side='left')
         self.footer = footer
+        if self.chrome.native_frame:
+            return
         grip = tk.Canvas(footer, width=px(14), height=px(14), bg=BG, highlightthickness=0, bd=0, cursor='size_nw_se' if sys.platform == 'win32' else 'bottom_right_corner')
         for i in range(3):
             for j in range(i + 1):
@@ -3617,8 +3621,9 @@ class Launcher:
         """First frame is up: fade the window in, write the title, start the moon and the embers."""
         self.root.update_idletasks()
         self.chrome.apply()
-        self.grip.bind('<ButtonPress-1>', self.chrome.resize_start)
-        self.grip.bind('<B1-Motion>', self.chrome.resize_move)
+        if not self.chrome.native_frame:
+            self.grip.bind('<ButtonPress-1>', self.chrome.resize_start)
+            self.grip.bind('<B1-Motion>', self.chrome.resize_move)
         self.side.flush()
         if self.motion.enabled:
             self.side.set_reveal(0.0)

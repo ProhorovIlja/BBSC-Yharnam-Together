@@ -36,7 +36,8 @@ class CoopCardTypingTests(unittest.TestCase):
             return real_find(folder, depth)
 
         for patch in (mock.patch.dict(launcher.os.environ, {'BB_CONFIG': str(scratch / 'bbport.ini'),
-                                                            'BB_LAUNCHER_ANIMATIONS': '0'}),
+                                                            'BB_LAUNCHER_ANIMATIONS': '0',
+                                                            'BB_LAUNCHER_CUSTOM_CHROME': '0'}),
                       mock.patch.object(launcher, 'CONFIG_FILE', scratch / 'config' / 'settings.json'),
                       mock.patch.object(launcher, 'CONFIG_DIR', scratch / 'config'),
                       mock.patch.object(launcher, 'DATA_DIR', scratch),
@@ -85,6 +86,13 @@ class CoopCardTypingTests(unittest.TestCase):
         self.settle()
         self.assertNotIn('.', [str(folder) for folder in self.looked_in])
         self.assertIsNone(self.app.coop_game_info())
+
+    def test_windows_owns_title_bar_and_resize_border_by_default(self):
+        self.assertTrue(self.app.chrome.native_frame)
+        self.assertFalse(self.root.overrideredirect())
+        self.assertEqual(self.app.caption_buttons, {})
+        self.assertFalse(hasattr(self.app, 'grip'))
+        self.assertEqual(self.root.resizable(), (1, 1))
 
 
 class FakeRoot:

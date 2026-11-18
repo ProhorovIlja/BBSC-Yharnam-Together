@@ -47,7 +47,8 @@ class LookTests(unittest.TestCase):
             return real_open(path, *args, **kwargs)
 
         for patch in (mock.patch.dict(launcher.os.environ, {'BB_CONFIG': str(scratch / 'bbport.ini'),
-                                                            'BB_LAUNCHER_ANIMATIONS': '0'}),
+                                                            'BB_LAUNCHER_ANIMATIONS': '0',
+                                                            'BB_LAUNCHER_CUSTOM_CHROME': '1'}),
                       mock.patch.object(launcher, 'CONFIG_FILE', scratch / 'config' / 'settings.json'),
                       mock.patch.object(launcher, 'CONFIG_DIR', scratch / 'config'),
                       mock.patch.object(launcher, 'DATA_DIR', scratch),
