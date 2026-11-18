@@ -1,5 +1,6 @@
 """The co-op release inside the launcher (launcher/bbport_coop.py): what the release's bat files and
 tools\\setup.ps1 did (Kaniel 2026-10-13: one setup .exe, no bat files, the launcher finds the game)."""
+import http.client
 import json
 import os
 import struct
@@ -1077,6 +1078,51 @@ class UpdateTests(unittest.TestCase):
         self.assertIsNone(coop.update_offer('0.3.4-local', best))
         self.assertIsNone(coop.update_offer('0.3.5', best))
         self.assertIsNone(coop.update_offer('', best), 'a source tree has no release version')
+
+    def test_update_uses_a_complete_asset_pair(self):
+        malformed = self.release('v0.5.0')
+        malformed['assets'] = 42
+        usable = self.release('v0.4.0')
+        usable['body'] = {'unexpected': 'metadata'}
+        usable['assets'].insert(0, {'name': 'other-setup.exe', 'browser_download_url': 'https://example.test/other.exe'})
+        best = coop.newest_release([malformed, usable])
+        self.assertEqual(best['name'], 'BloodborneSeamlessCoop-v0.4.0-setup.exe')
+        self.assertEqual(best['notes'], '')
+
+    def test_update_waits_for_play_preparation_and_play_waits_for_update(self):
+        import bbport_launcher_win as launcher
+
+        ui = mock.Mock(update_release={'version': '0.4.0'}, updating=False,
+                       coop_busy=True, installing=False, process=None)
+        with mock.patch.object(launcher.threading, 'Thread') as thread:
+            launcher.Launcher.coop_install_update(ui)
+            thread.assert_not_called()
+        self.assertFalse(ui.updating)
+
+        ui.updating = True
+        with mock.patch.object(launcher, 'COOP_INSTALL', True):
+            launcher.Launcher.play(ui)
+        ui.play_coop.assert_not_called()
+
+    def test_update_worker_recovers_from_download_and_backup_failures(self):
+        import bbport_launcher_win as launcher
+
+        for operation, error in (('download_update', http.client.IncompleteRead(b'')),
+                                 ('back_up_saves', OSError('disk full'))):
+            with self.subTest(operation=operation):
+                ui = mock.Mock(update_release={'version': '0.4.0'}, updating=False,
+                               coop_busy=False, installing=False, process=None)
+                with mock.patch.object(launcher.threading, 'Thread', side_effect=lambda target, **_: mock.Mock(
+                        start=target)), mock.patch.multiple(coop, download_update=mock.DEFAULT,
+                                                            back_up_saves=mock.DEFAULT,
+                                                            stop_servers=mock.DEFAULT) as calls:
+                    calls[operation].side_effect = error
+                    launcher.Launcher.coop_install_update(ui)
+                calls['stop_servers'].assert_not_called()
+                ui.ui_calls.put.assert_called_once()
+                ui.ui_calls.put.call_args.args[0]()
+                ui.coop_update_failed.assert_called_once_with(error)
+                ui.coop_run_setup.assert_not_called()
 
     def test_the_sum_file_is_read_as_the_release_writes_it(self):
         digest = 'ab' * 32

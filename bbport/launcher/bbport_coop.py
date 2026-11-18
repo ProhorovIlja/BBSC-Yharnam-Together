@@ -2172,14 +2172,19 @@ def newest_release(releases):
         version = release['tag_name'].lstrip('v')
         if not version_key(version)[0]:
             continue
-        assets = {asset.get('name'): asset.get('browser_download_url') for asset in release.get('assets') or []
-                  if isinstance(asset, dict) and isinstance(asset.get('name'), str)}
-        setup = next((name for name in assets if name.endswith(SETUP_SUFFIX)), None)
-        if not setup or not assets.get(setup + '.sha256'):
+        entries = release.get('assets')
+        if not isinstance(entries, list):
+            continue
+        assets = {asset['name']: asset['browser_download_url'] for asset in entries
+                  if isinstance(asset, dict) and isinstance(asset.get('name'), str)
+                  and isinstance(asset.get('browser_download_url'), str) and asset['browser_download_url']}
+        setup = next((name for name in assets if name.endswith(SETUP_SUFFIX) and name + '.sha256' in assets), None)
+        if setup is None:
             continue
         if best is None or version_key(version) > version_key(best['version']):
+            notes = release.get('body')
             best = {'version': version, 'setup': assets[setup], 'sha256': assets[setup + '.sha256'],
-                    'page': release.get('html_url') or '', 'notes': (release.get('body') or '')[:2000],
+                    'page': release.get('html_url') or '', 'notes': notes[:2000] if isinstance(notes, str) else '',
                     'name': setup}
     return best
 

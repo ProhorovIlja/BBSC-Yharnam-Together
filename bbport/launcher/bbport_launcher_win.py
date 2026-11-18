@@ -15,6 +15,7 @@ so a packaged port needs no Python installation.
 """
 import collections
 import ctypes
+import http.client
 import json
 import math
 import os
@@ -6504,7 +6505,7 @@ class Launcher:
 
     # ---- game process ------------------------------------------------------------------------
     def play(self):
-        if self.process or self.installing:
+        if self.process or self.installing or self.updating:
             return
         if COOP_INSTALL:
             self.play_coop()
@@ -7117,7 +7118,7 @@ class Launcher:
         try:
             release = bbport_coop.update_offer(current, bbport_coop.fetch_newest_release())
             failure = None
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, http.client.HTTPException) as error:
             release, failure = None, error
 
         def show():
@@ -7145,7 +7146,8 @@ class Launcher:
                 release['version']), fg=GOLD)
             if manual:
                 self.status.configure(text=self.update_line.cget('text'), fg=GOLD)
-            if auto and self.var('auto_update', 'app').get() and not self.process:
+            if auto and self.var('auto_update', 'app').get() and not (
+                    self.process or self.coop_busy or self.installing):
                 self.coop_install_update()
         self.ui_calls.put(show)
 
@@ -7153,7 +7155,7 @@ class Launcher:
         """Downloads the release's setup, checks its SHA-256, stops this install's servers, runs the setup
         silently into this folder (it keeps user\\ and starts the launcher again) and closes the launcher."""
         release = getattr(self, 'update_release', None)
-        if not release or self.updating:
+        if not release or self.updating or self.coop_busy or self.installing:
             return
         if self.process:
             self.status.configure(text=_('Close the game first: the update replaces its files.',
@@ -7180,17 +7182,12 @@ class Launcher:
             try:
                 setup = bbport_coop.download_update(release, Path(tempfile.gettempdir()) / 'bloodborne-coop-update',
                                                     progress)
+                # Preserve a verified copy of the saves before changing the install.
+                bbport_coop.back_up_saves(PORT_DIR, 'before an update', prune=False)
                 bbport_coop.stop_servers(PORT_DIR)
-            except (OSError, ValueError) as error:
+            except (OSError, ValueError, http.client.HTTPException) as error:
                 self.ui_calls.put(lambda failure=error: self.coop_update_failed(failure))
                 return
-            # the saves as they are, in the Restore saves list, before a setup writes over the install
-            # (red, 2026-11-06: "I updated with the installer and lost our save files"); a backup that
-            # cannot be written (a full disk) does not stop the update, which leaves the saves alone
-            try:
-                bbport_coop.back_up_saves(PORT_DIR, 'before an update', prune=False)
-            except OSError:
-                pass
             self.ui_calls.put(lambda: self.coop_run_setup(setup))
         threading.Thread(target=work, daemon=True).start()
 
