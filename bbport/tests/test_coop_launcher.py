@@ -497,6 +497,11 @@ class FindGameTests(unittest.TestCase):
             with mock.patch.object(Path, 'is_file', check):
                 self.assertEqual(coop.search_game(install, drives=[], homes=[]), game)
 
+    def test_expired_search_does_not_walk_nearby_folders(self):
+        with mock.patch.object(Path, 'iterdir') as scan:
+            self.assertIsNone(coop.search_game(Path('/Games/Yharnam Together'), drives=[], homes=[], budget_s=0))
+        scan.assert_not_called()
+
     def test_another_game_is_not_taken_for_bloodborne(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

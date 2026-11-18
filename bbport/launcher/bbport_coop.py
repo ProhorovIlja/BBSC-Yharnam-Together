@@ -790,9 +790,11 @@ def is_bloodborne(folder):
     return version is None or version[0] in TITLE_IDS or not version[0]
 
 
-def find_game_folder(folder, depth=3, *, matches=is_game_folder):
+def find_game_folder(folder, depth=3, *, matches=is_game_folder, deadline=None):
     """The game folder (the one with eboot.bin) at or inside `folder`, not an update or mods one."""
     folder = Path(folder)
+    if deadline is not None and time.monotonic() >= deadline:
+        return None
     try:
         if not folder.is_dir():
             return None
@@ -804,9 +806,11 @@ def find_game_folder(folder, depth=3, *, matches=is_game_folder):
     except OSError:
         return None
     for child in children:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         if child.name.lower().endswith(('-patch', '-mods')):
             continue
-        found = find_game_folder(child, depth - 1, matches=matches)
+        found = find_game_folder(child, depth - 1, matches=matches, deadline=deadline)
         if found:
             return found
     return None
@@ -856,7 +860,7 @@ def search_game(install, drives=None, homes=None, depth=5, budget_s=20.0, near=N
         if folder.name.lower() not in CROWDED and folder.parent != folder:
             first.append(folder)
     for folder in first:
-        found = find_game_folder(folder, 2, matches=is_bloodborne)
+        found = find_game_folder(folder, 2, matches=is_bloodborne, deadline=deadline)
         if found:
             return found
     queue = collections.deque((Path(root), 0) for root in [*homes, *drives])
