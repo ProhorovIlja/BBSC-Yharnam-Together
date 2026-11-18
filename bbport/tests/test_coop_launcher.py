@@ -473,11 +473,29 @@ class FindGameTests(unittest.TestCase):
             self.assertEqual(coop.search_game(install, drives=[], homes=[]), game)
         from unittest import mock
         walked = []
-        with mock.patch.object(coop, 'find_game_folder', lambda f, depth=5: walked.append(Path(f))), \
+        with mock.patch.object(coop, 'find_game_folder', lambda f, depth=5, **kw: walked.append(Path(f))), \
                 mock.patch.object(Path, 'is_dir', lambda self: True):
             coop.search_game(Path('/Games/Yharnam Together'), drives=[], homes=[], budget_s=0)
         self.assertIn(Path('/Games'), walked)
         self.assertNotIn(Path('/'), walked)
+
+    def test_nearby_search_skips_inaccessible_entries_and_other_games(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            install = root / 'Games' / 'Yharnam Together'
+            install.mkdir(parents=True)
+            unreadable = make_game(root / 'Games' / '00-restricted')
+            make_game(root / 'Games' / '01-other-game', title='CUSA00001')
+            game = make_game(root / 'Games' / '02-Bloodborne')
+            is_file = Path.is_file
+
+            def check(path):
+                if path == unreadable / 'eboot.bin':
+                    raise PermissionError(path)
+                return is_file(path)
+
+            with mock.patch.object(Path, 'is_file', check):
+                self.assertEqual(coop.search_game(install, drives=[], homes=[]), game)
 
     def test_another_game_is_not_taken_for_bloodborne(self):
         with tempfile.TemporaryDirectory() as folder:

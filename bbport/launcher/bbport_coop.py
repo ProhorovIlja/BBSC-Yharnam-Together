@@ -777,31 +777,36 @@ def untested_warning(title):
 
 
 def is_game_folder(folder):
-    return (Path(folder) / 'eboot.bin').is_file()
+    try:
+        return (Path(folder) / 'eboot.bin').is_file()
+    except OSError:
+        return False
 
 
 def is_bloodborne(folder):
+    if not is_game_folder(folder):
+        return False
     version = game_version(folder)
-    return is_game_folder(folder) and (version is None or version[0] in TITLE_IDS or not version[0])
+    return version is None or version[0] in TITLE_IDS or not version[0]
 
 
-def find_game_folder(folder, depth=3):
+def find_game_folder(folder, depth=3, *, matches=is_game_folder):
     """The game folder (the one with eboot.bin) at or inside `folder`, not an update or mods one."""
     folder = Path(folder)
-    if not folder.is_dir():
-        return None
-    if is_game_folder(folder):
-        return folder
-    if depth <= 0:
-        return None
     try:
-        children = sorted((entry for entry in folder.iterdir() if entry.is_dir()), key=lambda p: p.name.lower())
+        if not folder.is_dir():
+            return None
+        if matches(folder):
+            return folder
+        if depth <= 0:
+            return None
+        children = sorted(folder.iterdir(), key=lambda p: p.name.lower())
     except OSError:
         return None
     for child in children:
         if child.name.lower().endswith(('-patch', '-mods')):
             continue
-        found = find_game_folder(child, depth - 1)
+        found = find_game_folder(child, depth - 1, matches=matches)
         if found:
             return found
     return None
@@ -851,8 +856,8 @@ def search_game(install, drives=None, homes=None, depth=5, budget_s=20.0, near=N
         if folder.name.lower() not in CROWDED and folder.parent != folder:
             first.append(folder)
     for folder in first:
-        found = find_game_folder(folder, 2) if folder and Path(folder).is_dir() else None
-        if found and is_bloodborne(found):
+        found = find_game_folder(folder, 2, matches=is_bloodborne)
+        if found:
             return found
     queue = collections.deque((Path(root), 0) for root in [*homes, *drives])
     seen = set()
