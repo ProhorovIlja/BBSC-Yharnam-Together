@@ -502,6 +502,25 @@ class FindGameTests(unittest.TestCase):
             self.assertIsNone(coop.search_game(Path('/Games/Yharnam Together'), drives=[], homes=[], budget_s=0))
         scan.assert_not_called()
 
+    def test_nearby_search_ignores_another_install_generated_view(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            install = root / 'Games' / 'Yharnam Together'
+            install.mkdir(parents=True)
+            old_install = root / 'Games' / '00-old-install'
+            make_game(old_install / 'coop-game' / 'CUSA03173')
+            game = make_game(root / 'Games' / '01-original' / 'CUSA03173')
+            self.assertEqual(coop.search_game(install, drives=[], homes=[], near=old_install), game)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'case-sensitive Linux paths')
+    def test_drive_search_visits_both_case_distinct_folders(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            install = root / 'Programs' / 'Yharnam Together'
+            (root / 'drive' / 'Library').mkdir(parents=True)
+            game = make_game(root / 'drive' / 'library')
+            self.assertEqual(coop.search_game(install, drives=[root / 'drive'], homes=[]), game)
+
     def test_another_game_is_not_taken_for_bloodborne(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

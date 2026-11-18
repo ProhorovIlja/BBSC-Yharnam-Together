@@ -808,7 +808,8 @@ def find_game_folder(folder, depth=3, *, matches=is_game_folder, deadline=None):
     for child in children:
         if deadline is not None and time.monotonic() >= deadline:
             break
-        if child.name.lower().endswith(('-patch', '-mods')):
+        name = child.name.lower()
+        if name == 'coop-game' or name.endswith(('-patch', '-mods')):
             continue
         found = find_game_folder(child, depth - 1, matches=matches, deadline=deadline)
         if found:
@@ -867,7 +868,7 @@ def search_game(install, drives=None, homes=None, depth=5, budget_s=20.0, near=N
     seen = set()
     while queue and time.monotonic() < deadline:
         folder, level = queue.popleft()
-        key = str(folder).lower()
+        key = os.path.normcase(str(folder))
         if key in seen:
             continue
         seen.add(key)
