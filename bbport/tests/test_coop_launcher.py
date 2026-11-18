@@ -1,5 +1,6 @@
 """The co-op release inside the launcher (launcher/bbport_coop.py): what the release's bat files and
 tools\\setup.ps1 did (Kaniel 2026-10-13: one setup .exe, no bat files, the launcher finds the game)."""
+import http.client
 import json
 import os
 import struct
@@ -437,8 +438,41 @@ class AnswersTests(unittest.TestCase):
             self.assertEqual(json.loads((install / 'user' / 'coop.json').read_text('utf-8'))['account'], 'Lisara')
             self.assertEqual(coop.load_settings(install)['account'], 'Lisara')
 
+    def test_failed_settings_replacement_preserves_existing_profile(self):
+        with tempfile.TemporaryDirectory() as folder:
+            install = Path(folder)
+            coop.save_settings(install, dict(coop.DEFAULTS, account='first'))
+            path = coop.settings_path(install)
+            original = path.read_bytes()
+            with mock.patch.object(coop.os, 'replace', side_effect=PermissionError('locked')):
+                with self.assertRaises(PermissionError):
+                    coop.save_settings(install, dict(coop.DEFAULTS, account='second'))
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(list(path.parent.iterdir()), [path])
+            coop.save_settings(install, dict(coop.DEFAULTS, account='second'))
+            self.assertEqual(coop.read_settings(install)['account'], 'second')
+
 
 class FindGameTests(unittest.TestCase):
+    def test_browse_searches_in_background_and_late_results_do_not_win(self):
+        import bbport_launcher_win as launcher
+
+        ui = mock.Mock()
+        ui.coop = {}
+        ui.coop_vars = {'game': mock.Mock()}
+        ui.coop_search.side_effect = lambda near: launcher.Launcher.coop_search(ui, near)
+        ui.filedialog.askdirectory.side_effect = ['first', 'second']
+        with mock.patch.object(launcher.threading, 'Thread') as threads, \
+                mock.patch.object(coop, 'search_game', side_effect=lambda _install, near: Path(near)) as search:
+            launcher.Launcher.coop_browse(ui)
+            launcher.Launcher.coop_browse(ui)
+            search.assert_not_called()
+            for thread in reversed(threads.call_args_list):
+                thread.kwargs['target']()
+                ui.ui_calls.put.call_args.args[0]()
+        ui.coop_vars['game'].set.assert_called_once_with('second')
+        self.assertFalse(ui.coop_searching)
+
     def test_a_game_folder_is_found_inside_the_one_picked(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -472,11 +506,53 @@ class FindGameTests(unittest.TestCase):
             self.assertEqual(coop.search_game(install, drives=[], homes=[]), game)
         from unittest import mock
         walked = []
-        with mock.patch.object(coop, 'find_game_folder', lambda f, depth=5: walked.append(Path(f))), \
+        with mock.patch.object(coop, 'find_game_folder', lambda f, depth=5, **kw: walked.append(Path(f))), \
                 mock.patch.object(Path, 'is_dir', lambda self: True):
             coop.search_game(Path('/Games/Yharnam Together'), drives=[], homes=[], budget_s=0)
         self.assertIn(Path('/Games'), walked)
         self.assertNotIn(Path('/'), walked)
+
+    def test_nearby_search_skips_inaccessible_entries_and_other_games(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            install = root / 'Games' / 'Yharnam Together'
+            install.mkdir(parents=True)
+            unreadable = make_game(root / 'Games' / '00-restricted')
+            make_game(root / 'Games' / '01-other-game', title='CUSA00001')
+            game = make_game(root / 'Games' / '02-Bloodborne')
+            is_file = Path.is_file
+
+            def check(path):
+                if path == unreadable / 'eboot.bin':
+                    raise PermissionError(path)
+                return is_file(path)
+
+            with mock.patch.object(Path, 'is_file', check):
+                self.assertEqual(coop.search_game(install, drives=[], homes=[]), game)
+
+    def test_expired_search_does_not_walk_nearby_folders(self):
+        with mock.patch.object(Path, 'iterdir') as scan:
+            self.assertIsNone(coop.search_game(Path('/Games/Yharnam Together'), drives=[], homes=[], budget_s=0))
+        scan.assert_not_called()
+
+    def test_nearby_search_ignores_another_install_generated_view(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            install = root / 'Games' / 'Yharnam Together'
+            install.mkdir(parents=True)
+            old_install = root / 'Games' / '00-old-install'
+            make_game(old_install / 'coop-game' / 'CUSA03173')
+            game = make_game(root / 'Games' / '01-original' / 'CUSA03173')
+            self.assertEqual(coop.search_game(install, drives=[], homes=[], near=old_install), game)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'case-sensitive Linux paths')
+    def test_drive_search_visits_both_case_distinct_folders(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            install = root / 'Programs' / 'Yharnam Together'
+            (root / 'drive' / 'Library').mkdir(parents=True)
+            game = make_game(root / 'drive' / 'library')
+            self.assertEqual(coop.search_game(install, drives=[root / 'drive'], homes=[]), game)
 
     def test_another_game_is_not_taken_for_bloodborne(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -1077,6 +1153,51 @@ class UpdateTests(unittest.TestCase):
         self.assertIsNone(coop.update_offer('0.3.4-local', best))
         self.assertIsNone(coop.update_offer('0.3.5', best))
         self.assertIsNone(coop.update_offer('', best), 'a source tree has no release version')
+
+    def test_update_uses_a_complete_asset_pair(self):
+        malformed = self.release('v0.5.0')
+        malformed['assets'] = 42
+        usable = self.release('v0.4.0')
+        usable['body'] = {'unexpected': 'metadata'}
+        usable['assets'].insert(0, {'name': 'other-setup.exe', 'browser_download_url': 'https://example.test/other.exe'})
+        best = coop.newest_release([malformed, usable])
+        self.assertEqual(best['name'], 'BloodborneSeamlessCoop-v0.4.0-setup.exe')
+        self.assertEqual(best['notes'], '')
+
+    def test_update_waits_for_play_preparation_and_play_waits_for_update(self):
+        import bbport_launcher_win as launcher
+
+        ui = mock.Mock(update_release={'version': '0.4.0'}, updating=False,
+                       coop_busy=True, installing=False, process=None)
+        with mock.patch.object(launcher.threading, 'Thread') as thread:
+            launcher.Launcher.coop_install_update(ui)
+            thread.assert_not_called()
+        self.assertFalse(ui.updating)
+
+        ui.updating = True
+        with mock.patch.object(launcher, 'COOP_INSTALL', True):
+            launcher.Launcher.play(ui)
+        ui.play_coop.assert_not_called()
+
+    def test_update_worker_recovers_from_download_and_backup_failures(self):
+        import bbport_launcher_win as launcher
+
+        for operation, error in (('download_update', http.client.IncompleteRead(b'')),
+                                 ('back_up_saves', OSError('disk full'))):
+            with self.subTest(operation=operation):
+                ui = mock.Mock(update_release={'version': '0.4.0'}, updating=False,
+                               coop_busy=False, installing=False, process=None)
+                with mock.patch.object(launcher.threading, 'Thread', side_effect=lambda target, **_: mock.Mock(
+                        start=target)), mock.patch.multiple(coop, download_update=mock.DEFAULT,
+                                                            back_up_saves=mock.DEFAULT,
+                                                            stop_servers=mock.DEFAULT) as calls:
+                    calls[operation].side_effect = error
+                    launcher.Launcher.coop_install_update(ui)
+                calls['stop_servers'].assert_not_called()
+                ui.ui_calls.put.assert_called_once()
+                ui.ui_calls.put.call_args.args[0]()
+                ui.coop_update_failed.assert_called_once_with(error)
+                ui.coop_run_setup.assert_not_called()
 
     def test_the_sum_file_is_read_as_the_release_writes_it(self):
         digest = 'ab' * 32

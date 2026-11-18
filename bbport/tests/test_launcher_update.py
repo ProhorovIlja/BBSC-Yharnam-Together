@@ -146,6 +146,7 @@ class CheckTests(unittest.TestCase):
             app={'beta_versions': beta}, ui_calls=queue.Queue(), offer_update=lambda *release: offers.append(release),
             messagebox=types.SimpleNamespace(showerror=lambda *a: errors.append(a), showinfo=lambda *a: infos.append(a)))
         with mock.patch.object(launcher, 'VERSION', running), mock.patch.object(launcher, 'COOP_TEST', coop), \
+                mock.patch.object(launcher, 'LANG', 'en'), \
                 mock.patch.object(launcher, 'fetch_update_release', side_effect=body if isinstance(body, Exception) else None,
                                   return_value=None if isinstance(body, Exception) else body):
             launcher.Launcher.check_update(window, manual)

@@ -15,6 +15,7 @@ so a packaged port needs no Python installation.
 """
 import collections
 import ctypes
+import http.client
 import json
 import math
 import os
@@ -1738,6 +1739,7 @@ class Motion:
         self.root, self.tcl_error, self.enabled = root, tcl_error, enabled
         self.tweens, self.loops, self.job = {}, {}, None
         self.fine_timer = False
+        self.paused = False
         if enabled:  # 1 ms timer resolution for this process: Tk's after() is 15.6 ms otherwise
             try:
                 ctypes.windll.winmm.timeBeginPeriod(1)
@@ -1786,6 +1788,9 @@ class Motion:
 
     def tick(self):
         self.job = None
+        if self.paused:
+            self.job = self.root.after(32, self.tick)
+            return
         began = time.perf_counter()
         for key, entry in list(self.tweens.items()):
             if self.tweens.get(key) is not entry:
@@ -2471,7 +2476,8 @@ class CaptionButton(Widget):
 
 
 class WindowChrome:
-    """The launcher draws its own title bar (Kaniel 2026-10-16: no Windows caption buttons). The window is
+    """Windows normally owns the title bar and resize border. With BB_LAUNCHER_CUSTOM_CHROME=1,
+    the launcher draws its own title bar (Kaniel 2026-10-16: no Windows caption buttons). The window is
     Tk's override-redirect kind (no frame at all, so Tk's sizes stay right; taking the caption style bits off
     a framed window left Tk computing its size with the old borders), given back its taskbar button and
     Alt+Tab with WS_EX_APPWINDOW. The launcher moves the window itself while the button is held (handing
@@ -2483,7 +2489,8 @@ class WindowChrome:
 
     def __init__(self, ui):
         self.ui, self.root = ui, ui.root
-        self.enabled = sys.platform == 'win32'
+        self.native_frame = sys.platform == 'win32' and os.environ.get('BB_LAUNCHER_CUSTOM_CHROME') != '1'
+        self.enabled = sys.platform == 'win32' and not self.native_frame
         self.applied, self.restore, self.sizing, self.grab = False, None, None, None
 
     def hwnd(self):
@@ -2516,11 +2523,11 @@ class WindowChrome:
     def drag(self, event):
         """A press on the title bar (or the empty top of the side column, or around the co-op settings):
         the window follows the pointer while the button is held (drag_move, bound beside it)."""
-        self.grab = None
-        self.native_grab = None
-        if self.restore:
+        self.drag_end()
+        if self.native_frame or self.restore:
             return
         self.grab = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
+        self.ui.motion.paused = True
         if self.applied and sys.platform == 'win32':
             try:
                 from ctypes.wintypes import POINT, RECT
@@ -2545,6 +2552,7 @@ class WindowChrome:
 
     def drag_end(self, _event=None):
         self.grab = self.native_grab = None
+        self.ui.motion.paused = False
 
     def bind_drag(self, widget):
         widget.bind('<ButtonPress-1>', self.drag, add='+')
@@ -3029,10 +3037,11 @@ class Launcher:
         if COOP_INSTALL:
             self.coop_offer_public()
         root.protocol('WM_DELETE_WINDOW', self.close)
-        root.after(100, self.drain_output)
-        root.after(30, self.start_motion)
+        root.bind('<Destroy>', self.cancel_window_polls, add='+')
+        self.output_poll = root.after(100, self.drain_output)
+        self.motion_start = root.after(30, self.start_motion)
         if COOP_INSTALL:
-            root.after(500, self.coop_watch_server)
+            self.server_poll = root.after(500, self.coop_watch_server)
         threading.Thread(target=self.detect_gpu, daemon=True).start()
         if self.app.get('check_updates', True) and not COOP_TEST:
             threading.Thread(target=self.check_update, daemon=True).start()
@@ -3291,6 +3300,8 @@ class Launcher:
 
     def pointer_moved(self, event):
         """Lights the card under the pointer (border eases to the accent and back)."""
+        if self.chrome.grab is not None:
+            return
         widget, hot = event.widget, None
         while widget is not None and not isinstance(widget, str):
             if widget in self.cards:
@@ -3459,19 +3470,19 @@ class Launcher:
         self.side.canvas.pack(side='left', fill='y')
         main = tk.Frame(root, bg=PANEL)
         main.pack(side='left', fill='both', expand=True)
-        self.build_footer(main)
-        # The launcher's own title bar (no Windows caption): a strip to drag by, and the window buttons.
         self.chrome = WindowChrome(self)
-        top = tk.Frame(main, bg=PANEL, height=px(34))
-        top.pack(side='top', fill='x')
-        top.pack_propagate(False)
+        self.build_footer(main)
         self.caption_buttons = {}
-        for kind, command in (('close', self.close), ('max', self.chrome.toggle_zoom), ('min', self.chrome.minimize)):
-            self.caption_buttons[kind] = CaptionButton(self, top, kind, command)
-            self.caption_buttons[kind].pack(side='right')
-        self.chrome.bind_drag(top)
-        top.bind('<Double-Button-1>', self.chrome.toggle_zoom)
-        root.bind('<Alt-F4>', lambda _e: self.close())  # no system menu to do it without a caption
+        if not self.chrome.native_frame:
+            top = tk.Frame(main, bg=PANEL, height=px(34))
+            top.pack(side='top', fill='x')
+            top.pack_propagate(False)
+            for kind, command in (('close', self.close), ('max', self.chrome.toggle_zoom), ('min', self.chrome.minimize)):
+                self.caption_buttons[kind] = CaptionButton(self, top, kind, command)
+                self.caption_buttons[kind].pack(side='right')
+            self.chrome.bind_drag(top)
+            top.bind('<Double-Button-1>', self.chrome.toggle_zoom)
+            root.bind('<Alt-F4>', lambda _e: self.close())  # no system menu to do it without a caption
         self.subtabs = SubTabs(self, main, self.settings_tabs, self.show)
         self.content = tk.Frame(main, bg=PANEL)
         self.content.pack(side='top', fill='both', expand=True)
@@ -3511,18 +3522,18 @@ class Launcher:
         self.refresh_status()
         threading.Thread(target=self.load_news, daemon=True).start()
         if COOP_INSTALL:
-            self.root.after(1000, self.poll_seamless_hunt_count)
+            self.count_poll = self.root.after(1000, self.poll_seamless_hunt_count)
 
     def poll_seamless_hunt_count(self):
         """Public site snapshot only; never send account information or block Tk."""
         if self.root.state() in ('iconic', 'withdrawn'):
-            self.root.after(30000, self.poll_seamless_hunt_count)
+            self.count_poll = self.root.after(30000, self.poll_seamless_hunt_count)
             return
 
         def show(count):
             value = '—' if count is None else str(count)
             self.side.canvas.itemconfigure(self.side.online_count, text=f'Seamless Hunt: {value} Hunters online')
-            self.root.after(30000 if count is not None else 60000, self.poll_seamless_hunt_count)
+            self.count_poll = self.root.after(30000 if count is not None else 60000, self.poll_seamless_hunt_count)
 
         def fetch():
             from datetime import datetime, timezone
@@ -3596,6 +3607,8 @@ class Launcher:
         self.status = tk.Label(line, text='', bg=BG, fg=MUTED, font=self.fonts['small'], anchor='w', justify='left')
         self.status.pack(side='left')
         self.footer = footer
+        if self.chrome.native_frame:
+            return
         grip = tk.Canvas(footer, width=px(14), height=px(14), bg=BG, highlightthickness=0, bd=0, cursor='size_nw_se' if sys.platform == 'win32' else 'bottom_right_corner')
         for i in range(3):
             for j in range(i + 1):
@@ -3608,8 +3621,9 @@ class Launcher:
         """First frame is up: fade the window in, write the title, start the moon and the embers."""
         self.root.update_idletasks()
         self.chrome.apply()
-        self.grip.bind('<ButtonPress-1>', self.chrome.resize_start)
-        self.grip.bind('<B1-Motion>', self.chrome.resize_move)
+        if not self.chrome.native_frame:
+            self.grip.bind('<ButtonPress-1>', self.chrome.resize_start)
+            self.grip.bind('<B1-Motion>', self.chrome.resize_move)
         self.side.flush()
         if self.motion.enabled:
             self.side.set_reveal(0.0)
@@ -4938,12 +4952,7 @@ class Launcher:
     def coop_browse(self):
         chosen = self.filedialog.askdirectory(title=_('Choose your Bloodborne folder', 'Выберите папку Bloodborne'),
                                               initialdir=self.coop.get('game') or str(PORT_DIR))
-        if not chosen:
-            return
-        found = bbport_coop.find_game_folder(chosen)
-        if found:
-            self.coop_vars['game'].set(str(found))
-        else:
+        if chosen:
             self.coop_search(chosen)
 
     def coop_search(self, near, quiet=False):
@@ -4951,11 +4960,14 @@ class Launcher:
         install, in the usual folders and on the drives."""
         self.coop_game_line.set(_('Looking for Bloodborne on this PC…', 'Поиск Bloodborne на этом ПК…'), busy=True)
         self.coop_searching = True
+        request = self.coop_search_request = object()
 
         def work():
             found = bbport_coop.search_game(PORT_DIR, near=near)
 
             def done():
+                if self.coop_search_request is not request:
+                    return
                 self.coop_searching = False
                 if found:
                     self.coop_vars['game'].set(str(found))
@@ -5182,7 +5194,7 @@ class Launcher:
         if not self.server_checking and not self.server_starting:
             self.server_checking = True
             threading.Thread(target=self.coop_check_server, daemon=True).start()
-        self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
+        self.server_poll = self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
 
     def coop_check_server(self):
         try:
@@ -6504,7 +6516,7 @@ class Launcher:
 
     # ---- game process ------------------------------------------------------------------------
     def play(self):
-        if self.process or self.installing:
+        if self.process or self.installing or self.updating:
             return
         if COOP_INSTALL:
             self.play_coop()
@@ -6573,10 +6585,19 @@ class Launcher:
             self.output.put((code,))  # the window learns the game ended whatever went wrong above
 
     def drain_output(self):
-        while not self.ui_calls.empty():
-            self.ui_calls.get_nowait()()
+        if getattr(getattr(self, 'chrome', None), 'grab', None) is not None:
+            self.output_poll = self.root.after(32, self.drain_output)
+            return
+        began = time.perf_counter()
+        try:
+            while time.perf_counter() - began < 0.003:
+                self.ui_calls.get_nowait()()
+        except queue.Empty:
+            pass
         try:
             for _i in range(500):
+                if _i and time.perf_counter() - began >= 0.006:
+                    break
                 item = self.output.get_nowait()
                 if isinstance(item, tuple):
                     self.append(_('\n— the game exited (code {}) —\n', '\n— игра завершилась (код {}) —\n').format(item[0]))
@@ -6605,7 +6626,8 @@ class Launcher:
                     self.append(item)
         except queue.Empty:
             pass
-        self.root.after(100, self.drain_output)
+        delay = 16 if not self.ui_calls.empty() or not self.output.empty() else 100
+        self.output_poll = self.root.after(delay, self.drain_output)
 
     def stop(self):
         if self.installing:  # Stop also ends a package installation
@@ -7117,7 +7139,7 @@ class Launcher:
         try:
             release = bbport_coop.update_offer(current, bbport_coop.fetch_newest_release())
             failure = None
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, http.client.HTTPException) as error:
             release, failure = None, error
 
         def show():
@@ -7145,7 +7167,8 @@ class Launcher:
                 release['version']), fg=GOLD)
             if manual:
                 self.status.configure(text=self.update_line.cget('text'), fg=GOLD)
-            if auto and self.var('auto_update', 'app').get() and not self.process:
+            if auto and self.var('auto_update', 'app').get() and not (
+                    self.process or self.coop_busy or self.installing):
                 self.coop_install_update()
         self.ui_calls.put(show)
 
@@ -7153,7 +7176,7 @@ class Launcher:
         """Downloads the release's setup, checks its SHA-256, stops this install's servers, runs the setup
         silently into this folder (it keeps user\\ and starts the launcher again) and closes the launcher."""
         release = getattr(self, 'update_release', None)
-        if not release or self.updating:
+        if not release or self.updating or self.coop_busy or self.installing:
             return
         if self.process:
             self.status.configure(text=_('Close the game first: the update replaces its files.',
@@ -7180,17 +7203,12 @@ class Launcher:
             try:
                 setup = bbport_coop.download_update(release, Path(tempfile.gettempdir()) / 'bloodborne-coop-update',
                                                     progress)
+                # Preserve a verified copy of the saves before changing the install.
+                bbport_coop.back_up_saves(PORT_DIR, 'before an update', prune=False)
                 bbport_coop.stop_servers(PORT_DIR)
-            except (OSError, ValueError) as error:
+            except (OSError, ValueError, http.client.HTTPException) as error:
                 self.ui_calls.put(lambda failure=error: self.coop_update_failed(failure))
                 return
-            # the saves as they are, in the Restore saves list, before a setup writes over the install
-            # (red, 2026-11-06: "I updated with the installer and lost our save files"); a backup that
-            # cannot be written (a full disk) does not stop the update, which leaves the saves alone
-            try:
-                bbport_coop.back_up_saves(PORT_DIR, 'before an update', prune=False)
-            except OSError:
-                pass
             self.ui_calls.put(lambda: self.coop_run_setup(setup))
         threading.Thread(target=work, daemon=True).start()
 
@@ -7403,6 +7421,14 @@ class Launcher:
             bbport_coop.stop_servers_later(PORT_DIR, stop_servers_command())
         except Exception:  # never keep the window open over it
             pass
+
+    def cancel_window_polls(self, event):
+        # Close-on-PLAY destroys the root directly. Ignore child widgets' destroy events.
+        if event.widget is self.root:
+            for name in ('output_poll', 'motion_start', 'server_poll', 'count_poll'):
+                job = getattr(self, name, None)
+                if job is not None:
+                    self.root.after_cancel(job)
 
     def close(self):
         self.coop_release_server()

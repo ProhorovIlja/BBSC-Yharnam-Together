@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 
@@ -13,6 +14,11 @@ if sys.platform in ('win32', 'linux'):
 
 @unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
 class DlssFilesHintTests(unittest.TestCase):
+    def setUp(self):
+        language = mock.patch.object(launcher, 'LANG', 'en')
+        language.start()
+        self.addCleanup(language.stop)
+
     def install(self, files):
         root = Path(tempfile.mkdtemp())
         (root / 'bin').mkdir()

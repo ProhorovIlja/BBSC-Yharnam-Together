@@ -51,6 +51,12 @@ class LocalBuildTests(unittest.TestCase):
                             + fingerprint + "\n", encoding="utf-8")
         self.assertEqual(local_build_fingerprint(self.log, self.server, 0), fingerprint)
 
+    def test_reads_container_build_with_no_git_revision(self):
+        fingerprint = "bb-build 1;version=dev;revision=;protocol=9;"
+        self.log.write_text("Link: games must run this server's build: " + fingerprint + "\n",
+                            encoding="utf-8")
+        self.assertEqual(local_build_fingerprint(self.log, self.server, 0), fingerprint)
+
     def test_missing_disabled_and_malformed_build_fail_closed(self):
         for line in ("", "Link: this server's build is not checked",
                      "Link: games must run this server's build: bbload",

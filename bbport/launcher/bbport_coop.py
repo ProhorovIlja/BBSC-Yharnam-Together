@@ -724,7 +724,16 @@ def save_settings(install, settings):
         saved['server_ids'] = settings['server_ids']
     if settings.get('server_keys'):
         saved['server_keys'] = settings['server_keys']
-    path.write_text(json.dumps(saved, indent=2) + '\n', encoding='utf-8')
+    pending = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                         prefix='.coop-', suffix='.tmp', delete=False) as out:
+            pending = Path(out.name)
+            out.write(json.dumps(saved, indent=2) + '\n')
+        os.replace(pending, path)
+    finally:
+        if pending is not None:
+            pending.unlink(missing_ok=True)
 
 
 # --- the game ---------------------------------------------------------------------------------
@@ -777,31 +786,41 @@ def untested_warning(title):
 
 
 def is_game_folder(folder):
-    return (Path(folder) / 'eboot.bin').is_file()
+    try:
+        return (Path(folder) / 'eboot.bin').is_file()
+    except OSError:
+        return False
 
 
 def is_bloodborne(folder):
+    if not is_game_folder(folder):
+        return False
     version = game_version(folder)
-    return is_game_folder(folder) and (version is None or version[0] in TITLE_IDS or not version[0])
+    return version is None or version[0] in TITLE_IDS or not version[0]
 
 
-def find_game_folder(folder, depth=3):
+def find_game_folder(folder, depth=3, *, matches=is_game_folder, deadline=None):
     """The game folder (the one with eboot.bin) at or inside `folder`, not an update or mods one."""
     folder = Path(folder)
-    if not folder.is_dir():
-        return None
-    if is_game_folder(folder):
-        return folder
-    if depth <= 0:
+    if deadline is not None and time.monotonic() >= deadline:
         return None
     try:
-        children = sorted((entry for entry in folder.iterdir() if entry.is_dir()), key=lambda p: p.name.lower())
+        if not folder.is_dir():
+            return None
+        if matches(folder):
+            return folder
+        if depth <= 0:
+            return None
+        children = sorted(folder.iterdir(), key=lambda p: p.name.lower())
     except OSError:
         return None
     for child in children:
-        if child.name.lower().endswith(('-patch', '-mods')):
+        if deadline is not None and time.monotonic() >= deadline:
+            break
+        name = child.name.lower()
+        if name == 'coop-game' or name.endswith(('-patch', '-mods')):
             continue
-        found = find_game_folder(child, depth - 1)
+        found = find_game_folder(child, depth - 1, matches=matches, deadline=deadline)
         if found:
             return found
     return None
@@ -841,24 +860,24 @@ def search_game(install, drives=None, homes=None, depth=5, budget_s=20.0, near=N
     first = []
     if near:
         near = Path(near)
-        first += [near, near.parent]
-    first.append(install / 'game')
+        first += [(near, 3), (near.parent, 2)]
+    first.append((install / 'game', 2))
     # Beside the install, unless that is a folder of many programs: installed per user, the parents
     # are %LOCALAPPDATA%\Programs and %LOCALAPPDATA% (thousands of folders, walked with no time
     # limit while the launcher waited).
     # A drive's root is left to the timed search below (the setup's default is D:\Games\Yharnam Together).
     for folder in (install.parent, install.parent.parent):
         if folder.name.lower() not in CROWDED and folder.parent != folder:
-            first.append(folder)
-    for folder in first:
-        found = find_game_folder(folder, 2) if folder and Path(folder).is_dir() else None
-        if found and is_bloodborne(found):
+            first.append((folder, 2))
+    for folder, nearby_depth in first:
+        found = find_game_folder(folder, nearby_depth, matches=is_bloodborne, deadline=deadline)
+        if found:
             return found
     queue = collections.deque((Path(root), 0) for root in [*homes, *drives])
     seen = set()
     while queue and time.monotonic() < deadline:
         folder, level = queue.popleft()
-        key = str(folder).lower()
+        key = os.path.normcase(str(folder))
         if key in seen:
             continue
         seen.add(key)
@@ -2145,7 +2164,7 @@ def allow_through_firewall(install, host):
 # .sha256; the update downloads both, checks the file against the sum, and runs the setup silently
 # into this install (it keeps user\), which starts the launcher again when it is done.
 # By repository id, not owner/name: the id survives a rename of the owner.
-RELEASES_API = 'https://api.github.com/repositories/1405692683/releases?per_page=100'  # every one: Home's notes
+RELEASES_API = 'https://api.github.com/repositories/1450213757/releases?per_page=100'  # every one: Home's notes
 SETUP_SUFFIX = '-setup.exe'
 
 
@@ -2172,14 +2191,19 @@ def newest_release(releases):
         version = release['tag_name'].lstrip('v')
         if not version_key(version)[0]:
             continue
-        assets = {asset.get('name'): asset.get('browser_download_url') for asset in release.get('assets') or []
-                  if isinstance(asset, dict) and isinstance(asset.get('name'), str)}
-        setup = next((name for name in assets if name.endswith(SETUP_SUFFIX)), None)
-        if not setup or not assets.get(setup + '.sha256'):
+        entries = release.get('assets')
+        if not isinstance(entries, list):
+            continue
+        assets = {asset['name']: asset['browser_download_url'] for asset in entries
+                  if isinstance(asset, dict) and isinstance(asset.get('name'), str)
+                  and isinstance(asset.get('browser_download_url'), str) and asset['browser_download_url']}
+        setup = next((name for name in assets if name.endswith(SETUP_SUFFIX) and name + '.sha256' in assets), None)
+        if setup is None:
             continue
         if best is None or version_key(version) > version_key(best['version']):
+            notes = release.get('body')
             best = {'version': version, 'setup': assets[setup], 'sha256': assets[setup + '.sha256'],
-                    'page': release.get('html_url') or '', 'notes': (release.get('body') or '')[:2000],
+                    'page': release.get('html_url') or '', 'notes': notes[:2000] if isinstance(notes, str) else '',
                     'name': setup}
     return best
 

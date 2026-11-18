@@ -2,8 +2,10 @@
 card does not redo the game lookup, the status and the banner art for every key, and with no game
 folder set nothing walks the folder the launcher runs from (the install folder: PyInstaller's
 _internal and the player's files)."""
+import queue
 import sys
 import time
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -34,7 +36,8 @@ class CoopCardTypingTests(unittest.TestCase):
             return real_find(folder, depth)
 
         for patch in (mock.patch.dict(launcher.os.environ, {'BB_CONFIG': str(scratch / 'bbport.ini'),
-                                                            'BB_LAUNCHER_ANIMATIONS': '0'}),
+                                                            'BB_LAUNCHER_ANIMATIONS': '0',
+                                                            'BB_LAUNCHER_CUSTOM_CHROME': '0'}),
                       mock.patch.object(launcher, 'CONFIG_FILE', scratch / 'config' / 'settings.json'),
                       mock.patch.object(launcher, 'CONFIG_DIR', scratch / 'config'),
                       mock.patch.object(launcher, 'DATA_DIR', scratch),
@@ -84,6 +87,13 @@ class CoopCardTypingTests(unittest.TestCase):
         self.assertNotIn('.', [str(folder) for folder in self.looked_in])
         self.assertIsNone(self.app.coop_game_info())
 
+    def test_windows_owns_title_bar_and_resize_border_by_default(self):
+        self.assertTrue(self.app.chrome.native_frame)
+        self.assertFalse(self.root.overrideredirect())
+        self.assertEqual(self.app.caption_buttons, {})
+        self.assertFalse(hasattr(self.app, 'grip'))
+        self.assertEqual(self.root.resizable(), (1, 1))
+
 
 class FakeRoot:
     """What Motion asks of the Tk root: a window shown, focused or not."""
@@ -126,6 +136,44 @@ class AnimationTests(unittest.TestCase):
         frames, delay = self.ticks(focused=False)
         self.assertEqual(frames, [])
         self.assertGreaterEqual(delay, 300)
+
+    def test_drag_pauses_animation_until_release(self):
+        root, frames = FakeRoot(True), []
+        motion = launcher.Motion(root, Exception, True)
+        try:
+            motion.loop('embers', 33, frames.append)
+            motion.paused = True
+            motion.tick()
+            self.assertEqual(frames, [])
+            motion.paused = False
+            motion.tick()
+            self.assertEqual(len(frames), 1)
+        finally:
+            motion.close()
+
+    def test_drag_defers_queued_ui_work_until_release(self):
+        callback = mock.Mock()
+        window = types.SimpleNamespace(chrome=types.SimpleNamespace(grab=(1, 2)), ui_calls=queue.Queue(),
+                                       output=queue.Queue(), root=mock.Mock(), drain_output=mock.Mock())
+        window.ui_calls.put(callback)
+        launcher.Launcher.drain_output(window)
+        callback.assert_not_called()
+        window.chrome.grab = None
+        launcher.Launcher.drain_output(window)
+        callback.assert_called_once_with()
+
+    def test_callback_backlog_yields_to_window_events(self):
+        window = types.SimpleNamespace(ui_calls=queue.Queue(), output=queue.Queue(),
+                                       root=mock.Mock(), drain_output=mock.Mock())
+        callbacks = [mock.Mock(), mock.Mock()]
+        for callback in callbacks:
+            window.ui_calls.put(callback)
+        # Starting time, first callback allowed, then its work consumes the whole slice.
+        with mock.patch.object(launcher.time, 'perf_counter', side_effect=[1.0, 1.0, 1.007]):
+            launcher.Launcher.drain_output(window)
+        callbacks[0].assert_called_once_with()
+        callbacks[1].assert_not_called()
+        window.root.after.assert_called_once_with(16, window.drain_output)
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
