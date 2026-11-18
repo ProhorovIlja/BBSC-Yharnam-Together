@@ -7,6 +7,9 @@ mod theme;
 mod game;
 
 #[cfg(windows)]
+mod saves;
+
+#[cfg(windows)]
 mod preview {
     use std::env;
     use std::ffi::{OsStr, OsString};
@@ -26,6 +29,7 @@ mod preview {
     const OPEN: usize = 100;
     const PLAY: usize = 101;
     const BROWSE: usize = 102;
+    const BACKUP: usize = 103;
     const GAME_CHECKED: u32 = WM_APP + 1;
     static LAUNCHER: OnceLock<PathBuf> = OnceLock::new();
     static GAME_STATUS: Mutex<(u64, String)> = Mutex::new((0, String::new()));
@@ -43,7 +47,12 @@ mod preview {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Expected --launcher followed by a full path to BLauncher.exe."));
         }
         match (args.next(), args.next()) {
-            (Some(path), None) if PathBuf::from(&path).is_absolute() => Ok(Some(path.into())),
+            (Some(path), None)
+                if std::path::Path::new(&path).is_absolute()
+                    && std::path::Path::new(&path).file_name().is_some() =>
+            {
+                Ok(Some(path.into()))
+            }
             _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Supply a full path to BLauncher.exe.")),
         }
     }
@@ -79,19 +88,22 @@ mod preview {
         }
         let length = selected.iter().position(|&unit| unit == 0).unwrap_or(selected.len());
         let eboot = PathBuf::from(OsString::from_wide(&selected[..length]));
+        run_operation(hwnd, "Checking game files…", move || {
+            super::game::Game::inspect(&eboot).map(|game| game.summary())
+        });
+    }
+
+    unsafe fn run_operation(hwnd: HWND, pending: &str, work: impl FnOnce() -> io::Result<String> + Send + 'static) {
         let mut state = GAME_STATUS.lock().unwrap();
         state.0 += 1;
-        state.1 = "Checking game files…".into();
+        state.1 = pending.into();
         let request = state.0;
         drop(state);
         InvalidateRect(hwnd, std::ptr::null(), 0);
 
         let target = hwnd as usize;
         std::thread::spawn(move || {
-            let summary = match super::game::Game::inspect(&eboot) {
-                Ok(game) => game.summary(),
-                Err(error) => error.to_string(),
-            };
+            let summary = work().unwrap_or_else(|error| error.to_string());
             let mut state = GAME_STATUS.lock().unwrap();
             if state.0 == request {
                 state.1 = summary;
@@ -119,10 +131,11 @@ mod preview {
                 bounds.ptMinTrackSize.y = 515;
                 0
             }
-            WM_DRAWITEM if matches!(wparam, OPEN | PLAY | BROWSE) => {
+            WM_DRAWITEM if matches!(wparam, OPEN | PLAY | BROWSE | BACKUP) => {
                 let label = match wparam {
                     PLAY => "PLAY",
                     BROWSE => "Browse game files…",
+                    BACKUP => "Back up saves",
                     _ => "Settings",
                 };
                 super::theme::paint_button(&*(lparam as *const DRAWITEMSTRUCT), label, wparam == PLAY);
@@ -130,6 +143,18 @@ mod preview {
             }
             WM_COMMAND if wparam == BROWSE => {
                 browse_game(hwnd);
+                0
+            }
+            WM_COMMAND if wparam == BACKUP && LAUNCHER.get().is_some() => {
+                let install = LAUNCHER.get().unwrap().parent().unwrap();
+                run_operation(hwnd, "Backing up saves…", move || {
+                    use super::saves::Backup;
+                    match super::saves::backup(install)? {
+                        Backup::Empty => Ok("No saves found in the attached installation.".into()),
+                        Backup::Unchanged => Ok("The latest backup already matches these saves.".into()),
+                        Backup::Created(path) => Ok(format!("Save backup created: {}", path.display())),
+                    }
+                });
                 0
             }
             WM_COMMAND if matches!(wparam, OPEN | PLAY) && LAUNCHER.get().is_some() => {
@@ -180,6 +205,7 @@ mod preview {
             }
             for (text, id, x, y, width) in [
                 ("Settings (existing launcher)", OPEN, 15, 193, 203),
+                ("Back up saves", BACKUP, 15, 243, 203),
                 ("Play with saved settings", PLAY, 264, 352, 160),
                 ("Browse game files", BROWSE, 440, 352, 184),
             ] {

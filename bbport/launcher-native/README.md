@@ -18,3 +18,8 @@ To enable the two buttons, run the preview with
 `--launcher "C:\Games\Yharnam Together\BLauncher.exe"`, using the full path to your installed
 launcher. **Settings** opens its UI. **PLAY** calls its existing
 `--play` entry point. These actions behave like running the installed launcher directly.
+
+**Back up saves** snapshots the attached installation's `user/savedata`, per-profile saves,
+and party records on a worker thread. The backup uses the existing launcher's timestamped
+`user/save-backups` layout and can be selected in its restore UI. Close the game before backing
+up. The preview does not restore or prune backups.
