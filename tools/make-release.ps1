@@ -88,6 +88,14 @@ Write-Host "  $tag from $commit$(if ($dirty) { ' (with uncommitted changes)' })"
 if ($dirty -and -not $AllowDirty) { throw "The checkout has uncommitted changes: commit them, or pass -AllowDirty for a test build." }
 if ($dirty -and $Publish) { throw "Only a committed (and pushed) tree can be published." }
 
+# The packaged launcher uses event-reference.json to recognize a co-op install.
+if (-not $GameDir) { $GameDir = Join-Path $env:BB_ROOT "rig\port\game\CUSA03173" }
+$gameEvents = Join-Path $GameDir "dvdroot_ps4\event"
+$hasGameEvents = Test-Path -LiteralPath (Join-Path $gameEvents "common.emevd.dcx") -PathType Leaf
+if ($Publish -and -not $hasGameEvents) {
+    throw "Supply the Bloodborne 1.09 game directory with -GameDir. Publishing requires the event-reference hashes."
+}
+
 if (($LinuxServer -or $Publish) -and -not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "Building the Linux server archive requires Docker with a Linux container engine."
 }
@@ -249,9 +257,7 @@ Copy-Item (Join-Path $root "backend\*.py"), (Join-Path $root "backend\ss_info_te
 Write-Utf8 (Join-Path $backend "notice.txt") ""
 
 # The event files this release is tested with, as hashes only: setup compares each player's own.
-if (-not $GameDir) { $GameDir = Join-Path $env:BB_ROOT "rig\port\game\CUSA03173" }
-$gameEvents = Join-Path $GameDir "dvdroot_ps4\event"
-if (Test-Path (Join-Path $gameEvents "common.emevd.dcx")) {
+if ($hasGameEvents) {
     $made = Join-Path $Out "event-check"
     if (Test-Path $made) { Remove-Item -Recurse -Force $made }
     $log = Join-Path $Out "event-check.log"
@@ -268,6 +274,7 @@ if (Test-Path (Join-Path $gameEvents "common.emevd.dcx")) {
     foreach ($file in $manifest.files.PSObject.Properties | Sort-Object Name) {
         $files[$file.Name] = [ordered]@{ input_sha256 = $file.Value.input_sha256; output_sha256 = $file.Value.output_sha256 }
     }
+    if ($files.Count -eq 0) { throw "The event patcher returned no reference hashes." }
     Write-Utf8 (Join-Path $release "event-reference.json") ((@{ files = $files } | ConvertTo-Json -Depth 4) + "`n")
     Remove-Item -Recurse -Force $made
     Write-Host "  event-reference.json: $($files.Count) event files from $gameEvents"
