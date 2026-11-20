@@ -96,11 +96,14 @@ private:
         ServerLink::Endpoint to;
         QTcpSocket* socket = nullptr;
         QPointer<QTcpSocket> draining; // one graceful close, until replacement or deletion
+        BloodborneCoop::RpcReadPause reply_pause;
+        bool backend_eof = false;
         QByteArray pending; // what came before the connection to the TCP port was up
     };
     void OnRpc(const ServerLink::Endpoint& from, const QByteArray& online_id,
                const QByteArray& body);
     void OpenRpc(const QByteArray& online_id, RpcEnd& end);
+    void PumpRpcReply(RpcEnd& end);
     void CloseRpc(RpcEnd& end, bool abort = false);
     void FlushRpc(RpcEnd& end);
 
