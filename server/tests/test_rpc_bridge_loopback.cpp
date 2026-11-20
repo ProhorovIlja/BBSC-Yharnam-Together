@@ -43,9 +43,8 @@ struct Peer {
 };
 
 Peer& Remote() {
-    // Same lifetime as the bridge's detached worker in this process.
-    static auto* peer = new Peer;
-    return *peer;
+    static Peer peer;
+    return peer;
 }
 
 u8 Pattern(size_t i) {
@@ -240,7 +239,12 @@ int main() {
     response = {fifth, POLLIN, 0};
     assert(poll(&response, 1, 4000) == 1);
     assert(recv(fifth, &byte, 1, 0) == 1 && byte == 0xAB);
+    Libraries::Net::StopRpcBridge();
+    response = {fifth, POLLIN, 0};
+    assert(poll(&response, 1, 1000) == 1);
+    assert(recv(fifth, &byte, 1, 0) == 0);
     close(fifth);
-    // Avoid destructors racing the intentionally process-lifetime worker.
-    _exit(0);
+    assert(Libraries::Net::StartRpcBridge() == 0);
+    Libraries::Net::StopRpcBridge();
+    return 0;
 }
