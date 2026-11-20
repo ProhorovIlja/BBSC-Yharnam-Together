@@ -271,13 +271,18 @@ int ClosedTunnelDoesNotDeliverData() {
   RpcTunnel game{"game", 7};
   RpcTunnel server{"shadnet", 9};
   server.Write(Bytes("before open"), 0);
+  CHECK(server.Unacked() == 0 && server.UnackedBytes() == 0);
   CHECK(Carry(server, game, 0).empty());
   game.Open(1);
   CHECK(Carry(game, server, 1).size() == 1);
   server.Write(Bytes("active"), 2);
   CHECK(Carry(server, game, 2) == (std::vector<Event>{{Event::Kind::Data, Bytes("active")}}));
   server.Close(3);
+  const auto close_bytes = server.UnackedBytes();
+  const auto close_frames = server.Unacked();
+  CHECK(close_bytes == 2 && close_frames == 1);
   server.Write(Bytes("after close"), 3);
+  CHECK(server.UnackedBytes() == close_bytes && server.Unacked() == close_frames);
   CHECK(Carry(server, game, 3) == (std::vector<Event>{{Event::Kind::Closed, {}}}));
   game.Open(4);
   CHECK(Carry(game, server, 4).size() == 1);

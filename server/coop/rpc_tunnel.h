@@ -44,6 +44,8 @@ public:
     // message above the receiver's per-message reassembly limit.
     static constexpr size_t MaxDataBytes = 16 * 1024;
     void Write(std::span<const u8> bytes, s64 now_ms) {
+        // A delayed local read must not consume reliable queue space after Close.
+        if (!open) return;
         while (!bytes.empty()) {
             const auto n = (std::min)(bytes.size(), MaxDataBytes);
             Put(Message::Data, bytes.first(n), now_ms);
