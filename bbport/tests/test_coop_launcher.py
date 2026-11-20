@@ -191,6 +191,27 @@ class PortableUpdateZipTests(unittest.TestCase):
             self.stage(['BLauncher.exe'])
 
 
+class CoopSettingsReadTests(unittest.TestCase):
+    def test_malformed_values_do_not_become_paths_or_credentials(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path = coop.settings_path(root)
+            path.parent.mkdir(parents=True)
+            saved = dict(game=['wrong'], update='bad\0path', host_ip={}, password=None,
+                         account='hunter', p2p_port=12345, confirmed=True, discord_show_area=False,
+                         global_name=None, discord_name='legacy')
+            path.write_text(json.dumps(saved), encoding='utf-8')
+            actual = coop.read_settings(root)
+            for key in ('game', 'update', 'host_ip', 'password'):
+                self.assertEqual(actual[key], coop.DEFAULTS[key])
+            self.assertEqual(actual['account'], 'hunter')
+            self.assertEqual(actual['p2p_port'], '12345')
+            self.assertEqual(actual['confirmed'], '1')
+            self.assertEqual(actual['discord_show_area'], '')
+            self.assertEqual(actual['global_name'], 'legacy')
+            self.assertEqual(json.loads(path.read_text(encoding='utf-8')), saved)
+
+
 def write_sfo(path, values):
     """A minimal PS4 param.sfo with text values (format 0x0204)."""
     keys, data, entries = b'', b'', []
