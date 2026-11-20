@@ -106,6 +106,21 @@ public:
                (stream == Traffic::PoseSnapshot || stream == Traffic::VisualEmote);
     }
 
+    // Dispatch a visual packet queued under this binding. A stale direct
+    // ticket may fall back only within the same authenticated binding. A
+    // changed endpoint/session needs an explicit reschedule by the caller.
+    [[nodiscard]] Route queued_visual_route(const PathBinding& peer, Traffic stream,
+                                            std::optional<std::uint64_t> ticket,
+                                            bool relay_ready, std::uint64_t now) {
+        if (!matches(peer) ||
+            (stream != Traffic::PoseSnapshot && stream != Traffic::VisualEmote))
+            return Route::Unavailable;
+        if (ticket && direct_send_current(peer, stream, *ticket, now))
+            return Route::Direct;
+        if (!ticket) (void)tick(now);
+        return relay_ready ? Route::Relay : Route::Unavailable;
+    }
+
     // Confirmed path failure, not an individual packet loss. A stale callback
     // cannot demote a newer proof, even if the peer and endpoint are unchanged.
     // Clear pending ACKs but keep consent and shared replay state.

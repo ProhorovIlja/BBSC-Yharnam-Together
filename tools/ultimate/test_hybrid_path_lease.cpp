@@ -197,5 +197,27 @@ int main() {
     queued.allow_direct(false);
     CHECK(!queued.direct_send_current(a, Traffic::PoseSnapshot, 3, 2009));
 
+    HybridPathLease dispatch;
+    CHECK(dispatch.bind(a, 1));
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, {}, true, 2) == Route::Relay);
+    dispatch.allow_direct(true);
+    CHECK(dispatch.challenge(a, 1, nonce, 3));
+    CHECK(dispatch.acknowledge(a, 1, nonce, 4));
+    const auto captured = dispatch.direct_ticket(5);
+    CHECK(captured);
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, captured, true, 6) == Route::Direct);
+    CHECK(dispatch.queued_visual_route(a, Traffic::WorldCommit, captured, true, 6) == Route::Unavailable);
+    CHECK(dispatch.queued_visual_route(a, Traffic::VisualEmote, {}, true, 6) == Route::Relay);
+    CHECK(dispatch.challenge(a, 2, other, 7));
+    CHECK(dispatch.acknowledge(a, 2, other, 8));
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, captured, true, 9) == Route::Relay);
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, captured, false, 9) == Route::Unavailable);
+    b = a; ++b.endpoint[0];
+    CHECK(dispatch.bind(b, 10));
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, captured, true, 11) == Route::Unavailable);
+    CHECK(dispatch.queued_visual_route(b, Traffic::PoseSnapshot, {}, true, 11) == Route::Relay);
+    dispatch.disconnect();
+    CHECK(dispatch.queued_visual_route(b, Traffic::PoseSnapshot, {}, true, 12) == Route::Unavailable);
+
     std::cout << checks << " hybrid path checks passed\n";
 }
