@@ -12,6 +12,7 @@
 class Fixture : public QObject {
 public:
     static constexpr int Burst = 180;
+    static constexpr qint64 Limit = 512;
     QUdpSocket receiver{this};
     QUdpSocket sender{this};
     ShadNetUdp::SocketDrain drain;
@@ -27,7 +28,7 @@ public:
     }
 
     void run() {
-        drain.Run(*this, receiver, [this](const QByteArray& raw, const QHostAddress& address, quint16 port) {
+        drain.Run(*this, receiver, Limit, [this](const QByteArray& raw, const QHostAddress& address, quint16 port) {
             CHECK(address == QHostAddress::LocalHost);
             CHECK(port == sender.localPort());
             CHECK(raw == (seen == 10 ? QByteArray{} : QByteArray::number(seen)));
@@ -57,8 +58,15 @@ int main(int argc, char** argv) {
     QObject::connect(&f.receiver, &QUdpSocket::readyRead, &f, [&] { f.run(); });
     // Fill the receive queue before any event is serviced: no extra arrivals
     // are needed to trigger the continuation.
-    for (int i = 0; i < Fixture::Burst; ++i)
+    for (int i = 0; i < Fixture::Burst; ++i) {
+        // Exercise rejection both within the first slice and after a yield.
+        if (i == 20 || i == 160) {
+            const QByteArray oversized(Fixture::Limit + 1, 'x');
+            CHECK(f.sender.writeDatagram(oversized, QHostAddress::LocalHost,
+                                          f.receiver.localPort()) == oversized.size());
+        }
         f.send(i);
+    }
     QTimer::singleShot(3000, &app, [&] { app.exit(2); });
     CHECK(app.exec() == 0);
     CHECK(f.seen == Fixture::Burst + 1 && f.slices >= 3);

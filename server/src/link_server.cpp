@@ -22,6 +22,7 @@
 #include "signed_accounts.h"
 
 namespace {
+constexpr qint64 HostedDatagramLimit = 16'384;
 
 // A new id while the region's directory does not answer (it cannot be claimed).
 const QByteArray DirectoryDown = "the region's directory does not answer: try again in a minute";
@@ -367,7 +368,7 @@ bool LinkServer::Start(const QHostAddress& addr, uint16_t port) {
 
 void LinkServer::OnReadyRead() {
     m_udpDrain.Run(
-        *this, *m_socket,
+        *this, *m_socket, m_hosted.enabled ? HostedDatagramLimit : 0,
         [this](const QByteArray& raw, const QHostAddress& sender, quint16 port) {
             // The games' link only (phase 9: no STUN, nothing else on this port).
             if (!raw.isEmpty() && ServerLink::KindOf(raw))
@@ -405,7 +406,7 @@ bool LinkServer::Admit(const QByteArray& datagram, ServerLink::Kind kind, quint3
     const qint64 now = m_clock.elapsed();
     // Game frames share 1200 bytes (coop/game_link.h); a large game packet goes alone, never this
     // big.
-    if (datagram.size() > 16384 || m_guard.Banned(address))
+    if (datagram.size() > HostedDatagramLimit || m_guard.Banned(address))
         return false;
     if (kind == ServerLink::Kind::Hello) {
         // Without a cookie of its source the hub only sends one back (no larger, nothing kept):
