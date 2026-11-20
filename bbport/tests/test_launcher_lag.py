@@ -186,6 +186,46 @@ class AnimationTests(unittest.TestCase):
         destroy(types.SimpleNamespace(widget=header))
         header.after_cancel.assert_called_once_with('paint')
 
+    def test_wrapped_labels_skip_identical_effective_widths(self):
+        label = mock.Mock()
+        app = types.SimpleNamespace(px=lambda n: n, label=mock.Mock(return_value=label))
+        self.assertIs(launcher.Launcher.flow(app, object(), 'News'), label)
+        configure = label.bind.call_args.args[1]
+        for width in range(1, 85):
+            configure(types.SimpleNamespace(width=width))
+        for _ in range(100):
+            configure(types.SimpleNamespace(width=640))
+        configure(types.SimpleNamespace(width=650))
+        self.assertEqual(label.configure.call_args_list, [
+            mock.call(wraplength=80), mock.call(wraplength=636), mock.call(wraplength=646),
+        ])
+
+    def test_rebuilt_banner_reuses_only_last_photo_for_same_art_and_size(self):
+        art = object()
+        photo = object()
+        app = types.SimpleNamespace(street_art=art, _street_photo_cache=None,
+                                    render_street_photo=mock.Mock(return_value=photo))
+        def banner(height):
+            header = mock.Mock(painted_width=0)
+            header.cget.return_value = str(height)
+            return header
+
+        old, rebuilt, taller, wider, back = (banner(h) for h in (180, 180, 190, 190, 190))
+        launcher.Launcher.paint_street(app, old, 640)
+        launcher.Launcher.paint_street(app, rebuilt, 640)
+        app.render_street_photo.assert_called_once_with(art, 640, 180)
+        rebuilt.itemconfigure.assert_called_once_with(rebuilt.picture, image=photo)
+        launcher.Launcher.paint_street(app, taller, 640)
+        launcher.Launcher.paint_street(app, wider, 650)
+        launcher.Launcher.paint_street(app, back, 640)
+        self.assertEqual(app.render_street_photo.call_args_list, [
+            mock.call(art, 640, 180), mock.call(art, 640, 190),
+            mock.call(art, 650, 190), mock.call(art, 640, 190),
+        ])
+        app.street_art = replacement = object()
+        launcher.Launcher.paint_street(app, banner(190), 640)
+        app.render_street_photo.assert_called_with(replacement, 640, 190)
+
     def test_scrolled_page_only_updates_layout_when_it_changes(self):
         outer, body, inner, canvas, bar = (mock.Mock() for _ in range(5))
         window = types.SimpleNamespace(

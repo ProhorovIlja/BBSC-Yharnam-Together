@@ -3788,7 +3788,16 @@ class Launcher:
     def flow(self, parent, text, style='body', fg=TEXT, bg=CARD):
         """A label that wraps at the width its parent gives it (it asks for no width of its own)."""
         label = self.label(parent, text, style, fg, bg=bg, justify='left', anchor='w', width=1)
-        label.bind('<Configure>', lambda e: label.configure(wraplength=max(self.px(80), e.width - self.px(4))))
+        wraplength = None
+
+        def wrap(event):
+            nonlocal wraplength
+            width = max(self.px(80), event.width - self.px(4))
+            if width != wraplength:
+                label.configure(wraplength=width)
+                wraplength = width
+
+        label.bind('<Configure>', wrap)
         return label
 
     # --- home: the website's news --------------------------------------------------------------
@@ -3797,6 +3806,7 @@ class Launcher:
         """The home page: the banner of news and patch notes from the website (news.json), its cards of
         information under it."""
         self.street_art = load_art('home-banner.jpg')
+        self._street_photo_cache = None
         page = self.scrolled_page('home', None, None)
         self.news_holder = self.tk.Frame(page, bg=PANEL)
         self.news_holder.pack(fill='both', expand=True)
@@ -3833,8 +3843,19 @@ class Launcher:
         into the card at its foot."""
         if width < 50 or getattr(header, 'painted_width', 0) == width:
             return
-        from PIL import Image, ImageTk
         art, height = self.street_art, int(header.cget('height'))
+        cached = self._street_photo_cache
+        # News rebuilds the canvas. Keep only the last rendered size, not a cache of resize steps.
+        if cached is None or cached[0] is not art or cached[1:3] != (width, height):
+            cached = (art, width, height, self.render_street_photo(art, width, height))
+            self._street_photo_cache = cached
+        header.image = cached[3]
+        header.itemconfigure(header.picture, image=header.image)
+        header.painted_width = width
+
+    @staticmethod
+    def render_street_photo(art, width, height):
+        from PIL import Image, ImageTk
         scale = max(width / art.width, height / art.height)
         size = (max(width, round(art.width * scale)), max(height, round(art.height * scale)))
         picture = art.resize(size, Image.Resampling.LANCZOS).crop((size[0] - width, (size[1] - height) // 2,
@@ -3842,9 +3863,7 @@ class Launcher:
         fade = Image.linear_gradient('L').resize((width, height)).point(lambda v: 0 if v < 170 else (v - 170) * 255 // 85)
         card = Image.new('RGBA', (width, height), tuple(int(CARD[i:i + 2], 16) for i in (1, 3, 5)) + (255,))
         picture = Image.composite(card, picture, fade)
-        header.image = ImageTk.PhotoImage(picture)
-        header.itemconfigure(header.picture, image=header.image)
-        header.painted_width = width
+        return ImageTk.PhotoImage(picture)
 
     def load_news(self):
         """Off the window's thread: the website's news.json and the releases' patch notes; kept for the next
