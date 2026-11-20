@@ -69,7 +69,10 @@ public:
         return {.message_bytes = 64 * 1024,
                 .chunk_bytes = CoopStream::ChunkBytes + 1,
                 .held_bytes = 256 * 1024,
-                .unreliable_channels = 16};
+                .unreliable_channels = 16,
+                // A missing first packet must not let later slices overflow
+                // the receiver's bounded out-of-order queue before it resends.
+                .max_reliable_in_flight = (256 * 1024) / (CoopStream::ChunkBytes + 1)};
     }
 
     // Keep room for the eventual Close even if the peer stops acknowledging data.
