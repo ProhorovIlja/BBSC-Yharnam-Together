@@ -55,6 +55,7 @@ int main(int argc, char** argv) {
     }
     std::ofstream(temp, std::ios::binary) << "stale";
     assert(!WriteLedger(path, "must not consume stale staging"));
+    assert(!WriteLedger(path, {})); // Clearing must not bypass the same staging guard.
     assert(ReadLedger(temp) == "stale" && read() == "second");
     assert(std::filesystem::remove(temp));
     std::filesystem::create_symlink(unrelated, temp, link_error);
