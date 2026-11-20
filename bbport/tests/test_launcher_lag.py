@@ -165,6 +165,38 @@ class ShortcutTests(unittest.TestCase):
             launcher.Launcher.shortcut(app)
             app.messagebox.showerror.assert_called_once()
 
+    def test_update_handover_requires_signalled_or_gone_process(self):
+        kernel = mock.Mock()
+        kernel.OpenProcess.return_value = 17
+        with mock.patch.object(launcher.ctypes, 'get_last_error', return_value=5) as last_error:
+            kernel.WaitForSingleObject.return_value = 0
+            launcher.wait_for_update_parent(123, kernel)
+            kernel.CloseHandle.assert_called_once_with(17)
+            kernel.CloseHandle.reset_mock()
+            kernel.WaitForSingleObject.return_value = 0x102
+            with self.assertRaises(TimeoutError):
+                launcher.wait_for_update_parent(123, kernel)
+            kernel.CloseHandle.assert_called_once_with(17)
+            kernel.WaitForSingleObject.return_value = 0xffffffff
+            with self.assertRaises(OSError):
+                launcher.wait_for_update_parent(123, kernel)
+            kernel.OpenProcess.return_value = None
+            with self.assertRaises(OSError):
+                launcher.wait_for_update_parent(123, kernel)
+            last_error.return_value = 87
+            launcher.wait_for_update_parent(123, kernel)
+            with self.assertRaises(ValueError):
+                launcher.wait_for_update_parent(0, kernel)
+
+        with (mock.patch.object(launcher, 'wait_for_update_parent', side_effect=TimeoutError('busy')),
+              mock.patch.object(launcher.shutil, 'copytree') as copy,
+              mock.patch.object(launcher.subprocess, 'Popen') as launch,
+              mock.patch.object(launcher, 'show_error_box') as show):
+            self.assertEqual(launcher.install_update('unused', '123'), 1)
+            show.assert_called_once_with('busy')
+            copy.assert_not_called()
+            launch.assert_not_called()
+
     def test_startup_settings_recover_from_wrong_json_shapes_and_types(self):
         import json
         import tempfile
