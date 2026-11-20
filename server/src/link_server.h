@@ -45,7 +45,8 @@ private slots:
 private:
     void LogFloods();
     // The games' link (co-op phase 2, server_link.h): relayed frames, hellos, pings.
-    void HandleLink(const QByteArray& datagram, const QHostAddress& sender, uint16_t senderPort);
+    void HandleLink(const QByteArray& datagram, ServerLink::Kind kind,
+                    const QHostAddress& sender, uint16_t senderPort);
     void Apply(const ServerLink::Hub::Result& result);
     void Apply(const BloodborneWorld::Service::Result& result);
     std::optional<ServerLink::SignInVerdict> SignIn(const QByteArray& online_id,

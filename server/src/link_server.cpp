@@ -374,8 +374,8 @@ void LinkServer::OnReadyRead() {
         *this, *m_socket, m_hosted.enabled ? HostedDatagramLimit : 0,
         [this](const QByteArray& raw, const QHostAddress& sender, quint16 port) {
             // The games' link only (phase 9: no STUN, nothing else on this port).
-            if (!raw.isEmpty() && ServerLink::KindOf(raw))
-                HandleLink(raw, sender, port);
+            if (const auto kind = ServerLink::KindOf(raw))
+                HandleLink(raw, *kind, sender, port);
         },
         [this](const QElapsedTimer& busy, const ShadNetUdp::SliceStats& stats) {
             m_udpYields += stats.budget_yield;
@@ -387,18 +387,17 @@ void LinkServer::OnReadyRead() {
         });
 }
 
-void LinkServer::HandleLink(const QByteArray& datagram, const QHostAddress& sender,
-                            uint16_t senderPort) {
+void LinkServer::HandleLink(const QByteArray& datagram, ServerLink::Kind kind,
+                            const QHostAddress& sender, uint16_t senderPort) {
     bool ipv4 = false;
     const quint32 address = sender.toIPv4Address(&ipv4);
     if (!ipv4)
         return;
     const ServerLink::Endpoint from{address, senderPort};
     if (m_hosted.enabled) {
-        const auto kind = ServerLink::KindOf(datagram);
-        if (!kind || !Admit(datagram, *kind, address, from))
+        if (!Admit(datagram, kind, address, from))
             return;
-    } else if (ServerLink::KindOf(datagram) == ServerLink::Kind::Hello &&
+    } else if (kind == ServerLink::Kind::Hello &&
                m_link.CookieValid(from, datagram, m_clock.elapsed()) &&
                !m_helloBudget.Allow(address, m_clock.elapsed())) {
         return; // the hosted guard limits hellos tighter
