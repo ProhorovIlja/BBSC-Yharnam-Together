@@ -192,6 +192,31 @@ class PortableUpdateZipTests(unittest.TestCase):
 
 
 class CoopSettingsReadTests(unittest.TestCase):
+    def test_failed_rules_migration_survives_automatic_identity_save_and_retries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path = coop.settings_path(root)
+            path.parent.mkdir(parents=True)
+            rules = path.parent / coop.TEAM_RULES_FILE
+            path.write_text(json.dumps(dict(confirmed='1', rule_rot='1')), encoding='utf-8')
+            write = coop.write_json_atomic
+
+            def deny_rules(destination, data):
+                if destination == rules:
+                    raise PermissionError('fixture: destination unavailable')
+                write(destination, data)
+
+            with (mock.patch.object(coop, 'write_json_atomic', side_effect=deny_rules),
+                  mock.patch.object(coop, 'this_machine', return_value='machine-a')):
+                first = coop.load_settings(root)
+                self.assertFalse(rules.exists())
+                saved = json.loads(path.read_text(encoding='utf-8'))
+                self.assertEqual(saved['rule_rot'], '1')
+                self.assertEqual(saved['account'], first['account'])
+            self.assertTrue(coop.move_old_rules(root))
+            self.assertTrue(rules.read_text(encoding='utf-8').startswith('1,'))
+            self.assertNotIn('rule_rot', json.loads(path.read_text(encoding='utf-8')))
+
     def test_copied_install_rotates_all_local_identities_but_keeps_pins(self):
         host, pin = 'play.example.com', 'a' * 64
         with tempfile.TemporaryDirectory() as folder:
