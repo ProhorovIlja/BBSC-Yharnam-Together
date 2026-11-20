@@ -10,6 +10,9 @@
 #include <chrono>
 #include <cstring>
 #include <deque>
+#include <cstdio>
+#include <source_location>
+#include <cstdlib>
 #include <thread>
 
 #include "coop/rpc_tunnel.h"
@@ -60,10 +63,14 @@ int Connect(u16 port) {
 }
 
 template <typename Predicate>
-void Await(Predicate ready) {
+void Await(Predicate ready, std::source_location where = std::source_location::current()) {
     auto deadline = std::chrono::steady_clock::now() + 4s;
     while (!ready()) {
-        assert(std::chrono::steady_clock::now() < deadline);
+        if (std::chrono::steady_clock::now() >= deadline) {
+            std::fprintf(stderr, "RPC loopback deadline at %s:%u\n",
+                         where.file_name(), static_cast<unsigned>(where.line()));
+            std::abort();
+        }
         std::this_thread::sleep_for(5ms);
     }
 }
@@ -162,9 +169,11 @@ int main() {
     }
     int first = Connect(port);
     SendPayload(first, payload);
-    Await([&] { return p.received > 960 * 1024; });
+    Await([&] { return p.received > 192 * 1024; });
     std::this_thread::sleep_for(120ms);
-    assert(p.received < payload.size()); // The full queue paused reads, not a disconnect.
+    // No ACKs: the wire stalls at the reorder window, even though the local
+    // request queue has a larger independent cap.
+    assert(p.received <= RpcTunnel::TransportLimits().held_bytes);
     p.hold_ack = false;
     Await([&] { return p.received == payload.size(); });
     assert(p.ordered);
@@ -184,7 +193,7 @@ int main() {
 
     p.hold_ack = true;
     SendPayload(second, payload);
-    Await([&] { return p.received > 960 * 1024; });
+    Await([&] { return p.received > 192 * 1024; });
     pollfd ended{second, POLLIN, 0};
     assert(poll(&ended, 1, 8000) == 1);
     assert(recv(second, &byte, 1, 0) <= 0);
