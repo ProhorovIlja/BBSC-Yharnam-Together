@@ -438,9 +438,70 @@ class AnimationTests(unittest.TestCase):
             text='Could not prepare the game log: log locked', fg=launcher.BAD)
         start.assert_not_called()
 
+    def test_stop_during_start_runs_after_start_and_suppresses_upnp(self):
+        methods = launcher.Launcher
+        window = types.SimpleNamespace(
+            coop={'host_ip': '127.0.0.1'}, server_starting=False, server_stopping=False,
+            server_stop_pending=False, server_status_epoch=0, coop_upnp=None, coop_help=None,
+            coop_server_line=mock.Mock(), ui_calls=queue.Queue(),
+            coop_firewall=mock.Mock(), coop_say=mock.Mock(), coop_open_router=mock.Mock(),
+        )
+        window.coop_stop_servers = lambda: methods.coop_stop_servers(window)
+        jobs = []
+
+        def thread(*, target, daemon):
+            return types.SimpleNamespace(start=lambda: jobs.append(target))
+
+        with mock.patch.object(launcher.threading, 'Thread', side_effect=thread), (
+                mock.patch.multiple(launcher.bbport_coop, valid_ip=mock.Mock(return_value=True),
+                                    is_this_pc=mock.Mock(return_value=True),
+                                    start_servers=mock.Mock(return_value=[]),
+                                    stop_servers=mock.Mock(return_value=1),
+                                    server_state=mock.Mock(return_value='running'),
+                                    wants_router=mock.Mock(return_value=True))), (
+                mock.patch.object(launcher.bbport_upnp, 'close_ports')), (
+                mock.patch.object(launcher, '_', side_effect=lambda english, *_: english)):
+            methods.coop_start_servers(window)
+            window.coop_stop_servers()
+            window.coop_stop_servers()
+            self.assertEqual(len(jobs), 1)
+            jobs[0]()
+            self.assertTrue(window.server_starting)
+            window.ui_calls.get_nowait()()
+            self.assertFalse(window.server_starting)
+            self.assertTrue(window.server_stopping)
+            methods.coop_start_servers(window)
+            self.assertEqual(len(jobs), 2)
+            jobs[1]()
+            window.ui_calls.get_nowait()()
+            self.assertFalse(window.server_stopping)
+            window.coop_open_router.assert_not_called()
+            launcher.bbport_coop.stop_servers.assert_called_once_with(launcher.PORT_DIR)
+            window.coop_server_line.configure.assert_called_with(text='Stopped (1)', fg=launcher.MUTED)
+
+    def test_server_probe_error_replaces_status_but_stale_result_does_not(self):
+        window = types.SimpleNamespace(
+            coop={}, server_starting=False, server_stopping=False, server_checking=True,
+            server_status_epoch=1, coop_server_line=mock.Mock(), ui_calls=queue.Queue(),
+        )
+        with mock.patch.object(launcher, '_', side_effect=lambda english, *_: english):
+            with mock.patch.object(launcher.bbport_coop, 'server_state', return_value='running'):
+                launcher.Launcher.coop_check_server(window)
+            window.server_status_epoch += 1
+            window.ui_calls.get_nowait()()
+            window.coop_server_line.configure.assert_not_called()
+            window.server_checking = True
+            with mock.patch.object(launcher.bbport_coop, 'server_state', side_effect=OSError('probe')):
+                launcher.Launcher.coop_check_server(window)
+            window.ui_calls.get_nowait()()
+        self.assertFalse(window.server_checking)
+        window.coop_server_line.configure.assert_called_once_with(
+            text='Status unavailable', fg=launcher.CAUTION)
+
     def test_start_server_probe_error_clears_starting_and_does_not_open_router(self):
         window = types.SimpleNamespace(
-            coop={'host_ip': '127.0.0.1'}, server_starting=False,
+            coop={'host_ip': '127.0.0.1'}, server_starting=False, server_stopping=False,
+            server_stop_pending=False, server_status_epoch=0,
             coop_server_line=mock.Mock(), ui_calls=queue.Queue(),
             coop_firewall=mock.Mock(), coop_say=mock.Mock(), coop_open_router=mock.Mock(),
         )
