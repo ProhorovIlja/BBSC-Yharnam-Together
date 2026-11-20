@@ -15,6 +15,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 import bbport_coop as coop  # noqa: E402
 
 
+class CopiedProfileTests(unittest.TestCase):
+    def test_copied_install_rotates_all_local_identities_but_keeps_pins(self):
+        host, pin = 'play.example.com', 'a' * 64
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            original = dict(coop.with_own_player_id({}, 'machine-a'),
+                            server_keys={host: pin}, global_name='linked-account')
+            original = coop.with_server_id(original, host)
+            old_id = coop.player_id_for(original, host)
+            coop.save_settings(root, original)
+            with mock.patch.object(coop, 'this_machine', return_value='machine-a'):
+                self.assertEqual(coop.player_id_for(coop.load_settings(root), host), old_id)
+            with mock.patch.object(coop, 'this_machine', return_value='machine-b'):
+                copied = coop.load_settings(root)
+                self.assertNotEqual(coop.player_id_for(copied, host), old_id)
+                self.assertNotEqual(copied['account'], original['account'])
+                self.assertEqual(coop.player_id_for(copied, host), coop.player_id_for(coop.load_settings(root), host))
+            self.assertFalse(copied.get('server_ids'))
+            self.assertEqual(coop.link_key_for(copied, host), pin)
+            self.assertEqual(copied['global_name'], 'linked-account')
+
+
 def write_sfo(path, values):
     """A minimal PS4 param.sfo with text values (format 0x0204)."""
     keys, data, entries = b'', b'', []
