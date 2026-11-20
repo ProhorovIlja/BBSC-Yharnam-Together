@@ -38,6 +38,7 @@ public:
         size_t chunk_bytes = SIZE_MAX;   // one chunk with its byte (ChunkBytes + 1 from a Send)
         size_t held_bytes = SIZE_MAX;    // chunks held out of order (GameLinkPeer::Settings)
         size_t unreliable_channels = SIZE_MAX;
+        size_t max_reliable_in_flight = SIZE_MAX;
     };
 
     CoopStream(std::string self, u32 instance) : CoopStream(std::move(self), instance, Limits{}) {}
@@ -171,6 +172,7 @@ private:
         settings.keepalive_ms = 1000;
         settings.held_bytes = limits.held_bytes;
         settings.unreliable_channels = limits.unreliable_channels;
+        settings.max_reliable_in_flight = limits.max_reliable_in_flight;
         return settings;
     }
 
