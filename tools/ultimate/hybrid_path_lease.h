@@ -30,12 +30,15 @@ public:
 
     [[nodiscard]] bool bind(PathBinding value, std::uint64_t now) {
         const bool clock_ok = tick(now);
-        clear_probe();
         if (!clock_ok || !value.valid()) {
+            clear_probe();
             binding_.reset();
             allowed_ = false;
             return false;
         }
+        // Repeated notification of the same binding is not a path change.
+        if (matches(value)) return true;
+        clear_probe();
         // Endpoint rebinding must not reset the replay windows. A new
         // authenticated session/epoch/connection does reset them.
         if (!replay_scope_ || value.room != replay_scope_->room || value.session != replay_scope_->session ||
@@ -73,6 +76,17 @@ public:
             pending_->serial != serial || pending_->nonce != nonce) return false;
         pending_.reset(); // Duplicate ACKs can never renew the lease.
         verified_at_ = now;
+        return true;
+    }
+
+    // A confirmed transport/path failure (not a single lost packet).
+    // Ignore callbacks from an older binding. The caller must also fence
+    // async callbacks from an older socket/probe generation on the same binding.
+    // Clear the pending ACK so a delayed reply cannot immediately re-promote.
+    // Keep consent and sequence history: the same pair can probe again.
+    [[nodiscard]] bool direct_failed(const PathBinding& peer, std::uint64_t now) {
+        if (!tick(now) || !matches(peer)) return false;
+        clear_probe();
         return true;
     }
 

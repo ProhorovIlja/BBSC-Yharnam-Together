@@ -109,5 +109,31 @@ int main() {
     CHECK(reconnect.challenge(b, 2, nonce, 15));
     CHECK(reconnect.acknowledge(b, 2, nonce, 16));
     CHECK(reconnect.route(Traffic::PoseSnapshot, true, true, 17) == Route::Direct);
+    HybridPathLease failover;
+    CHECK(failover.bind(a, 1));
+    failover.allow_direct(true);
+    CHECK(failover.challenge(a, 1, nonce, 2));
+    CHECK(failover.bind(a, 3)); // A duplicate notification does not cancel the pending ACK.
+    CHECK(failover.acknowledge(a, 1, nonce, 4));
+    CHECK(failover.bind(a, 5));
+    CHECK(failover.route(Traffic::PoseSnapshot, true, true, 6) == Route::Direct);
+    CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 10, Route::Direct, true, 7));
+    CHECK(failover.challenge(a, 2, other, 8));
+    b = a; ++b.endpoint[0];
+    CHECK(!failover.direct_failed(b, 9));
+    CHECK(failover.route(Traffic::PoseSnapshot, true, true, 10) == Route::Direct);
+    CHECK(failover.direct_failed(a, 11));
+    CHECK(failover.route(Traffic::PoseSnapshot, true, true, 11) == Route::Relay);
+    CHECK(failover.route(Traffic::PoseSnapshot, true, false, 11) == Route::Unavailable);
+    CHECK(failover.route(Traffic::Reward, true, true, 11) == Route::Authority);
+    CHECK(!failover.acknowledge(a, 2, other, 12));
+    CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 11, Route::Direct, true, 13));
+    CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 10, Route::Relay, true, 14));
+    CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 11, Route::Relay, true, 15));
+    CHECK(failover.challenge(a, 3, nonce, 16));
+    CHECK(failover.acknowledge(a, 3, nonce, 17));
+    CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 11, Route::Direct, true, 18));
+    CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 12, Route::Direct, true, 19));
+
     std::cout << checks << " hybrid path checks passed\n";
 }
