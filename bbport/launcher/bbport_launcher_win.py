@@ -6719,8 +6719,15 @@ class Launcher:
             self.root.after_cancel(self.close_on_ready_job)
             self.close_on_ready_job = None
 
-    def close_after_ready(self, process):
-        if self.process is not process or self.close_on_ready_job is None:
+    def schedule_ready_close(self):
+        # A restart may reuse the original process/job handle. Fence timers
+        # by their own identity as well as by the process they were armed for.
+        process = self.process
+        job = self.root.after(CLOSE_AFTER_UP_MS, lambda: self.close_after_ready(process, job))
+        self.close_on_ready_job = job
+
+    def close_after_ready(self, process, job):
+        if self.process is not process or self.close_on_ready_job != job:
             return
         self.close_on_ready_job = None
         self.coop_release_server()
@@ -6805,10 +6812,9 @@ class Launcher:
                                     self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
                                 if (self.app.get('close_on_play') and self.close_on_ready_job is None
                                         and self.process is not None):
-                                    process = self.process
-                                    self.close_on_ready_job = self.root.after(
-                                        CLOSE_AFTER_UP_MS, lambda process=process: self.close_after_ready(process))
+                                    self.schedule_ready_close()
                             elif 'restarting through run.py' in line:
+                                self.cancel_ready_close()
                                 self.output_ready = False
                                 self.set_running(True, preparing=True)
                                 self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)

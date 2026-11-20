@@ -435,11 +435,13 @@ class AnimationTests(unittest.TestCase):
         window.root.after_cancel.assert_called_once_with('old')
         self.assertFalse(window.output_ready)
         self.assertFalse(window.run_up)
-        launcher.Launcher.close_after_ready(window, current)  # canceled callback
+        launcher.Launcher.close_after_ready(window, current, 'old')  # canceled callback
         window.close_on_ready_job = 'current'
-        launcher.Launcher.close_after_ready(window, old)  # from previous game
+        launcher.Launcher.close_after_ready(window, old, 'current')  # from previous game
         window.root.destroy.assert_not_called()
-        launcher.Launcher.close_after_ready(window, current)
+        launcher.Launcher.close_after_ready(window, current, 'old')  # same process, obsolete timer
+        window.root.destroy.assert_not_called()
+        launcher.Launcher.close_after_ready(window, current, 'current')
         window.coop_release_server.assert_called_once_with()
         window.root.destroy.assert_called_once_with()
 
@@ -447,7 +449,7 @@ class AnimationTests(unittest.TestCase):
         window = types.SimpleNamespace(
             ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(), drain_output=mock.Mock(),
             append=mock.Mock(), coop_watch_line=mock.Mock(), set_running=mock.Mock(),
-            status=mock.Mock(), app={}, output_ready=False, run_up=False,
+            status=mock.Mock(), app={}, output_ready=False, run_up=False, cancel_ready_close=mock.Mock(),
         )
         lines = [*launcher.GAME_UP_LINES, 'restarting through run.py', *launcher.GAME_UP_LINES]
         # FollowLog may deliver the entire ready/restart/ready sequence at once.
@@ -458,6 +460,7 @@ class AnimationTests(unittest.TestCase):
             mock.call(True), mock.call(True, preparing=True), mock.call(True),
         ])
         self.assertEqual(window.status.configure.call_count, 3)
+        window.cancel_ready_close.assert_called_once_with()
         self.assertTrue(window.run_up)
         self.assertTrue(window.output_ready)
         window.append.assert_called_once_with(''.join(line + '\n' for line in lines))
