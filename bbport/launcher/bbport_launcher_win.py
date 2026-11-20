@@ -8061,16 +8061,47 @@ def update_ignore(target):
     return ignore
 
 
+def wait_for_update_parent(pid, kernel=None):
+    """Only proceed when the old launcher is gone, not on timeout or access denial."""
+    from ctypes import wintypes
+
+    pid = int(pid)
+    if not 0 < pid <= 0xFFFFFFFF:
+        raise ValueError('Invalid update handover process ID')
+    if kernel is None:
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:  # the positive PID no longer identifies a process
+            return
+        raise ctypes.WinError(error)
+    try:
+        status = kernel.WaitForSingleObject(handle, 60000)
+        if status == 0x102:
+            raise TimeoutError('The previous launcher is still running. No update files were copied.')
+        if status != 0:
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def install_update(target, wait_pid):
     """--install-update TARGET PID, run by the downloaded version from its temporary folder:
     waits for the old launcher to close, copies this version over TARGET (never the saves,
     settings, mods or ReShade presets) and starts it."""
     target = Path(target)
-    kernel = ctypes.windll.kernel32
-    handle = kernel.OpenProcess(0x00100000, False, int(wait_pid))  # SYNCHRONIZE
-    if handle:
-        kernel.WaitForSingleObject(handle, 60000)
-        kernel.CloseHandle(handle)
+    try:
+        wait_for_update_parent(wait_pid)
+    except (OSError, ValueError) as error:
+        show_error_box(str(error))
+        return 1
     ignore = update_ignore(target)
     for attempt in range(30):
         try:
