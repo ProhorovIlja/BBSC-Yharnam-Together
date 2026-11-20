@@ -162,6 +162,41 @@ class AnimationTests(unittest.TestCase):
         launcher.Launcher.drain_output(window)
         callback.assert_called_once_with()
 
+    def test_scrolled_page_only_updates_layout_when_it_changes(self):
+        outer, body, inner, canvas, bar = (mock.Mock() for _ in range(5))
+        window = types.SimpleNamespace(
+            tk=types.SimpleNamespace(Frame=mock.Mock(side_effect=[outer, body, inner]),
+                                     Canvas=mock.Mock(return_value=canvas)),
+            ttk=types.SimpleNamespace(Scrollbar=mock.Mock(return_value=bar)),
+            px=lambda n: n, content=mock.Mock(), pages={},
+        )
+        canvas.create_window.return_value = 42
+        canvas.winfo_height.return_value = 300
+        inner.winfo_reqheight.return_value = 400
+        self.assertIs(launcher.Launcher.scrolled_page(window, 'test', None, None), inner)
+        resize = canvas.bind.call_args.args[1]
+        fit = inner.bind.call_args.args[1]
+        canvas.configure.reset_mock()
+        for _ in range(100):
+            resize(types.SimpleNamespace(width=640))
+            fit()
+        canvas.itemconfigure.assert_called_once_with(42, width=640)
+        canvas.configure.assert_called_once_with(scrollregion=(0, 0, 1, 408))
+        bar.pack.assert_called_once_with(side='right', fill='y', padx=(0, 4), before=canvas)
+        bar.pack_forget.assert_not_called()
+
+        # Height-only resize still hides the scrollbar; changed content can show it again.
+        canvas.winfo_height.return_value = 450
+        resize(types.SimpleNamespace(width=640))
+        bar.pack_forget.assert_called_once_with()
+        canvas.itemconfigure.assert_called_once()
+        inner.winfo_reqheight.return_value = 500
+        fit()
+        self.assertEqual(bar.pack.call_count, 2)
+        self.assertEqual(canvas.configure.call_args, mock.call(scrollregion=(0, 0, 1, 508)))
+        resize(types.SimpleNamespace(width=650))
+        self.assertEqual(canvas.itemconfigure.call_args, mock.call(42, width=650))
+
     def test_custom_drag_coalesces_bursts_and_applies_release_position(self):
         root = mock.Mock()
         root.after.return_value = 'move'
