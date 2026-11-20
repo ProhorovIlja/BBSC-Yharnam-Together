@@ -1753,9 +1753,19 @@ void GiveBackPhantomKeyItems() {
         if (owed->empty()) {
             // Own-list observation, not a savedata commit. A crash before the
             // game's save is still an open recovery case.
+            if (!still_current() || ReadValue<s32>(player, 0x78) == PhantomType) {
+                return;
+            }
+            // A failed removal must not clear the in-memory debt or retry
+            // guard. Otherwise a second transition could act on a different
+            // ledger than the one that would be loaded after a restart.
+            if (!filed.empty() && !RewardSafety::WriteLedger(file, {})) {
+                LOG_WARNING(Debug, "Bloodborne party: could not clear phantom ledger for slot {}", slot);
+                return;
+            }
             if (ledger.AcknowledgeObservedReturn()) {
+                filed.clear();
                 return_attempts.Reset();
-                persist();
             }
             return;
         }
