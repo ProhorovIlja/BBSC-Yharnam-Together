@@ -113,6 +113,27 @@ int main(int argc, char** argv) {
     CHECK(stalled.state() == QAbstractSocket::UnconnectedState && stalled.bytesToWrite() == 0);
     std::cout << "RPC backend TCP: graceful drain and bounded stalled close passed\n";
 
+    // A replacement must abort a live graceful drain immediately and
+    // clear the owner's pointer before the socket emits disconnected.
+    auto* old = new QTcpSocket(&backend);
+    old->connectToHost(QHostAddress::LocalHost, backend.serverPort());
+    CHECK(old->waitForConnected(2000));
+    CHECK(backend.hasPendingConnections() || backend.waitForNewConnection(2000));
+    auto* oldReader = backend.nextPendingConnection();
+    CHECK(oldReader);
+    oldReader->setReadBufferSize(1);
+    old->setSocketOption(QAbstractSocket::SendBufferSizeSocketOption, 4096);
+    CHECK(old->write(backlog) == backlog.size());
+    ShadNetRpc::DrainAndCloseBackend(*old);
+    CHECK(old->state() == QAbstractSocket::ClosingState && old->bytesToWrite() > 0);
+    QPointer<QTcpSocket> retired(old);
+    bool clearedDuringDisconnect = false;
+    QObject::connect(old, &QTcpSocket::disconnected, &app,
+                     [&] { clearedDuringDisconnect = retired.isNull(); });
+    ShadNetRpc::AbortRetiredBackend(retired);
+    CHECK(retired.isNull() && clearedDuringDisconnect && old->bytesToWrite() == 0);
+    ShadNetRpc::AbortRetiredBackend(retired);
+
     QTcpSocket cancelled;
     cancelled.connectToHost(QHostAddress::LocalHost, backend.serverPort());
     if (ShadNetRpc::MayBufferBackendRequest(cancelled.state())) {
