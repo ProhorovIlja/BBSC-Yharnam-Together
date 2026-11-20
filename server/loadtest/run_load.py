@@ -142,6 +142,26 @@ def print_refusals(home):
                         return
 
 
+TIMING_KEYS = (
+    "rx_yields", "rx_slice_max_us", "link_ticks", "link_gap_max_ms",
+    "link_gaps_over_2x", "world_ticks", "world_gap_max_ms", "world_gaps_over_2x",
+)
+
+
+def admin_timing(binary, home, env):
+    result = subprocess.run([os.path.abspath(binary), "--admin", "stats"],
+                            cwd=home, env=env, capture_output=True, text=True, timeout=8)
+    if result.returncode:
+        raise RuntimeError("local admin stats failed; enable Hosted mode for timing runs")
+    row = json.loads(result.stdout)
+    timing = row.get("udp_timing") if isinstance(row, dict) and row.get("ok") is True else None
+    if not isinstance(timing, dict) or any(type(timing.get(key)) is not int or timing[key] < 0
+                                          for key in TIMING_KEYS):
+        raise RuntimeError("local admin stats did not provide valid UDP timing")
+    # Never include the raw admin response in benchmark output.
+    return {key: timing[key] for key in TIMING_KEYS}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--shadnet", required=True)
@@ -158,6 +178,8 @@ def main():
     parser.add_argument("--cfg", action="append", default=[], help="Key=Value for shadnet.cfg")
     parser.add_argument("--require-all-playing", action="store_true",
                         help="fail if any scheduled simulated player does not play")
+    parser.add_argument("--collect-admin-timing", action="store_true",
+                        help="require timing counters via the disposable server's local admin socket")
     parser.add_argument("--keep", action="store_true", help="keep the server's folder")
     parser.add_argument("--attack", default="", help="attack.py arguments, run beside the players")
     parser.add_argument("--attack-delay", type=float, default=20, help="seconds before it")
@@ -217,6 +239,8 @@ def run(args, home, cleanup):
     for item in args.cfg:
         key, value = item.split("=", 1)
         cfg[key] = value
+    if args.collect_admin_timing:
+        cfg["HostedAdminSocket"] = os.path.join(home, "benchmark.sock")
     with open(os.path.join(home, "shadnet.cfg"), "w") as f:
         f.write("[General]\n")
         for key, value in cfg.items():
@@ -305,6 +329,7 @@ def run(args, home, cleanup):
     if sum(row["games"] for row in results) != teams * args.team_size:
         raise RuntimeError("simulator results do not cover the scheduled players")
     udp_drops = udp_rcvbuf_errors() - drops_before
+    timing = admin_timing(args.shadnet, home, env) if args.collect_admin_timing else None
     stop_child(server)
 
     # Steady state: the samples after every game played (the last two thirds of the run).
@@ -355,6 +380,8 @@ def run(args, home, cleanup):
         "server_rss_mb_max": round(max((s["rss_mb"] for s in samples), default=0), 1),
         "server_threads": max((s["threads"] for s in samples), default=0),
     }
+    if timing is not None:
+        summary["udp_timing"] = timing
     if attack_result:
         summary["attack"] = attack_result
         with open(os.path.join(home, "shadnet.log")) as f:

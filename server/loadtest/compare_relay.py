@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Run the same strict loopback workload on two explicitly supplied ShadNet binaries."""
+import argparse
+import hashlib
+import json
+import math
+import statistics
+import subprocess
+import sys
+from pathlib import Path
+
+RUNNER = Path(__file__).with_name("run_load.py")
+METRICS = ("relay_ms_p50", "relay_ms_p95", "relay_ms_p99", "server_cpu_avg",
+           "main_thread_cpu_avg", "server_out_mbit", "delivered_pct", "udp_buffer_drops")
+
+
+def schedule(repeats):
+    for trial in range(repeats):
+        for size in (2, 5):
+            for side in (("base", "candidate") if trial % 2 == 0 else ("candidate", "base")):
+                yield trial, size, side
+
+
+def fingerprint(path):
+    with path.open("rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+def validate(summary, size, players):
+    if not isinstance(summary, dict):
+        raise ValueError("benchmark did not produce a JSON object")
+    expected = {"team_size": size, "teams": players // size, "playing": players,
+                "scheduled_players": players, "expected_game_paths": players * (size - 1),
+                "incoming_game_paths": players * (size - 1), "send_errors": 0, "refused": 0}
+    if any(type(summary.get(key)) is not int or summary[key] != value
+           for key, value in expected.items()):
+        raise ValueError("benchmark result did not match the strict party/route workload")
+    for key in METRICS:
+        value = summary.get(key)
+        if type(value) not in (float, int) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"invalid benchmark metric: {key}")
+    return summary
+
+
+def summarize(runs, repeats):
+    by_key = {(r["trial"], r["team_size"], r["side"]): r["metrics"] for r in runs}
+    return {str(size): {
+        key: statistics.median(by_key[trial, size, "candidate"][key] -
+                               by_key[trial, size, "base"][key] for trial in range(repeats))
+        for key in METRICS
+    } for size in (2, 5)}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    for key in ("base", "candidate", "bbload"):
+        parser.add_argument(f"--{key}", type=Path, required=True)
+    parser.add_argument("--trials", type=int, default=4)
+    parser.add_argument("--teams", type=int, default=2)
+    parser.add_argument("--seconds", type=int, default=30)
+    parser.add_argument("--port", type=int, default=32040)
+    args = parser.parse_args()
+    if not (2 <= args.trials <= 20 and 1 <= args.teams <= 30 and
+            10 <= args.seconds <= 300 and 1025 <= args.port <= 65534):
+        parser.error("use 2–20 trials, 1–30 teams, 10–300 seconds and a nonprivileged test port")
+    binaries = {key: getattr(args, key).resolve() for key in ("base", "candidate", "bbload")}
+    try:
+        hashes = {key: fingerprint(path) for key, path in binaries.items()}
+        if hashes["base"] == hashes["candidate"]:
+            raise ValueError("baseline and candidate binaries are identical")
+        runs = []
+        for trial, size, side in schedule(args.trials):
+            players = size * args.teams
+            command = [sys.executable, str(RUNNER), "--shadnet", str(binaries[side]),
+                       "--bbload", str(binaries["bbload"]), "--players", str(players),
+                       "--team-size", str(size), "--seconds", str(args.seconds),
+                       "--port", str(args.port), "--require-all-playing", "--match-local-build"]
+            proc = subprocess.run(command, stdout=subprocess.PIPE, text=True)
+            if proc.returncode:
+                raise ValueError(f"{side} trial {trial + 1}, size {size}: workload failed")
+            row = validate(json.loads(proc.stdout), size, players)
+            runs.append({"trial": trial, "side": side, "team_size": size, "metrics": row})
+        if any(fingerprint(path) != hashes[key] for key, path in binaries.items()):
+            raise ValueError("a benchmark binary changed during the comparison")
+        print(json.dumps({"sha256": hashes, "trials": args.trials, "teams": args.teams,
+                          "seconds": args.seconds, "runs": runs,
+                          "candidate_minus_base_median": summarize(runs, args.trials)},
+                         allow_nan=False))
+    except (OSError, ValueError, OverflowError) as error:
+        print(f"comparison failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
