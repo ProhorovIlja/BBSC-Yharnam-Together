@@ -1027,8 +1027,17 @@ def load_app_settings():
     """settings.json over the defaults. A frame cap that is not one FRAME_CAPS offers is Auto: the Play page's Browse
     button wrote the chosen game folder into it (AdrianCsT c4bc36a), and every start then failed. That folder becomes
     the game folder again when it holds the game and the saved game folder does not."""
-    settings = {**APP_DEFAULTS, **load_json(CONFIG_FILE, {})}
-    cap = str(settings.get('frame_cap') or '')
+    saved = load_json(CONFIG_FILE, {})
+    settings = dict(APP_DEFAULTS)
+    if isinstance(saved, dict):
+        settings.update(saved)
+        for key, default in APP_DEFAULTS.items():
+            value = settings[key]
+            if key in ('frame_cap', 'language') and type(value) is int:
+                settings[key] = str(value)  # older settings could store a numeric selector
+            elif type(value) is not type(default) or (isinstance(value, str) and '\0' in value):
+                settings[key] = default
+    cap = settings['frame_cap']
     if cap not in {value for value, _label in FRAME_CAPS} | {'half'}:
         if (Path(cap) / 'eboot.bin').is_file() and not (Path(settings['game_dir'] or '.') / 'eboot.bin').is_file():
             settings['game_dir'] = cap
