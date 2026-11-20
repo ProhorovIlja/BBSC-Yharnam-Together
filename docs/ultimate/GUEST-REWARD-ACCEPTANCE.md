@@ -47,3 +47,12 @@ rig first, then three and five clients where relevant:
 Record the exact client, server and launcher SHAs, CUSA/1.09, initial and loaded item
 counts, and the observed save boundary. If the boundary cannot be triggered or confirmed,
 report that case as unverified rather than inferring durability from the sidecar or CI.
+
+## Interrupted journal staging
+
+If the slot ledger has a sibling `.tmp` path, a later writer will not replace
+or clear the committed ledger. The staged data can be incomplete and is not
+evidence that a grant happened. Stop the game, copy the save, ledger and
+staging path as a set, and investigate the copy. Do not merge or replay the
+staged data based on timestamps or the slot number. Record the loaded
+hunter, observed key-item counts and whether game savedata had committed.
