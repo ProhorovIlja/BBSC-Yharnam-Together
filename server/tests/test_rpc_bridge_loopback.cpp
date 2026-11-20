@@ -105,8 +105,16 @@ int ServerRpcReceive(void* body, u32 len) {
     // Copy a plausible header, then claim bytes past the caller's buffer.
     const int invalid = p.invalid_lengths.exchange(0);
     if (invalid == 2) {
-        assert(!p.held_reply.empty() && p.held_reply.size() <= len);
-        std::memcpy(body, p.held_reply.data(), p.held_reply.size());
+        // Use the active instance: a retired header would be rejected even
+        // without the length guard and would not exercise this boundary.
+        const std::array<u8, 1> valid{0xAB};
+        p.tunnel.Write(valid, RpcLocal::NowMs());
+        auto frames = p.tunnel.Flush(RpcLocal::NowMs());
+        assert(!frames.empty() && frames.back().size() <= len);
+        const auto& current = frames.back();
+        std::memcpy(body, current.data(), current.size());
+        for (auto& frame : frames)
+            p.inbound.push_back(std::move(frame));
         p.invalid_lengths = 1;
         return static_cast<int>(len) + 1;
     }
@@ -198,7 +206,6 @@ int main() {
     const int fourth = Connect(port);
     Await([&] { return p.opens == 4; });
     p.invalid_lengths = 2;
-    p.inject_old = true;
     response = {fourth, POLLIN, 0};
     assert(poll(&response, 1, 4000) == 1);
     assert(recv(fourth, &byte, 1, 0) == 1 && byte == 0xAB);
