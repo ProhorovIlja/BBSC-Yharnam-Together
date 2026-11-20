@@ -243,7 +243,10 @@ private:
                 }
                 using Kind = BloodborneCoop::RpcTunnel::Event::Kind;
                 if (event.kind == Kind::Data && client != NoSocket) {
-                    if (!RpcLocal::SendAll(client, event.bytes)) {
+                    if (!RpcLocal::SendAll(client, event.bytes, stop)) {
+                        if (stop.stop_requested()) {
+                            return;
+                        }
                         LOG_ERROR(Lib_Net, "Rpc bridge: local TCP reply write failed or timed out");
                         DropClient();
                         tunnel.Close(NowMs());
