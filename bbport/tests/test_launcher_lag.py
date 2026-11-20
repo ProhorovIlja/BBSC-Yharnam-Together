@@ -517,6 +517,29 @@ class AnimationTests(unittest.TestCase):
         self.assertFalse(window.server_checking)
         window.coop_server_line.configure.assert_not_called()
 
+    def test_play_recovers_when_preparation_worker_cannot_start(self):
+        methods = launcher.Launcher
+        window = types.SimpleNamespace(
+            coop={}, coop_busy=False, coop_changed=mock.Mock(), coop_ready=mock.Mock(return_value=False),
+            collect=mock.Mock(), play_button=mock.Mock(), set_running=mock.Mock(),
+            coop_prepare_and_play=mock.Mock(), status=mock.Mock(), messagebox=mock.Mock(),
+        )
+        window.coop_start_game = lambda *args: methods.coop_start_game(window, *args)
+        with mock.patch.multiple(launcher.bbport_coop, missing=mock.Mock(return_value=False),
+                                 played_settings=mock.Mock(return_value={})), (
+                mock.patch.object(launcher.threading, 'Thread') as thread), (
+                mock.patch.object(launcher, '_', side_effect=lambda english, *_: english)):
+            thread.return_value.start.side_effect = RuntimeError('worker unavailable')
+            methods.play_coop(window)
+        self.assertFalse(window.coop_busy)
+        self.assertEqual(window.play_button.configure.call_args_list,
+                         [mock.call(state='disabled'), mock.call(state='normal')])
+        self.assertEqual(window.set_running.call_args_list,
+                         [mock.call(False, preparing=True), mock.call(False)])
+        window.messagebox.showerror.assert_called_once_with(
+            'Bloodborne', 'Could not prepare PLAY: worker unavailable')
+        window.coop_prepare_and_play.assert_not_called()
+
     def test_server_controls_recover_when_worker_cannot_start(self):
         methods = launcher.Launcher
         window = types.SimpleNamespace(

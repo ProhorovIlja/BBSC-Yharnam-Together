@@ -5446,8 +5446,14 @@ class Launcher:
         self.coop_id_tries = 0  # new ids made after the server refused this one's address (coop_watch_line)
         self.play_button.configure(state='disabled')
         self.set_running(False, preparing=True)
-        threading.Thread(target=self.coop_prepare_and_play,
-                         args=(dict(bbport_coop.played_settings(self.coop)),), daemon=True).start()
+        try:
+            settings = dict(bbport_coop.played_settings(self.coop))
+            threading.Thread(target=self.coop_prepare_and_play,
+                             args=(settings,), daemon=True).start()
+        except (RuntimeError, OSError, ValueError) as error:
+            self.coop_start_game({}, None,
+                                 _('Could not prepare PLAY: {}',
+                                   'Не удалось подготовить запуск: {}').format(error), '')
 
     def coop_prepare_and_play(self, settings):
         """Off the window's thread: the firewall and the game folder; then the game starts on the window's
@@ -5497,8 +5503,11 @@ class Launcher:
                                          'Не удалось подготовить журнал игры: {}').format(error), fg=BAD)
             return
         # Phase 11: a crash's dump and logs go to the host's server by themselves, alongside.
-        threading.Thread(target=bbport_coop.send_reports, args=(PORT_DIR, dict(settings)),
-                         daemon=True).start()
+        try:
+            threading.Thread(target=bbport_coop.send_reports, args=(PORT_DIR, dict(settings)),
+                             daemon=True).start()
+        except RuntimeError as error:
+            print(f'Could not start the co-op report worker: {error}', file=sys.stderr)
         settings = dict(settings, unlocked_fps='1' if bbport_coop.unlocked_fps(self.app.get('fps_mode')) else '')
         env = bbport_coop.game_environment(game_environment(self.app), settings, PORT_DIR, root)
         self.set_log('')
