@@ -11,22 +11,34 @@ int main() {
     auto pending = [&] { return remaining > 0; };
     auto consume = [&] { --remaining; ++seen; return true; };
     auto never = [] { return false; };
-    CHECK(DrainSlice(pending, consume, never));
+    CHECK(DrainSlice(pending, consume, never).budget_yield());
     CHECK(seen == 128 && remaining == 172);
     ++ticks; // Stand-in for a timer/admin callback between two receive slices.
-    CHECK(DrainSlice(pending, consume, never));
+    CHECK(DrainSlice(pending, consume, never).budget_yield());
     CHECK(seen == 256 && ticks == 1);
-    CHECK(!DrainSlice(pending, consume, never));
+    CHECK(!DrainSlice(pending, consume, never).budget_yield());
     CHECK(seen == 300 && remaining == 0);
-    CHECK(!DrainSlice(pending, consume, never));
+    CHECK(!DrainSlice(pending, consume, never).budget_yield());
     remaining = 100;
-    CHECK(DrainSlice(pending, consume, [] { return true; }));
+    CHECK(DrainSlice(pending, consume, [] { return true; }).budget_yield());
     CHECK(remaining == 84);
     unsigned failures = 0;
-    CHECK(!DrainSlice(pending, [&] { ++failures; return false; }, never));
+    const auto stalled = DrainSlice(pending, [&] { ++failures; return false; }, never);
     CHECK(failures == 1 && remaining == 84);
+    CHECK(stalled.read_failed && !stalled.progressed && !stalled.budget_yield());
+    CHECK(stalled.retry_read(false) && !stalled.retry_read(true));
+    const auto progressed = DrainSlice(pending, [&] {
+        if (remaining == 84) return consume();
+        return false;
+    }, never);
+    CHECK(progressed.read_failed && progressed.progressed && progressed.retry_read(true));
+    const auto emptied = DrainSlice(pending, [&] {
+        remaining = 0;
+        return false;
+    }, never);
+    CHECK(emptied.read_failed && !emptied.retry_read(false));
     remaining = 16;
-    CHECK(!DrainSlice(pending, consume, [] { return true; }));
+    CHECK(!DrainSlice(pending, consume, [] { return true; }).budget_yield());
     CHECK(remaining == 0);
     std::cout << "UDP drain slice tests passed\n";
 }

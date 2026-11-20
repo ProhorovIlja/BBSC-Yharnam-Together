@@ -2,16 +2,37 @@
 #pragma once
 
 namespace ShadNetUdp {
-// Return true only if the caller should yield and then drain again. Budget
+struct DrainResult {
+    bool more = false;
+    bool read_failed = false;
+    bool progressed = false;
+
+    // A transient read error may leave already-queued datagrams without
+    // another readyRead. Retry once, unless this slice made fresh progress.
+    [[nodiscard]] bool retry_read(bool already_retried) const {
+        return more && read_failed && (!already_retried || progressed);
+    }
+    [[nodiscard]] bool budget_yield() const { return more && !read_failed; }
+};
+
+// Budget
 // checks are amortized, and never interrupt handling of a single datagram.
 template <class Pending, class Consume, class OverTime>
-bool DrainSlice(Pending pending, Consume consume, OverTime over_time) {
+DrainResult DrainSlice(Pending pending, Consume consume, OverTime over_time) {
+    DrainResult result;
     for (unsigned n = 0; n < 128; ++n) {
-        if (!pending() || !consume())
-            return false;
+        if (!pending())
+            return result;
+        if (!consume()) {
+            result.read_failed = true;
+            result.more = pending();
+            return result;
+        }
+        result.progressed = true;
         if ((n + 1) % 16 == 0 && over_time())
             break;
     }
-    return pending();
+    result.more = pending();
+    return result;
 }
 } // namespace ShadNetUdp

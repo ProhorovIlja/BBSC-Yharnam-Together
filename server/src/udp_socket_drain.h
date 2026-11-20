@@ -15,12 +15,19 @@ public:
     template <class Handle, class AccountBusy>
     void Run(QObject& context, QUdpSocket& socket, qint64 max_datagram_bytes,
              Handle handle, AccountBusy account) {
+        RunSlice(context, socket, max_datagram_bytes, handle, account, false);
+    }
+
+private:
+    template <class Handle, class AccountBusy>
+    void RunSlice(QObject& context, QUdpSocket& socket, qint64 max_datagram_bytes,
+                  Handle handle, AccountBusy account, bool already_retried) {
         if (queued_)
             return;
         QElapsedTimer busy;
         busy.start();
         QByteArray raw;
-        const bool more = DrainSlice(
+        const auto result = DrainSlice(
             [&] { return socket.hasPendingDatagrams(); },
             [&] {
                 const qint64 bytes = socket.pendingDatagramSize();
@@ -43,18 +50,18 @@ public:
                 return true;
             },
             [&] { return busy.nsecsElapsed() >= 2'000'000; });
-        account(busy, more);
-        if (more) {
+        const bool retry = result.retry_read(already_retried);
+        account(busy, result.budget_yield());
+        if (result.budget_yield() || retry) {
             // Qt need not signal again for the remainder of the same burst.
             queued_ = true;
-            if (!QMetaObject::invokeMethod(&context, [this, &context, &socket, max_datagram_bytes, handle, account] {
+            if (!QMetaObject::invokeMethod(&context, [this, &context, &socket, max_datagram_bytes, handle, account, retry] {
                     queued_ = false;
-                    Run(context, socket, max_datagram_bytes, handle, account);
+                    RunSlice(context, socket, max_datagram_bytes, handle, account, retry);
                 }, Qt::QueuedConnection))
                 queued_ = false;
         }
     }
-private:
     bool queued_ = false;
 };
 } // namespace ShadNetUdp
