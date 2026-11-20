@@ -323,6 +323,45 @@ class SystemCertificateTests(unittest.TestCase):
 
 
 class OfflineTests(unittest.TestCase):
+    def test_non_object_and_large_success_reply_refused(self):
+        for body in (b'null', b'[]', b'{' * 5000, b' ' * 65537):
+            with self.subTest(size=len(body)):
+                response = mock.MagicMock()
+                response.__enter__.return_value = response
+                response.status = 200
+                response.read.return_value = body
+                opener = mock.Mock()
+                opener.open.return_value = response
+                with self.assertRaises(auth.AuthError) as error:
+                    auth.sign_in('https://example.com', 'Hunter', PASSWORD, opener=opener)
+                self.assertEqual(error.exception.text(), auth.REFUSED_TEXT)
+                response.read.assert_called_once_with(65537)
+
+    def test_malformed_auth_fields_never_raise_raw_parser_errors(self):
+        with mock.patch.object(auth, '_call', return_value=(200, {'challenge': 'x', 'bits': None})):
+            with self.assertRaises(auth.AuthError):
+                auth.sign_up('https://example.com', 'Hunter', PASSWORD)
+        with mock.patch.object(auth, '_call', return_value=(200, {'sign_in': None})):
+            with self.assertRaises(auth.AuthError):
+                auth.config('https://example.com')
+        with self.assertRaises(auth.AuthError):
+            auth._account(200, {'id': ['hunter'], 'secret': PASSWORD})
+        self.assertEqual(auth._refusal(400, {'error': [], 'problem': {}}).text(), auth.REFUSED_TEXT)
+        self.assertEqual(auth._refusal(429, {'error': 'wait', 'seconds': None}).text(), auth.BUSY_TEXT)
+
+    def test_auth_worker_fails_once_without_leaking_credentials(self):
+        done = mock.Mock()
+        with mock.patch.object(auth.threading, 'Thread', side_effect=RuntimeError(PASSWORD)):
+            auth.run_thread(mock.Mock(), done)
+        done.assert_called_once()
+        self.assertEqual(done.call_args.args[1].text(), auth.BUSY_TEXT)
+        done.reset_mock()
+        with mock.patch.object(auth.threading, 'Thread') as thread:
+            auth.run_thread(mock.Mock(side_effect=ValueError(PASSWORD)), done)
+            thread.call_args.kwargs['target']()
+        done.assert_called_once()
+        self.assertEqual(done.call_args.args[1].text(), auth.REFUSED_TEXT)
+
     def test_every_language_has_every_account_text(self):
         import bbport_lang
         import bbport_lang_auth as lang
