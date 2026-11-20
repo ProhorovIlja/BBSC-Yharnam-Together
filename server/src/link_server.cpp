@@ -887,9 +887,10 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
             const auto size = static_cast<qsizetype>(event.bytes.size());
             const auto* data = reinterpret_cast<const char*>(event.bytes.data());
             const bool connected = end.socket->state() == QAbstractSocket::ConnectedState;
-            const auto queued = connected ? end.socket->bytesToWrite() : end.pending.size();
-            if (!ShadNetRpc::FitsWriteBudget(queued, size, MaxRpcPendingBytes) ||
-                (connected && end.socket->write(data, size) != size)) {
+            const bool accepted = connected
+                ? ShadNetRpc::TryQueueBackendWrite(*end.socket, data, size, MaxRpcPendingBytes)
+                : ShadNetRpc::FitsWriteBudget(end.pending.size(), size, MaxRpcPendingBytes);
+            if (!accepted) {
                 // This local backend isn't consuming the request. Abort the
                 // socket rather than waiting for its queued writes to drain.
                 CloseRpc(end, true);
@@ -908,7 +909,9 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
 }
 
 void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
-    CloseRpc(end);
+    // A replacement Open supersedes the previous connection, including
+    // any bytes still queued for its local socket.
+    CloseRpc(end, true);
     QTcpSocket* socket = new QTcpSocket(this);
     socket->setReadBufferSize(MaxRpcUnackedBytes + 1);
     end.socket = socket;
@@ -921,9 +924,8 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
     connect(socket, &QTcpSocket::connected, this, [this, socket, mine] {
         if (RpcEnd* at = mine(); at && !at->pending.isEmpty()) {
             const QByteArray pending = std::exchange(at->pending, {});
-            if (!ShadNetRpc::FitsWriteBudget(socket->bytesToWrite(), pending.size(),
-                                            MaxRpcPendingBytes) ||
-                socket->write(pending) != pending.size()) {
+            if (!ShadNetRpc::TryQueueBackendWrite(*socket, pending.constData(), pending.size(),
+                                                 MaxRpcPendingBytes)) {
                 CloseRpc(*at, true);
                 at->tunnel->Close(m_clock.elapsed());
                 FlushRpc(*at);
