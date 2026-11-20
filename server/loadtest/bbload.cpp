@@ -67,6 +67,7 @@ struct Settings {
   quint16 port = 31314;
   int teams = 10;
   int team_size = 3;
+  bool require_steady = false;
   int seconds = 60;
   int ramp_ms = 50;     // between two games' first hellos
   int owner_fps = 30;   // the owner's frames a second to each teammate
@@ -233,9 +234,14 @@ public:
                          [game = games[at].get()] { game->Start(); });
     }
     connect_timer();
-    QTimer::singleShot((settings.seconds) * 1000 +
-                           static_cast<int>(games.size()) * settings.ramp_ms,
-                       [this] { Finish(); });
+    if (settings.require_steady) {
+      join_deadline_us = started_us + 20'000'000 +
+                         static_cast<s64>(games.size()) * settings.ramp_ms * 1000;
+    } else {
+      QTimer::singleShot(settings.seconds * 1000 +
+                             static_cast<int>(games.size()) * settings.ramp_ms,
+                         [this] { Finish(); });
+    }
   }
 
   std::string NameOf(int team, int seat) const {
@@ -260,6 +266,8 @@ public:
   int max_work_bits = 0;
 
 private:
+  s64 join_deadline_us = 0;
+  s64 steady_started_us = 0;
   void connect_timer() {
     auto *timer = new QTimer();
     timer->setTimerType(Qt::PreciseTimer);
@@ -267,6 +275,26 @@ private:
       const s64 now = NowUs();
       for (auto &game : games) {
         game->Tick(now);
+      }
+      if (settings.require_steady) {
+        const bool all_playing = std::all_of(games.begin(), games.end(),
+                                             [](const auto &game) { return game->Playing(); });
+        if (!all_playing && steady_started_us) {
+          std::fprintf(stderr, "bbload: a hunter left play during the steady window\n");
+          QCoreApplication::exit(3);
+          return;
+        }
+        if (!all_playing && now >= join_deadline_us) {
+          std::fprintf(stderr, "bbload: not all hunters entered play before the deadline\n");
+          QCoreApplication::exit(3);
+          return;
+        }
+        if (all_playing && !steady_started_us)
+          steady_started_us = now;
+        if (steady_started_us && now - steady_started_us >= static_cast<s64>(settings.seconds) * 1'000'000) {
+          Finish();
+          return;
+        }
       }
       if (now - last_report_us >= 5'000'000) {
         Report(now);
@@ -329,6 +357,7 @@ private:
         {"incoming_game_paths", incoming_game_paths},
         {"send_errors", static_cast<double>(totals.send_errors)},
         {"seconds", seconds},
+        {"all_playing_seconds", steady_started_us ? (NowUs() - steady_started_us) / 1e6 : 0.0},
         {"packets_sent", static_cast<double>(totals.packets_sent)},
         {"packets_received", static_cast<double>(totals.packets_received)},
         {"packets_lost", static_cast<double>(totals.packets_lost)},
@@ -981,7 +1010,8 @@ int main(int argc, char **argv) {
       {"teams", "teams", "n", "10"},
       {"team-size", QStringLiteral("players a team (2-%1)")
                         .arg(static_cast<int>(TeamSize)), "n", "3"},
-      {"seconds", "seconds to play after the last game starts", "n", "60"},
+      {"seconds", "run duration (after everyone plays with --require-steady)", "n", "60"},
+      {"require-steady", "require the full duration with every hunter playing"},
       {"ramp-ms", "ms between two games' starts", "n", "50"},
       {"owner-fps", "the enemy owner's frames a second per teammate", "n",
        "30"},
@@ -1019,6 +1049,7 @@ int main(int argc, char **argv) {
     return 2;
   }
   settings.seconds = parser.value("seconds").toInt();
+  settings.require_steady = parser.isSet("require-steady");
   settings.ramp_ms = parser.value("ramp-ms").toInt();
   settings.owner_fps = std::max(1, parser.value("owner-fps").toInt());
   settings.follower_fps = std::max(1, parser.value("follower-fps").toInt());

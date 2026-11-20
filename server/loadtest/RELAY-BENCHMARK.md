@@ -23,3 +23,9 @@ A candidate with timing instrumentation cannot be compared on those metrics
 against an uninstrumented baseline. Keep clean-loopback results separate
 from packet-impairment results. Do not change production interfaces or run
 these synthetic clients against production. These are not retail game tests.
+
+Strict runs require every simulated hunter in play continuously for the requested
+duration, in each worker. The join allowance is separate from that duration.
+The report records the shortest completed all-playing window across workers.
+Latency and CPU aggregates still include some startup observations; do not
+interpret those aggregates as precisely timestamp-aligned steady-state metrics.

@@ -11,6 +11,7 @@ with the players' numbers (relay delay, losses, join times) and the server's (CP
 import argparse
 from contextlib import ExitStack
 import json
+import math
 import os
 import re
 import shlex
@@ -77,7 +78,7 @@ def worker_result(child, deadline):
     return rows[0]
 
 
-def validate_worker(row, teams, team_size, require_all_playing):
+def validate_worker(row, teams, team_size, require_all_playing, seconds=0):
     expected = {"teams": teams, "team_size": team_size, "games": teams * team_size}
     if any(type(row.get(key)) is not int or row[key] != value
            for key, value in expected.items()):
@@ -89,6 +90,11 @@ def validate_worker(row, teams, team_size, require_all_playing):
     if not (0 <= row["playing"] <= row["linked"] <= row["games"]
             and row["exchanging_game_traffic"] <= row["games"]):
         raise RuntimeError("bbload reported inconsistent participation counts")
+    steady = row.get("all_playing_seconds")
+    if type(steady) not in (int, float) or not math.isfinite(steady) or steady < 0:
+        raise RuntimeError("bbload reported an invalid steady window")
+    if require_all_playing and steady < seconds:
+        raise RuntimeError("incomplete loopback smoke: steady window was too short")
     expected_paths = row["games"] * (team_size - 1)
     if row["incoming_game_paths"] > expected_paths:
         raise RuntimeError("bbload reported too many directed game paths")
@@ -196,7 +202,7 @@ def main():
     except ValueError as error:
         parser.error(f"invalid --extra: {error}")
     reserved = {"--teams", "--team-size", "--seconds", "--ramp-ms", "--tag",
-                "--json", "--port", "--server", "--shards", "--"}
+                "--json", "--port", "--server", "--shards", "--require-steady", "--"}
     if any(option.partition("=")[0] in reserved or option.startswith("-") and
            not option.startswith("--") and not option[1:].replace(".", "", 1).isdigit()
            for option in args.extra):
@@ -303,6 +309,8 @@ def run(args, home, cleanup):
                    str(count), "--team-size", str(args.team_size), "--seconds",
                    str(args.seconds), "--ramp-ms", str(args.ramp_ms * processes), "--tag",
                    f"lt{index}"] + extra
+        if args.require_all_playing:
+            command.append("--require-steady")
         worker_log = cleanup.enter_context(open(os.path.join(home, f"bbload{index}.log"), "w"))
         load = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=worker_log, text=True)
         cleanup.callback(stop_child, load)
@@ -321,7 +329,7 @@ def run(args, home, cleanup):
     results = []
     for load, count in loads:
         row = worker_result(load, deadline)
-        validate_worker(row, count, args.team_size, args.require_all_playing)
+        validate_worker(row, count, args.team_size, args.require_all_playing, args.seconds)
         results.append(row)
     stop_sampler()
     if server.poll() is not None or not samples:
@@ -332,12 +340,13 @@ def run(args, home, cleanup):
     timing = admin_timing(args.shadnet, home, env) if args.collect_admin_timing else None
     stop_child(server)
 
-    # Steady state: the samples after every game played (the last two thirds of the run).
+    # Approximation: last two thirds of CPU samples; not a timestamp-aligned window.
     steady = samples[len(samples) // 3:] or samples
     summary = {
         "players": sum(r["games"] for r in results),
         "teams": teams,
         "team_size": args.team_size,
+        "min_all_playing_seconds": min(row["all_playing_seconds"] for row in results),
         "playing": sum(r["playing"] for r in results),
         "exchanging_game_traffic": sum(r["exchanging_game_traffic"] for r in results),
         "incoming_game_paths": sum(r["incoming_game_paths"] for r in results),

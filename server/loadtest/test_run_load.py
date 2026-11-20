@@ -9,7 +9,7 @@ class WorkerResultTests(unittest.TestCase):
         return dict(teams=2, team_size=5, games=10, linked=10, playing=10,
                     refused=0, packets_sent=100, packets_received=98,
                     exchanging_game_traffic=10, incoming_game_paths=40,
-                    send_errors=0) | overrides
+                    send_errors=0, all_playing_seconds=10.01) | overrides
 
     def test_exact_five_hunter_run(self):
         validate_worker(self.row(), 2, 5, True)
@@ -54,3 +54,10 @@ class WorkerResultTests(unittest.TestCase):
     def test_impossible_directed_pair_count(self):
         with self.assertRaisesRegex(RuntimeError, "too many"):
             validate_worker(self.row(incoming_game_paths=41), 2, 5, False)
+
+    def test_steady_window_must_cover_the_requested_duration(self):
+        validate_worker(self.row(), 2, 5, True, 10)
+        with self.assertRaisesRegex(RuntimeError, "window was too short"):
+            validate_worker(self.row(all_playing_seconds=9.99), 2, 5, True, 10)
+        with self.assertRaisesRegex(RuntimeError, "invalid steady window"):
+            validate_worker(self.row(all_playing_seconds=float("nan")), 2, 5, True, 10)

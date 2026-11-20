@@ -27,7 +27,7 @@ def fingerprint(path):
         return hashlib.file_digest(f, "sha256").hexdigest()
 
 
-def validate(summary, size, players):
+def validate(summary, size, players, seconds=0):
     if not isinstance(summary, dict):
         raise ValueError("benchmark did not produce a JSON object")
     expected = {"team_size": size, "teams": players // size, "playing": players,
@@ -36,10 +36,12 @@ def validate(summary, size, players):
     if any(type(summary.get(key)) is not int or summary[key] != value
            for key, value in expected.items()):
         raise ValueError("benchmark result did not match the strict party/route workload")
-    for key in METRICS:
+    for key in (*METRICS, "min_all_playing_seconds"):
         value = summary.get(key)
         if type(value) not in (float, int) or not math.isfinite(value) or value < 0:
             raise ValueError(f"invalid benchmark metric: {key}")
+    if summary["min_all_playing_seconds"] < seconds:
+        raise ValueError("benchmark did not complete the requested steady window")
     return summary
 
 
@@ -79,7 +81,7 @@ def main():
             proc = subprocess.run(command, stdout=subprocess.PIPE, text=True)
             if proc.returncode:
                 raise ValueError(f"{side} trial {trial + 1}, size {size}: workload failed")
-            row = validate(json.loads(proc.stdout), size, players)
+            row = validate(json.loads(proc.stdout), size, players, args.seconds)
             runs.append({"trial": trial, "side": side, "team_size": size, "metrics": row})
         if any(fingerprint(path) != hashes[key] for key, path in binaries.items()):
             raise ValueError("a benchmark binary changed during the comparison")
