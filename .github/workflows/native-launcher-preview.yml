@@ -1,0 +1,49 @@
+name: Native launcher preview
+
+on:
+  pull_request:
+    paths:
+      - 'bbport/launcher-native/**'
+      - '.github/workflows/native-launcher-preview.yml'
+  push:
+    branches: [prototype/native-launcher-preview]
+    paths:
+      - 'bbport/launcher-native/**'
+      - '.github/workflows/native-launcher-preview.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: bbport/launcher-native
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile the native preview
+        run: cargo build --release --locked
+      - name: Test native launcher operations
+        run: cargo test --locked
+      - name: Verify Windows GUI startup
+        shell: pwsh
+        run: |
+          $preview = Start-Process -FilePath (Resolve-Path target/release/yharnam-launcher-preview.exe) -ArgumentList '--smoke' -WindowStyle Hidden -PassThru
+          try {
+            if (-not $preview.WaitForExit(10000) -or $preview.ExitCode -ne 0) {
+              throw "Native preview could not create its Windows frame and controls."
+            }
+          } finally {
+            if (-not $preview.HasExited) {
+              Stop-Process -Id $preview.Id
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yharnam-native-launcher-preview-windows
+          path: bbport/launcher-native/target/release/yharnam-launcher-preview.exe
+          if-no-files-found: error
