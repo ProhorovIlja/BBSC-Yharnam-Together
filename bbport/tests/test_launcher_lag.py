@@ -400,6 +400,27 @@ class AnimationTests(unittest.TestCase):
         ])
         window.root.after.assert_called_once_with(100, window.drain_output)
 
+    def test_ready_marker_after_refusal_cannot_arm_close_on_play(self):
+        window = types.SimpleNamespace(
+            ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),
+            drain_output=mock.Mock(), append=mock.Mock(), status=mock.Mock(),
+            app={'close_on_play': True}, process=object(), close_on_ready_job=None,
+            output_ready=False, set_running=mock.Mock(), schedule_ready_close=mock.Mock(),
+        )
+        refusal = launcher.bbport_coop.REFUSED_LINE + 'account: sign in again\n'
+        ready = next(iter(launcher.GAME_UP_LINES)) + '\n'
+        def watch(line):
+            if line == refusal:
+                window.coop_new_id = 'give_up_account'
+        window.coop_watch_line = watch
+        window.output.put(refusal + ready)
+        with mock.patch.object(launcher.time, 'perf_counter', return_value=1):
+            launcher.Launcher.drain_output(window)
+        window.append.assert_called_once_with(refusal + ready)
+        window.schedule_ready_close.assert_not_called()
+        window.set_running.assert_not_called()
+        window.status.configure.assert_not_called()
+
     def test_sign_in_refusal_survives_post_exit_status_refresh(self):
         window = types.SimpleNamespace(
             ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),

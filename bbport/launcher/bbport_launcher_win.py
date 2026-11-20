@@ -5485,6 +5485,7 @@ class Launcher:
             self.coop_auth_saved_settings()
             self.show_coop_sign_in_required()
             self.coop_new_id = 'give_up_account'
+            self.cancel_ready_close()
             if self.job:
                 self.job.terminate()
             return
@@ -5509,6 +5510,7 @@ class Launcher:
         else:
             self.status.configure(text=_(bbport_coop.NEW_ID_FAILED_TEXT).format(tries), fg=BAD)
         self.coop_new_id = what
+        self.cancel_ready_close()
         if self.job:
             self.job.terminate()
 
@@ -6813,6 +6815,8 @@ class Launcher:
                     else:
                         for line in item.splitlines(keepends=True):
                             self.coop_watch_line(line)
+                            if getattr(self, 'coop_new_id', None):
+                                continue  # queued markers from a game we are stopping
                             if bbport_support.GAME_STARTING_LINE in line:
                                 self.run_started = True
                             if game_is_up(line):  # mods, patches and shaders are prepared; the window exists
