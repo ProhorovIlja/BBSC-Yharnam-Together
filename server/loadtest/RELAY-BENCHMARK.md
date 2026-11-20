@@ -36,3 +36,7 @@ instrumentation. Fresh local test configurations disable signup proof-of-work
 so it does not dominate comparisons; this is not a production setting.
 The hosted container test also requires real observed link and world ticks
 after a full five-hunter loopback run. Timing maxima include startup.
+
+Strict smoke also requires a usable packet from each directed teammate route
+in the final two seconds. Startup traffic alone cannot hide a route that
+goes silent later. This is a liveness check, not a latency target.

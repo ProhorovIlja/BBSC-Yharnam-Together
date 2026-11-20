@@ -13,7 +13,8 @@ class ComparisonTests(unittest.TestCase):
     def row(self):
         return {key: 1 for key in METRICS} | dict(
             team_size=5, teams=2, playing=10, scheduled_players=10,
-            expected_game_paths=40, incoming_game_paths=40, send_errors=0, refused=0,
+            expected_game_paths=40, incoming_game_paths=40, fresh_game_paths=40,
+            send_errors=0, refused=0,
             min_all_playing_seconds=10.01)
 
     def test_counterbalanced_pairs(self):

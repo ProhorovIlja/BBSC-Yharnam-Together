@@ -34,7 +34,8 @@ def validate(summary, size, players, seconds=0):
         raise ValueError("benchmark did not produce a JSON object")
     expected = {"team_size": size, "teams": players // size, "playing": players,
                 "scheduled_players": players, "expected_game_paths": players * (size - 1),
-                "incoming_game_paths": players * (size - 1), "send_errors": 0, "refused": 0}
+                "incoming_game_paths": players * (size - 1), "fresh_game_paths": players * (size - 1),
+                "send_errors": 0, "refused": 0}
     if any(type(summary.get(key)) is not int or summary[key] != value
            for key, value in expected.items()):
         raise ValueError("benchmark result did not match the strict party/route workload")

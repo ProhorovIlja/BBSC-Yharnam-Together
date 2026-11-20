@@ -147,7 +147,12 @@ public:
   bool Playing() const { return state == State::Playing; }
   bool Linked() const { return state != State::Linking; }
   bool ExchangedGameTraffic() const { return sent_game && received_game; }
-  int IncomingGamePaths() const { return static_cast<int>(heard_seq.size()); }
+  int IncomingGamePaths() const { return static_cast<int>(heard.size()); }
+  int FreshGamePaths(s64 now_us) const {
+    return static_cast<int>(std::count_if(heard.begin(), heard.end(), [&](const auto &path) {
+      return now_us - path.second.received_us <= 2'000'000;
+    }));
+  }
   std::string name; // its online id
   std::string
       member; // its board name: the online id in hex, as the games say it
@@ -201,7 +206,8 @@ private:
   bool started = false;
   std::string party;
   std::map<std::string, u32> sent_seq;  // per teammate
-  std::map<std::string, u32> heard_seq; // per teammate: the last packet's
+  struct Heard { u32 seq = 0; s64 received_us = 0; };
+  std::map<std::string, Heard> heard; // latest usable packet from each teammate
   u32 frame_count = 0;
   std::mt19937 random;
   // Link version 4 (coop/link_auth.h): the cookie round trip, the handshake
@@ -335,18 +341,21 @@ private:
   }
 
   void Finish() {
-    Report(NowUs());
+    const s64 finished_us = NowUs();
+    Report(finished_us);
     int linked = 0;
     int playing = 0;
     int exchanging = 0;
     int incoming_game_paths = 0;
+    int fresh_game_paths = 0;
     for (auto &game : games) {
       linked += game->Linked();
       playing += game->Playing();
       exchanging += game->ExchangedGameTraffic();
       incoming_game_paths += game->IncomingGamePaths();
+      fresh_game_paths += game->FreshGamePaths(finished_us);
     }
-    const double seconds = (NowUs() - started_us) / 1e6;
+    const double seconds = (finished_us - started_us) / 1e6;
     QJsonObject out{
         {"games", static_cast<int>(games.size())},
         {"teams", settings.teams},
@@ -355,9 +364,10 @@ private:
         {"playing", playing},
         {"exchanging_game_traffic", exchanging},
         {"incoming_game_paths", incoming_game_paths},
+        {"fresh_game_paths", fresh_game_paths},
         {"send_errors", static_cast<double>(totals.send_errors)},
         {"seconds", seconds},
-        {"all_playing_seconds", steady_started_us ? (NowUs() - steady_started_us) / 1e6 : 0.0},
+        {"all_playing_seconds", steady_started_us ? (finished_us - steady_started_us) / 1e6 : 0.0},
         {"packets_sent", static_cast<double>(totals.packets_sent)},
         {"packets_received", static_cast<double>(totals.packets_received)},
         {"packets_lost", static_cast<double>(totals.packets_lost)},
@@ -740,7 +750,8 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
         sent > static_cast<u64>(now_us)) {
       continue; // Only this worker's monotonic clock is valid for this measurement.
     }
-    u32 &last = heard_seq[game_frame->sender];
+    auto &path = heard[game_frame->sender];
+    const u32 last = path.seq;
     if (seq <= last) {
       ++load.totals.packets_late_or_duplicate;
       continue; // Don't inflate usable delivery or its latency samples.
@@ -752,7 +763,7 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
     if (seq > last + 1 && last != 0) {
       load.totals.packets_lost += seq - last - 1;
     }
-    last = std::max(last, seq);
+    path = {seq, now_us};
   }
 }
 
