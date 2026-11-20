@@ -8,6 +8,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QObject>
+#include <QPointer>
 #include <QTcpSocket>
 #include <QThread>
 #include <QThreadPool>
@@ -94,6 +95,7 @@ private:
         std::unique_ptr<BloodborneCoop::RpcTunnel> tunnel;
         ServerLink::Endpoint to;
         QTcpSocket* socket = nullptr;
+        QPointer<QTcpSocket> draining; // one graceful close, until replacement or deletion
         QByteArray pending; // what came before the connection to the TCP port was up
     };
     void OnRpc(const ServerLink::Endpoint& from, const QByteArray& online_id,
