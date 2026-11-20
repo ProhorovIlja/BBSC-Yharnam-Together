@@ -58,6 +58,11 @@ fn collect_tree(user: &Path, relative: &Path, files: &mut Vec<PathBuf>) -> io::R
 }
 
 fn save_files(user: &Path) -> io::Result<Vec<PathBuf>> {
+    match fs::symlink_metadata(user) {
+        Ok(metadata) => check_link(user, &metadata)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    }
     let mut files = Vec::new();
     collect_tree(user, Path::new("savedata"), &mut files)?;
     let home = user.join("home");
@@ -68,8 +73,8 @@ fn save_files(user: &Path) -> io::Result<Vec<PathBuf>> {
     }
     for profile in entries(&home)? {
         let metadata = fs::symlink_metadata(profile.path())?;
+        check_link(&profile.path(), &metadata)?;
         if metadata.is_dir() {
-            check_link(&profile.path(), &metadata)?;
             collect_tree(user, &Path::new("home").join(profile.file_name()).join("savedata"), &mut files)?;
         }
     }
@@ -241,6 +246,10 @@ mod tests {
         assert_eq!(fs::read(snapshot.join("bloodborne_party_test.txt")).unwrap(), b"party data");
         assert!(!snapshot.join("coop.json").exists());
         assert_eq!(backup(&root).unwrap(), Backup::Unchanged);
+        assert_eq!(entries(&user.join(BACKUPS)).unwrap().len(), 1);
+        fs::rename(user.join("savedata"), user.join("savedata-original")).unwrap();
+        fs::write(user.join("savedata"), "not a directory").unwrap();
+        assert!(backup(&root).is_err());
         assert_eq!(entries(&user.join(BACKUPS)).unwrap().len(), 1);
         drop(scratch);
     }
