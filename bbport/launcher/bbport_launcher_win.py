@@ -3050,6 +3050,24 @@ class Sidebar:
             c.itemconfigure(item, fill=mix(BG, mix('#f2e3c0', '#7d6b48', fraction), fade * 0.8))
 
 
+def write_desktop_shortcut(target, directory, icon, arguments='', destination=None):
+    """Write a Shell Link without interpolating filesystem data into PowerShell."""
+    env = {**os.environ, 'BBPORT_LNK_TARGET': str(target),
+           'BBPORT_LNK_WORKDIR': str(directory), 'BBPORT_LNK_ICON': str(icon),
+           'BBPORT_LNK_ARGS': f'"{arguments}"' if arguments else '',
+           'BBPORT_LNK_FILE': str(destination) if destination is not None else ''}
+    script = ('$ErrorActionPreference="Stop";'
+              '$path=$env:BBPORT_LNK_FILE;'
+              'if (!$path) {$path=Join-Path ([Environment]::GetFolderPath("Desktop")) "Bloodborne.lnk"};'
+              '$s=(New-Object -ComObject WScript.Shell).CreateShortcut($path);'
+              '$s.TargetPath=$env:BBPORT_LNK_TARGET;'
+              '$s.WorkingDirectory=$env:BBPORT_LNK_WORKDIR;'
+              '$s.IconLocation=$env:BBPORT_LNK_ICON;'
+              'if ($env:BBPORT_LNK_ARGS) {$s.Arguments=$env:BBPORT_LNK_ARGS};$s.Save()')
+    return subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+                          capture_output=True, creationflags=NO_WINDOW, env=env, timeout=15)
+
+
 class Launcher:
     def __init__(self, root, tk, ttk, filedialog, messagebox):
         from tkinter import font as tkfont
@@ -7686,21 +7704,8 @@ class Launcher:
             pythonw = Path(sys.executable).with_name('pythonw.exe')
             target = str(pythonw if pythonw.exists() else sys.executable)
             arguments, icon = Path(__file__).resolve(), PORT_DIR / 'launcher' / 'bloodborne.ico'
-        # Keep installation paths out of PowerShell source. Apostrophes,
-        # dollar signs and Unicode are data, not syntax.
-        env = {**os.environ, 'BBPORT_LNK_TARGET': target,
-               'BBPORT_LNK_WORKDIR': str(PORT_DIR), 'BBPORT_LNK_ICON': str(icon),
-               'BBPORT_LNK_ARGS': f'"{arguments}"' if arguments else ''}
-        script = ('$ErrorActionPreference="Stop";'
-                  '$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath("Desktop")'
-                  '+"\\Bloodborne.lnk");'
-                  '$s.TargetPath=$env:BBPORT_LNK_TARGET;'
-                  '$s.WorkingDirectory=$env:BBPORT_LNK_WORKDIR;'
-                  '$s.IconLocation=$env:BBPORT_LNK_ICON;'
-                  'if ($env:BBPORT_LNK_ARGS) {$s.Arguments=$env:BBPORT_LNK_ARGS};$s.Save()')
         try:
-            result = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
-                                    capture_output=True, creationflags=NO_WINDOW, env=env, timeout=15)
+            result = write_desktop_shortcut(target, PORT_DIR, icon, arguments)
         except (OSError, subprocess.TimeoutExpired) as error:
             self.messagebox.showerror('Bloodborne', str(error)[:400])
             return
