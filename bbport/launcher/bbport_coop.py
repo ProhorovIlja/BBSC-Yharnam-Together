@@ -601,7 +601,9 @@ def with_own_player_id(settings, machine):
     a friend's install copied with its user\\coop.json). An id made on another PC is made again here; an
     install from before the PC was noted keeps its id and notes this PC."""
     if machine and settings.get('machine') and settings['machine'] != machine:
-        settings = dict(settings, account='', password='')
+        # Overrides are machine-local identities too. Keep server public keys
+        # (pinning) and the separate Global account settings unchanged.
+        settings = dict(settings, account='', password='', server_ids={})
     settings = with_player_id(settings)
     if machine:
         settings['machine'] = machine
