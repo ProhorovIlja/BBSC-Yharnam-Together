@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/libraries/network/rpc_bridge.h"
+#include "core/libraries/network/rpc_local_send.h"
 
 #include <array>
 #include <chrono>
@@ -46,18 +47,6 @@ void CloseSocket(Socket socket) {
 #endif
 
 constexpr int TickMs = 5;
-constexpr int LocalSendTimeoutMs = 100;
-constexpr int LocalReplyBudgetMs = 250;
-
-bool ConfigureLocalSendTimeout(Socket socket) {
-#ifdef _WIN32
-    const DWORD timeout = LocalSendTimeoutMs;
-#else
-    const timeval timeout{0, LocalSendTimeoutMs * 1000};
-#endif
-    return setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO,
-                      reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == 0;
-}
 constexpr size_t MaxRequestUnackedBytes = 1 << 20;
 
 s64 NowMs() {
@@ -79,31 +68,6 @@ bool Readable(Socket socket, int ms) {
     pollfd watched{socket, POLLIN, 0};
     return poll(&watched, 1, ms) > 0 && (watched.revents & (POLLIN | POLLHUP | POLLERR));
 #endif
-}
-
-bool SendAll(Socket socket, std::span<const u8> bytes) {
-#if !defined(_WIN32) && defined(MSG_NOSIGNAL)
-    constexpr int flags = MSG_NOSIGNAL;
-#else
-    constexpr int flags = 0;
-#endif
-    const auto deadline = NowMs() + LocalReplyBudgetMs;
-    size_t sent = 0;
-    while (sent < bytes.size()) {
-        if (NowMs() >= deadline)
-            return false;
-        const int rc = send(socket, reinterpret_cast<const char*>(bytes.data() + sent),
-                            static_cast<int>(bytes.size() - sent), flags);
-#ifndef _WIN32
-        if (rc < 0 && errno == EINTR)
-            continue;
-#endif
-        if (rc <= 0) {
-            return false;
-        }
-        sent += static_cast<size_t>(rc);
-    }
-    return true;
 }
 
 class Bridge {
@@ -186,7 +150,7 @@ private:
             return;
         }
 #endif
-        if (!ConfigureLocalSendTimeout(client)) {
+        if (!RpcLocal::ConfigureLocalSendTimeout(client)) {
             LOG_ERROR(Lib_Net, "Rpc bridge: could not bound local TCP send time");
             DropClient();
             return;
@@ -214,7 +178,7 @@ private:
             for (auto& event : tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, now_ms)) {
                 using Kind = BloodborneCoop::RpcTunnel::Event::Kind;
                 if (event.kind == Kind::Data && client != NoSocket) {
-                    if (!SendAll(client, event.bytes)) {
+                    if (!RpcLocal::SendAll(client, event.bytes)) {
                         LOG_ERROR(Lib_Net, "Rpc bridge: local TCP reply write failed or timed out");
                         DropClient();
                         tunnel.Close(now_ms);
