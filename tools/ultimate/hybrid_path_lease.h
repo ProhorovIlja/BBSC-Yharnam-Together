@@ -98,6 +98,14 @@ public:
         return verified_->serial;
     }
 
+    // Revalidate a queued visual send on the serialized executor immediately
+    // before handing it to the transport. Never use this for authority traffic.
+    [[nodiscard]] bool direct_send_current(const PathBinding& peer, Traffic stream,
+                                          std::uint64_t ticket, std::uint64_t now) {
+        return live(now) && matches(peer) && verified_->serial == ticket &&
+               (stream == Traffic::PoseSnapshot || stream == Traffic::VisualEmote);
+    }
+
     // Confirmed path failure, not an individual packet loss. A stale callback
     // cannot demote a newer proof, even if the peer and endpoint are unchanged.
     // Clear pending ACKs but keep consent and shared replay state.

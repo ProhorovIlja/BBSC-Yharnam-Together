@@ -176,5 +176,26 @@ int main() {
     CHECK(send_failure.acknowledge(a, 3, nonce, 12));
     CHECK(!send_failure.probe_send_failed(a, 3, 13));
 
+    HybridPathLease queued;
+    CHECK(queued.bind(a, 1));
+    queued.allow_direct(true);
+    CHECK(queued.challenge(a, 1, nonce, 2));
+    CHECK(queued.acknowledge(a, 1, nonce, 3));
+    const auto send_ticket = queued.direct_ticket(4);
+    CHECK(send_ticket && queued.direct_send_current(a, Traffic::PoseSnapshot, *send_ticket, 4));
+    CHECK(!queued.direct_send_current(b, Traffic::PoseSnapshot, *send_ticket, 4));
+    CHECK(!queued.direct_send_current(a, Traffic::WorldCommit, *send_ticket, 4));
+    CHECK(queued.challenge(a, 2, other, 5));
+    CHECK(queued.acknowledge(a, 2, other, 6));
+    CHECK(!queued.direct_send_current(a, Traffic::PoseSnapshot, *send_ticket, 7));
+    CHECK(queued.direct_send_current(a, Traffic::VisualEmote, 2, 2005));
+    CHECK(!queued.direct_send_current(a, Traffic::VisualEmote, 2, 2006));
+    CHECK(queued.route(Traffic::PoseSnapshot, true, true, 2006) == Route::Relay);
+    CHECK(queued.route(Traffic::WorldCommit, true, true, 2006) == Route::Authority);
+    CHECK(queued.challenge(a, 3, nonce, 2007));
+    CHECK(queued.acknowledge(a, 3, nonce, 2008));
+    queued.allow_direct(false);
+    CHECK(!queued.direct_send_current(a, Traffic::PoseSnapshot, 3, 2009));
+
     std::cout << checks << " hybrid path checks passed\n";
 }
