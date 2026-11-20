@@ -144,7 +144,9 @@ def make_portable_stage(parent=None):
 @contextmanager
 def lock_portable_install(target):
     """Serialize cooperating portable installers for this directory."""
-    path = Path(target) / '.bbport-update.lock'
+    target = Path(target)
+    _check_install_path(target, True, required=True)
+    path = target / '.bbport-update.lock'
     _check_install_path(path, False)
     with path.open('a+b') as lock:
         lock.seek(0)
