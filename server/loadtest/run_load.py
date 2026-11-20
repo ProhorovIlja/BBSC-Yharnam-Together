@@ -321,7 +321,9 @@ def run(args, home, cleanup):
         "refused": sum(r["refused"] for r in results),
         "packets_sent": sum(r["packets_sent"] for r in results),
         "packets_received": sum(r["packets_received"] for r in results),
+        # Legacy name: forward gaps, not a definitive count of dropped datagrams.
         "packets_lost": sum(r["packets_lost"] for r in results),
+        "packets_late_or_duplicate": sum(r["packets_late_or_duplicate"] for r in results),
         "server_out_mbit": sum(r["bytes_received"] for r in results) * 8 / 1e6 /
         max(1, max(r["seconds"] for r in results)) if results else 0,
         "server_in_mbit": sum(r["bytes_sent"] for r in results) * 8 / 1e6 /

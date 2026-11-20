@@ -117,7 +117,8 @@ struct Totals {
   quint64 send_errors = 0;
   quint64 packets_sent = 0;
   quint64 packets_received = 0;
-  quint64 packets_lost = 0; // gaps in the sequence numbers
+  quint64 packets_lost = 0; // forward gaps, not total end-to-end drops
+  quint64 packets_late_or_duplicate = 0;
   quint64 bytes_sent = 0;
   quint64 bytes_received = 0;
   quint64 datagrams_sent = 0;
@@ -331,6 +332,7 @@ private:
         {"packets_sent", static_cast<double>(totals.packets_sent)},
         {"packets_received", static_cast<double>(totals.packets_received)},
         {"packets_lost", static_cast<double>(totals.packets_lost)},
+        {"packets_late_or_duplicate", static_cast<double>(totals.packets_late_or_duplicate)},
         {"datagrams_sent", static_cast<double>(totals.datagrams_sent)},
         {"datagrams_received", static_cast<double>(totals.datagrams_received)},
         {"bytes_sent", static_cast<double>(totals.bytes_sent)},
@@ -675,7 +677,8 @@ void Game::SendGamePackets(s64 now_us) {
 
 void Game::TakeData(const QByteArray &frame, s64 now_us) {
   constexpr qsizetype GameFrameAt = 9;
-  if (frame.size() < GameFrameAt || frame.mid(4, 4) != "SHAD") {
+  if (frame.size() < GameFrameAt || frame.mid(4, 4) != "SHAD" ||
+      static_cast<u8>(frame.at(8)) != GamePacketsType) {
     return;
   }
   const auto game_frame = DecodeGameFrame(
@@ -686,7 +689,9 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
   }
   bool teammate = false;
   for (int other = 0; other < load.settings.team_size; ++other) {
-    if (other != seat && game_frame->sender == load.NameOf(team, other)) {
+    if (other != seat &&
+        game_frame->instance == static_cast<u32>(0x2000 + team * load.settings.team_size + other) &&
+        game_frame->sender == load.NameOf(team, other)) {
       teammate = true;
       break;
     }
@@ -702,11 +707,19 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
     u32 seq = 0;
     GameLinkDetail::Get(std::span<const u8>{entry.packet}, at, sent);
     GameLinkDetail::Get(std::span<const u8>{entry.packet}, at, seq);
+    if (!seq || sent < static_cast<u64>(load.started_us) ||
+        sent > static_cast<u64>(now_us)) {
+      continue; // Only this worker's monotonic clock is valid for this measurement.
+    }
+    u32 &last = heard_seq[game_frame->sender];
+    if (seq <= last) {
+      ++load.totals.packets_late_or_duplicate;
+      continue; // Don't inflate usable delivery or its latency samples.
+    }
     received_game = true;
     ++load.totals.packets_received;
     load.totals.relay_us.Add(now_us - static_cast<s64>(sent));
     load.window_relay.Add(now_us - static_cast<s64>(sent));
-    u32 &last = heard_seq[game_frame->sender];
     if (seq > last + 1 && last != 0) {
       load.totals.packets_lost += seq - last - 1;
     }
