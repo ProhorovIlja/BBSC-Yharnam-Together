@@ -61,7 +61,9 @@ public:
     // increasing for this policy object's entire lifetime, including reconnects.
     [[nodiscard]] bool challenge(const PathBinding& peer, std::uint64_t serial,
                                  ProbeNonce nonce, std::uint64_t now) {
-        if (!tick(now) || !matches(peer) || !allowed_ || serial <= highest_serial_ ||
+        // One in-flight challenge: a scheduler tick must not replace a nonce
+        // while its authenticated reply can still arrive.
+        if (!tick(now) || !matches(peer) || !allowed_ || pending_ || serial <= highest_serial_ ||
             nonce == ProbeNonce{}) return false;
         highest_serial_ = serial;
         pending_ = Probe{serial, nonce, now};

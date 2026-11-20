@@ -147,5 +147,18 @@ int main() {
     CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 13, Route::Relay, true, 23));
     CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 12, Route::Relay, true, 24));
 
+    HybridPathLease probing;
+    CHECK(probing.bind(a, 1));
+    probing.allow_direct(true);
+    CHECK(probing.challenge(a, 1, nonce, 2));
+    CHECK(!probing.challenge(a, 2, other, 999));
+    CHECK(probing.acknowledge(a, 1, nonce, 1001));
+    CHECK(probing.challenge(a, 2, other, 1002));
+    CHECK(!probing.challenge(a, 3, nonce, 2001));
+    CHECK(probing.challenge(a, 3, nonce, 2002)); // Exact timeout permits retry.
+    CHECK(!probing.acknowledge(a, 2, other, 2002));
+    CHECK(probing.acknowledge(a, 3, nonce, 2003));
+    CHECK(probing.route(Traffic::PoseSnapshot, true, true, 2004) == Route::Direct);
+
     std::cout << checks << " hybrid path checks passed\n";
 }
