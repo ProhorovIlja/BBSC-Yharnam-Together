@@ -16,6 +16,49 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 import bbport_coop as coop  # noqa: E402
 
 
+class PortableUpdateZipTests(unittest.TestCase):
+    def stage(self, names, *, valid=False):
+        import io
+        import warnings
+        import zipfile
+        from bbport_update_zip import extract_update
+
+        blob = io.BytesIO()
+        with warnings.catch_warnings(), zipfile.ZipFile(blob, 'w') as archive:
+            warnings.simplefilter('ignore', UserWarning)  # deliberate duplicate
+            for name in names:
+                archive.writestr(name, b'fixture')
+        with tempfile.TemporaryDirectory() as scratch, zipfile.ZipFile(blob) as archive:
+            out = Path(scratch) / 'fresh'
+            if valid:
+                path = extract_update(archive, out)
+                self.assertEqual(path, out / 'Игра' / 'BLauncher.exe')
+                self.assertEqual(path.read_bytes(), b'fixture')
+                with self.assertRaises(FileExistsError):
+                    extract_update(archive, out)
+            else:
+                with self.assertRaises(ValueError):
+                    extract_update(archive, out)
+                self.assertFalse(out.exists())
+                self.assertFalse((Path(scratch) / 'escape').exists())
+
+    def test_valid_unicode_package_and_exclusive_staging(self):
+        self.stage(['Игра/BLauncher.exe', 'Игра/bin/probe.exe'], valid=True)
+
+    def test_rejects_ambiguous_or_unsafe_names_before_extraction(self):
+        for names in (['../escape'], ['/escape'], ['C:/escape'], [r'bin\escape'],
+                      ['bin/AUX.txt'], ['bin/hidden.'], ['bin/stream:alternate'],
+                      ['bin/file', 'BIN/other'], ['bin/file', 'bin/File'],
+                      ['bin/file', 'bin/file'], ['bin', 'bin/file'],
+                      ['nested/BLauncher.exe']):
+            with self.subTest(names=names):
+                self.stage(['BLauncher.exe', *names])
+
+    def test_expanded_budget_is_checked_before_staging(self):
+        with mock.patch('bbport_update_zip.MAX_EXPANDED_BYTES', 1):
+            self.stage(['BLauncher.exe'])
+
+
 def write_sfo(path, values):
     """A minimal PS4 param.sfo with text values (format 0x0204)."""
     keys, data, entries = b'', b'', []
