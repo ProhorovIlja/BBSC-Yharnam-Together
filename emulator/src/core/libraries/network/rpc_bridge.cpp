@@ -81,6 +81,9 @@ class Bridge {
 public:
     u16 Start() {
         std::scoped_lock lock{mutex};
+        if (stopping) {
+            return 0;
+        }
         if (port != 0) {
             return port;
         }
@@ -102,7 +105,7 @@ public:
             return 0;
         }
         try {
-            std::thread{[this] { Run(); }}.detach();
+            worker = std::jthread{[this](std::stop_token stop) { Run(stop); }};
         } catch (const std::system_error&) {
             LOG_ERROR(Lib_Net, "Rpc bridge: could not start the local worker");
             CloseSocket(listener);
@@ -115,10 +118,24 @@ public:
         return port;
     }
 
+    void Stop() {
+        std::scoped_lock lock{mutex};
+        stopping = true;
+        if (worker.joinable()) {
+            worker.request_stop();
+            worker.join();
+        }
+        if (listener != NoSocket) {
+            CloseSocket(listener);
+            listener = NoSocket;
+        }
+        port = 0;
+    }
+
 private:
-    void Run() {
+    void Run(std::stop_token stop) {
         std::array<u8, 16384> buffer{};
-        while (true) {
+        while (!stop.stop_requested()) {
             const s64 now_ms = NowMs();
             if (client == NoSocket) {
                 if (Readable(listener, TickMs)) {
@@ -153,8 +170,9 @@ private:
                 ResetTunnel();
                 Accept(now_ms);
             }
-            Exchange(buffer);
+            Exchange(buffer, stop);
         }
+        DropClient();
     }
 
     void Accept(s64 now_ms) {
@@ -202,8 +220,8 @@ private:
     }
 
     // What came from shadNet to the game's connection, and what the tunnel sends.
-    void Exchange(std::array<u8, 16384>& buffer) {
-        for (int count = 0; count < 256; ++count) {
+    void Exchange(std::array<u8, 16384>& buffer, std::stop_token stop) {
+        for (int count = 0; count < 256 && !stop.stop_requested(); ++count) {
             const int size = ServerRpcReceive(buffer.data(), static_cast<u32>(buffer.size()));
             if (size < 0) {
                 break;
@@ -220,6 +238,9 @@ private:
                 break;
             }
             for (auto& event : events) {
+                if (stop.stop_requested()) {
+                    return;
+                }
                 using Kind = BloodborneCoop::RpcTunnel::Event::Kind;
                 if (event.kind == Kind::Data && client != NoSocket) {
                     if (!RpcLocal::SendAll(client, event.bytes)) {
@@ -236,12 +257,20 @@ private:
                 }
             }
         }
+        if (stop.stop_requested()) {
+            return;
+        }
         for (const auto& body : tunnel.Flush(NowMs())) {
+            if (stop.stop_requested()) {
+                return;
+            }
             ServerRpcSend(body.data(), static_cast<u32>(body.size()));
         }
     }
 
     std::mutex mutex;
+    std::jthread worker;
+    bool stopping = false;
     u16 port = 0;
     Socket listener = NoSocket;
     Socket client = NoSocket;
@@ -255,9 +284,7 @@ private:
 };
 
 Bridge& Instance() {
-    // Run has no stop/join path and may still use the bridge during process exit.
-    // Keep its storage alive until the OS reclaims it, rather than destroying
-    // the tunnel and mutex under the detached worker.
+    // Shutdown is explicit: static destruction order must not race the worker.
     static Bridge* const bridge = new Bridge;
     return *bridge;
 }
@@ -266,6 +293,10 @@ Bridge& Instance() {
 
 u16 StartRpcBridge() {
     return Instance().Start();
+}
+
+void StopRpcBridge() {
+    Instance().Stop();
 }
 
 } // namespace Libraries::Net
