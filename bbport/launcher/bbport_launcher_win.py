@@ -6340,8 +6340,8 @@ class Launcher:
             game = _('⚠ Game version {}: runs at 30 FPS without the community patches (they are for 1.09)',
                      '⚠ Версия игры {}: 30 FPS без патчей сообщества (они для 1.09)').format(info[1])
         user = Path(self.var('user_dir', 'app').get() or DATA_DIR / 'user')
-        saves = list((user / 'savedata').glob('*/*/SPRJ*')) if (user / 'savedata').is_dir() else []
-        save = (_('✓ Saves found in {}', '✓ Найдены сохранения в {}').format(short_path(user)) if saves
+        has_save = next((user / 'savedata').glob('*/*/SPRJ*'), None) is not None
+        save = (_('✓ Saves found in {}', '✓ Найдены сохранения в {}').format(short_path(user)) if has_save
                 else _('• No saves yet: the game creates them in {}', '• Сохранений пока нет: игра создаст их в {}').format(short_path(user)))
         missing = fsr4_missing()
         fsr4 = (_('✓ FSR 4 assets installed', '✓ Ассеты FSR 4 установлены') if not missing else
@@ -6361,12 +6361,11 @@ class Launcher:
                 label.grid_remove()
         if not self.process and not self.installing:
             self.play_button.configure(state='normal' if info else 'disabled')
-            self.status.configure(text=self.summary() if info else _('Choose the game folder first.',
+            self.status.configure(text=self.summary(info) if info else _('Choose the game folder first.',
                                                                      'Сначала выберите папку игры.'), fg=MUTED)
 
-    def summary(self):
+    def summary(self, info):
         fps = dict(FPS_MODES).get(self.var('fps_mode', 'app').get(), ('?',))
-        info = self.coop_game_info() if COOP_INSTALL else game_info(self.var('game_dir', 'app').get())
         if info and info[1] != PATCH_VERSION:
             fps = ('30 FPS',)
         upscaler = dict(UPSCALERS).get(self.var('upscaler', 'ini').get(), ('?',))[0].split(' (')[0]

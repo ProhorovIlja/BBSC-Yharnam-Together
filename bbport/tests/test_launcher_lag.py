@@ -386,6 +386,28 @@ class AnimationTests(unittest.TestCase):
         ])
         window.root.after.assert_called_once_with(100, window.drain_output)
 
+    def test_status_refresh_uses_one_game_lookup_and_stops_after_first_save(self):
+        def saves():
+            yield Path('SPRJ0005')
+            self.fail('status does not need to enumerate the remaining saves')
+
+        window = types.SimpleNamespace(
+            coop_game_info=mock.Mock(return_value=('fixture', '01.08')),
+            var=mock.Mock(return_value=mock.Mock(get=mock.Mock(return_value=''))),
+            checks={k: mock.Mock() for k in ('game', 'saves', 'gpu', 'fsr4')},
+            gpu_text='GPU', gpu_checking=False, upscaler_notice=None,
+            process=None, installing=False, play_button=mock.Mock(), status=mock.Mock(),
+        )
+        window.summary = lambda info: launcher.Launcher.summary(window, info)
+        with mock.patch.object(launcher, 'COOP_INSTALL', True), \
+                mock.patch.object(launcher, 'fsr4_missing', return_value=False), \
+                mock.patch.object(type(Path()), 'glob', return_value=saves()), \
+                mock.patch.object(launcher, '_', side_effect=lambda english, *_: english):
+            launcher.Launcher.refresh_status(window)
+        window.coop_game_info.assert_called_once_with()
+        self.assertIn('Saves found', window.checks['saves'].set.call_args.args[0])
+        self.assertTrue(window.status.configure.call_args.kwargs['text'].startswith('30 FPS'))
+
     def test_game_ready_markers_update_once_per_launch_phase(self):
         window = types.SimpleNamespace(
             ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(), drain_output=mock.Mock(),
