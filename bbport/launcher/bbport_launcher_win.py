@@ -37,6 +37,8 @@ import urllib.request
 import webbrowser
 import zipfile
 
+from bbport_shortcut_win import write_shortcut
+
 FROZEN = getattr(sys, 'frozen', False)
 EXE = '.exe' if sys.platform == 'win32' else ''  # the port's own programs; Linux: no suffix
 PORT_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
@@ -3048,24 +3050,6 @@ class Sidebar:
             r = size * (0.5 + 0.7 * fade)
             c.coords(item, px - r, y - r, px + r, y + r)
             c.itemconfigure(item, fill=mix(BG, mix('#f2e3c0', '#7d6b48', fraction), fade * 0.8))
-
-
-def write_desktop_shortcut(target, directory, icon, arguments='', destination=None):
-    """Write a Shell Link without interpolating filesystem data into PowerShell."""
-    env = {**os.environ, 'BBPORT_LNK_TARGET': str(target),
-           'BBPORT_LNK_WORKDIR': str(directory), 'BBPORT_LNK_ICON': str(icon),
-           'BBPORT_LNK_ARGS': f'"{arguments}"' if arguments else '',
-           'BBPORT_LNK_FILE': str(destination) if destination is not None else ''}
-    script = ('$ErrorActionPreference="Stop";'
-              '$path=$env:BBPORT_LNK_FILE;'
-              'if (!$path) {$path=Join-Path ([Environment]::GetFolderPath("Desktop")) "Bloodborne.lnk"};'
-              '$s=(New-Object -ComObject WScript.Shell).CreateShortcut($path);'
-              '$s.TargetPath=$env:BBPORT_LNK_TARGET;'
-              '$s.WorkingDirectory=$env:BBPORT_LNK_WORKDIR;'
-              '$s.IconLocation=$env:BBPORT_LNK_ICON;'
-              'if ($env:BBPORT_LNK_ARGS) {$s.Arguments=$env:BBPORT_LNK_ARGS};$s.Save()')
-    return subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
-                          capture_output=True, creationflags=NO_WINDOW, env=env, timeout=15)
 
 
 class Launcher:
@@ -7696,23 +7680,20 @@ class Launcher:
                                                  'минут будет подтормаживать, пока кэш собирается заново.'))
 
     def shortcut(self):
-        """Bloodborne.lnk on the desktop: Bloodborne.exe, which starts the game (or this launcher
-        while no game folder is chosen)."""
+        """Create the Windows desktop shortcut using the wide Shell Link API."""
         if FROZEN:
-            target, arguments, icon = str(PORT_DIR / 'Bloodborne.exe'), '', f'{sys.executable},0'
-        else:  # a source tree: the launcher script with the windowless Python
+            target, arguments, icon = PORT_DIR / 'Bloodborne.exe', '', sys.executable
+        else:
             pythonw = Path(sys.executable).with_name('pythonw.exe')
-            target = str(pythonw if pythonw.exists() else sys.executable)
-            arguments, icon = Path(__file__).resolve(), PORT_DIR / 'launcher' / 'bloodborne.ico'
+            target = pythonw if pythonw.exists() else sys.executable
+            arguments = f'"{Path(__file__).resolve()}"'
+            icon = PORT_DIR / 'launcher' / 'bloodborne.ico'
         try:
-            result = write_desktop_shortcut(target, PORT_DIR, icon, arguments)
-        except (OSError, subprocess.TimeoutExpired) as error:
+            write_shortcut(target, PORT_DIR, (icon, 0), arguments)
+        except OSError as error:
             self.messagebox.showerror('Bloodborne', str(error)[:400])
             return
-        if result.returncode == 0:
-            self.messagebox.showinfo('Bloodborne', _('Shortcut created on the desktop.', 'Ярлык создан на рабочем столе.'))
-        else:
-            self.messagebox.showerror('Bloodborne', result.stderr.decode(errors='replace')[:400])
+        self.messagebox.showinfo('Bloodborne', _('Shortcut created on the desktop.', 'Ярлык создан на рабочем столе.'))
 
     def add_to_steam(self):
         """Bloodborne in the Steam library: a non-Steam game that starts Bloodborne.exe (in a source
