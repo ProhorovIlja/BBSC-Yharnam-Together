@@ -12,8 +12,33 @@
 
 #define CHECK(x) do { if (!(x)) { std::cerr << "failure line " << __LINE__ << ": " << #x << '\n'; return 1; } } while (false)
 
+// Force Qt's pending state without relying on external networking or on
+// loopback remaining asynchronous on a particular OS.
+class PendingSocket : public QTcpSocket {
+public:
+    using QAbstractSocket::setSocketState;
+};
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    PendingSocket pending;
+    pending.setSocketState(QAbstractSocket::ConnectingState);
+    int expired = 0;
+    QEventLoop pendingLoop;
+    ShadNetRpc::OnBackendConnectTimeout(pending, 0, [&] {
+        ++expired;
+        pendingLoop.quit();
+    });
+    {
+        PendingSocket retired;
+        retired.setSocketState(QAbstractSocket::ConnectingState);
+        ShadNetRpc::OnBackendConnectTimeout(retired, 0, [&] { expired += 100; });
+    }
+    CHECK(expired == 0);
+    QTimer::singleShot(2000, &pendingLoop, &QEventLoop::quit);
+    pendingLoop.exec();
+    CHECK(expired == 1);
+    pending.setSocketState(QAbstractSocket::UnconnectedState);
     QTcpServer backend;
     CHECK(backend.listen(QHostAddress::LocalHost, 0));
     QTcpSocket forward;
