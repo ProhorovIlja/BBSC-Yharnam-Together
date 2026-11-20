@@ -118,6 +118,28 @@ class PortableUpdateZipTests(unittest.TestCase):
             self.assertEqual((install / 'user' / 'save').read_bytes(), b'player')
             self.assertEqual(external.read_bytes(), b'old')
 
+    def test_interrupted_file_copy_preserves_existing_binary(self):
+        from bbport_update_zip import copy_portable_update
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            stage, install = root / 'stage', root / 'install'
+            stage.mkdir()
+            install.mkdir()
+            (stage / 'BLauncher.exe').write_bytes(b'complete new binary')
+            existing = install / 'BLauncher.exe'
+            existing.write_bytes(b'old')
+
+            def interrupted(_src, temporary):
+                Path(temporary).write_bytes(b'incomplete')
+                raise OSError('simulated disk write failure')
+
+            with mock.patch('bbport_update_zip.shutil.copyfile', side_effect=interrupted):
+                with self.assertRaises(OSError):
+                    copy_portable_update(stage, install, lambda *_: ())
+            self.assertEqual(existing.read_bytes(), b'old')
+            self.assertEqual(list(install.iterdir()), [existing])
+
     def test_overlay_rejects_linked_directory_before_any_writes(self):
         from bbport_update_zip import copy_portable_update
         import subprocess
