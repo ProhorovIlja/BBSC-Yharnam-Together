@@ -872,7 +872,8 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
                                             "bytes")
                                  .arg(QString::fromLatin1(online_id.toHex()))
                                  .arg(MaxRpcMessageBytes);
-        CloseRpc(end);
+        // The stream is no longer trustworthy: do not drain pending TCP writes.
+        CloseRpc(end, true);
         m_rpc.erase(online_id);
         return;
     }
@@ -1019,7 +1020,7 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
         // A game gone (or moved to another address): its connection to the TCP port is over.
         for (auto it = m_rpc.begin(); it != m_rpc.end();) {
             if (it->second->to == gone) {
-                CloseRpc(*it->second);
+                CloseRpc(*it->second, true);
                 it = m_rpc.erase(it);
             } else {
                 ++it;
@@ -1046,7 +1047,7 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
         Apply(m_world.LinkLost(lost));
         for (auto& [id, end] : m_rpc) {
             if (end->to == lost && end->socket) {
-                CloseRpc(*end);
+                CloseRpc(*end, true);
                 end->tunnel->Close(m_clock.elapsed());
             }
         }
