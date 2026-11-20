@@ -1000,7 +1000,10 @@ void LinkServer::CloseRpc(RpcEnd& end, bool abort) {
 }
 
 void LinkServer::FlushRpc(RpcEnd& end) {
-    for (const auto& body : end.tunnel->Flush(m_clock.elapsed())) {
+    // A coalesced backend reply can queue megabytes. Send only a slice of
+    // new fragments per callback; OnWorldTick resumes the remaining queue.
+    constexpr size_t MaxFreshRpcFragments = 256;
+    for (const auto& body : end.tunnel->Flush(m_clock.elapsed(), MaxFreshRpcFragments)) {
         if (const auto sealed = m_link.Seal(
                 end.to, ServerLink::EncodeRpc(QByteArray(reinterpret_cast<const char*>(body.data()),
                                                          static_cast<qsizetype>(body.size())))))
