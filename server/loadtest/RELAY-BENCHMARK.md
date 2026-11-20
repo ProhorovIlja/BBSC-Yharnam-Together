@@ -29,3 +29,10 @@ duration, in each worker. The join allowance is separate from that duration.
 The report records the shortest completed all-playing window across workers.
 Latency and CPU aggregates still include some startup observations; do not
 interpret those aggregates as precisely timestamp-aligned steady-state metrics.
+
+Use `compare_relay.py --hosted-timing` to collect the same private timing
+schema from both sides. In this mode both binaries must have timing
+instrumentation. Fresh local test configurations disable signup proof-of-work
+so it does not dominate comparisons; this is not a production setting.
+The hosted container test also requires real observed link and world ticks
+after a full five-hunter loopback run. Timing maxima include startup.

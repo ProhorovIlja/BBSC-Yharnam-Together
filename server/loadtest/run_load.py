@@ -161,9 +161,17 @@ def admin_timing(binary, home, env):
         raise RuntimeError("local admin stats failed; enable Hosted mode for timing runs")
     row = json.loads(result.stdout)
     timing = row.get("udp_timing") if isinstance(row, dict) and row.get("ok") is True else None
+    return validate_timing(timing)
+
+
+def validate_timing(timing):
     if not isinstance(timing, dict) or any(type(timing.get(key)) is not int or timing[key] < 0
                                           for key in TIMING_KEYS):
         raise RuntimeError("local admin stats did not provide valid UDP timing")
+    if (not timing["link_ticks"] or not timing["world_ticks"]
+            or timing["link_gaps_over_2x"] > timing["link_ticks"]
+            or timing["world_gaps_over_2x"] > timing["world_ticks"]):
+        raise RuntimeError("local admin stats did not observe valid link and world ticks")
     # Never include the raw admin response in benchmark output.
     return {key: timing[key] for key in TIMING_KEYS}
 

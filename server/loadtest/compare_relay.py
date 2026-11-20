@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from run_load import validate_timing
+
 RUNNER = Path(__file__).with_name("run_load.py")
 METRICS = ("relay_ms_p50", "relay_ms_p95", "relay_ms_p99", "server_cpu_avg",
            "main_thread_cpu_avg", "server_out_mbit", "delivered_pct", "udp_buffer_drops")
@@ -45,6 +47,16 @@ def validate(summary, size, players, seconds=0):
     return summary
 
 
+def timing_summary(runs, repeats):
+    by_key = {(r["trial"], r["team_size"], r["side"]): r["metrics"]["udp_timing"] for r in runs}
+    keys = ("rx_slice_max_us", "link_gap_max_ms", "world_gap_max_ms")
+    return {str(size): {
+        key: statistics.median(by_key[trial, size, "candidate"][key] -
+                               by_key[trial, size, "base"][key] for trial in range(repeats))
+        for key in keys
+    } for size in (2, 5)}
+
+
 def summarize(runs, repeats):
     by_key = {(r["trial"], r["team_size"], r["side"]): r["metrics"] for r in runs}
     return {str(size): {
@@ -62,6 +74,8 @@ def main():
     parser.add_argument("--teams", type=int, default=2)
     parser.add_argument("--seconds", type=int, default=30)
     parser.add_argument("--port", type=int, default=32040)
+    parser.add_argument("--hosted-timing", action="store_true",
+                        help="require private UDP/tick metrics from two instrumented builds")
     args = parser.parse_args()
     if not (2 <= args.trials <= 20 and 1 <= args.teams <= 30 and
             10 <= args.seconds <= 300 and 1025 <= args.port <= 65534):
@@ -78,18 +92,25 @@ def main():
                        "--bbload", str(binaries["bbload"]), "--players", str(players),
                        "--team-size", str(size), "--seconds", str(args.seconds),
                        "--port", str(args.port), "--require-all-playing", "--match-local-build"]
+            if args.hosted_timing:
+                command += ["--collect-admin-timing", "--cfg", "Hosted=true",
+                            "--cfg", "HostedSignupWorkBits=0", "--cfg", "HostedSignupWorkMaxBits=0"]
             proc = subprocess.run(command, stdout=subprocess.PIPE, text=True)
             if proc.returncode:
                 raise ValueError(f"{side} trial {trial + 1}, size {size}: workload failed")
             row = validate(json.loads(proc.stdout), size, players, args.seconds)
+            if args.hosted_timing:
+                row["udp_timing"] = validate_timing(row.get("udp_timing"))
             runs.append({"trial": trial, "side": side, "team_size": size, "metrics": row})
         if any(fingerprint(path) != hashes[key] for key, path in binaries.items()):
             raise ValueError("a benchmark binary changed during the comparison")
-        print(json.dumps({"sha256": hashes, "trials": args.trials, "teams": args.teams,
-                          "seconds": args.seconds, "runs": runs,
-                          "candidate_minus_base_median": summarize(runs, args.trials)},
-                         allow_nan=False))
-    except (OSError, ValueError, OverflowError) as error:
+        report = {"sha256": hashes, "trials": args.trials, "teams": args.teams,
+                  "seconds": args.seconds, "hosted_timing": args.hosted_timing, "runs": runs,
+                  "candidate_minus_base_median": summarize(runs, args.trials)}
+        if args.hosted_timing:
+            report["timing_candidate_minus_base_median"] = timing_summary(runs, args.trials)
+        print(json.dumps(report, allow_nan=False))
+    except (OSError, ValueError, RuntimeError, OverflowError) as error:
         print(f"comparison failed: {error}", file=sys.stderr)
         return 1
     return 0

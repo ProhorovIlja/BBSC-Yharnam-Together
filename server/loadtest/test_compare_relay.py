@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import json
 
-from compare_relay import METRICS, schedule, summarize, validate
+from compare_relay import METRICS, schedule, summarize, timing_summary, validate
 from run_load import TIMING_KEYS, admin_timing
 
 
@@ -57,3 +57,19 @@ class ComparisonTests(unittest.TestCase):
         validate(self.row(), 5, 10, 10)
         with self.assertRaisesRegex(ValueError, "requested steady"):
             validate(self.row(), 5, 10, 11)
+
+    def test_timing_summary_compares_maxima_only(self):
+        runs = [{"trial": trial, "team_size": size, "side": side,
+                 "metrics": {"udp_timing": dict.fromkeys(
+                     TIMING_KEYS, 10 + (size if side == "candidate" else 0))}}
+                for trial, size, side in schedule(2)]
+        self.assertEqual(timing_summary(runs, 2)["5"],
+                         {"rx_slice_max_us": 5, "link_gap_max_ms": 5, "world_gap_max_ms": 5})
+
+    @patch("run_load.subprocess.run")
+    def test_zero_ticks_do_not_qualify_as_timing_evidence(self, run):
+        timing = dict.fromkeys(TIMING_KEYS, 0)
+        run.return_value = SimpleNamespace(returncode=0, stdout=json.dumps(
+            {"ok": True, "udp_timing": timing}))
+        with self.assertRaisesRegex(RuntimeError, "valid link and world ticks"):
+            admin_timing("shadnet", ".", {})
