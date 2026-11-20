@@ -75,17 +75,23 @@ public:
         if (!tick(now) || !matches(peer) || !allowed_ || !pending_ ||
             pending_->serial != serial || pending_->nonce != nonce) return false;
         pending_.reset(); // Duplicate ACKs can never renew the lease.
-        verified_at_ = now;
+        verified_ = Verified{serial, now};
         return true;
     }
 
-    // A confirmed transport/path failure (not a single lost packet).
-    // Ignore callbacks from an older binding. The caller must also fence
-    // async callbacks from an older socket/probe generation on the same binding.
-    // Clear the pending ACK so a delayed reply cannot immediately re-promote.
-    // Keep consent and sequence history: the same pair can probe again.
-    [[nodiscard]] bool direct_failed(const PathBinding& peer, std::uint64_t now) {
-        if (!tick(now) || !matches(peer)) return false;
+    // Capture this ticket when scheduling work on the verified direct path,
+    // not when handling an asynchronous completion. Tickets are pair-local.
+    [[nodiscard]] std::optional<std::uint64_t> direct_ticket(std::uint64_t now) {
+        if (!live(now)) return std::nullopt;
+        return verified_->serial;
+    }
+
+    // Confirmed path failure, not an individual packet loss. A stale callback
+    // cannot demote a newer proof, even if the peer and endpoint are unchanged.
+    // Clear pending ACKs but keep consent and shared replay state.
+    [[nodiscard]] bool direct_failed(const PathBinding& peer, std::uint64_t ticket,
+                                     std::uint64_t now) {
+        if (!live(now) || !matches(peer) || verified_->serial != ticket) return false;
         clear_probe();
         return true;
     }
@@ -124,20 +130,22 @@ public:
 
 private:
     struct Probe { std::uint64_t serial; ProbeNonce nonce; std::uint64_t started; };
+    struct Verified { std::uint64_t serial, at; };
     std::optional<PathBinding> binding_;
     // Keep the stream's identity after losing the active transport binding.
     // Otherwise rebinding that same session would admit captured old packets.
     // The authenticated wire layer must reject rollback to a retired scope.
     std::optional<PathBinding> replay_scope_;
     std::optional<Probe> pending_;
-    std::optional<std::uint64_t> verified_at_, last_time_;
+    std::optional<Verified> verified_;
+    std::optional<std::uint64_t> last_time_;
     std::array<std::optional<std::uint32_t>, 2> last_seq_{};
     std::uint64_t highest_serial_ = 0;
     bool allowed_ = false;
     bool clock_fault_ = false;
 
     bool matches(const PathBinding& peer) const { return binding_ && *binding_ == peer; }
-    void clear_probe() { pending_.reset(); verified_at_.reset(); }
+    void clear_probe() { pending_.reset(); verified_.reset(); }
     bool tick(std::uint64_t now) {
         if (last_time_ && now < *last_time_) {
             // A monotonic-clock regression is an integration error. Destroy
@@ -148,9 +156,9 @@ private:
         if (clock_fault_) return false;
         last_time_ = now;
         if (pending_ && now - pending_->started >= ProbeTimeoutMs) pending_.reset();
-        if (verified_at_ && now - *verified_at_ >= LeaseMs) verified_at_.reset();
+        if (verified_ && now - verified_->at >= LeaseMs) verified_.reset();
         return true;
     }
-    bool live(std::uint64_t now) { return tick(now) && allowed_ && binding_ && verified_at_; }
+    bool live(std::uint64_t now) { return tick(now) && allowed_ && binding_ && verified_; }
 };
 } // namespace ultimate

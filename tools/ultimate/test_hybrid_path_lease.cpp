@@ -118,11 +118,13 @@ int main() {
     CHECK(failover.bind(a, 5));
     CHECK(failover.route(Traffic::PoseSnapshot, true, true, 6) == Route::Direct);
     CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 10, Route::Direct, true, 7));
+    const auto first_ticket = failover.direct_ticket(8);
+    CHECK(first_ticket && *first_ticket == 1);
     CHECK(failover.challenge(a, 2, other, 8));
     b = a; ++b.endpoint[0];
-    CHECK(!failover.direct_failed(b, 9));
+    CHECK(!failover.direct_failed(b, *first_ticket, 9));
     CHECK(failover.route(Traffic::PoseSnapshot, true, true, 10) == Route::Direct);
-    CHECK(failover.direct_failed(a, 11));
+    CHECK(failover.direct_failed(a, *first_ticket, 11));
     CHECK(failover.route(Traffic::PoseSnapshot, true, true, 11) == Route::Relay);
     CHECK(failover.route(Traffic::PoseSnapshot, true, false, 11) == Route::Unavailable);
     CHECK(failover.route(Traffic::Reward, true, true, 11) == Route::Authority);
@@ -134,6 +136,16 @@ int main() {
     CHECK(failover.acknowledge(a, 3, nonce, 17));
     CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 11, Route::Direct, true, 18));
     CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 12, Route::Direct, true, 19));
+
+    CHECK(!failover.direct_failed(a, *first_ticket, 20)); // Same endpoint, obsolete proof.
+    CHECK(failover.route(Traffic::PoseSnapshot, true, true, 20) == Route::Direct);
+    const auto current_ticket = failover.direct_ticket(21);
+    CHECK(current_ticket && *current_ticket == 3);
+    CHECK(failover.direct_failed(a, *current_ticket, 22));
+    CHECK(!failover.direct_ticket(22));
+    CHECK(!failover.direct_failed(a, *current_ticket, 22));
+    CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 13, Route::Relay, true, 23));
+    CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 12, Route::Relay, true, 24));
 
     std::cout << checks << " hybrid path checks passed\n";
 }
