@@ -150,7 +150,8 @@ def print_refusals(home):
 
 
 TIMING_KEYS = (
-    "rx_yields", "rx_slice_max_us", "link_ticks", "link_gap_max_ms",
+    "rx_yields", "rx_read_errors", "rx_retry_requests", "rx_oversized",
+    "rx_slice_max_us", "link_ticks", "link_gap_max_ms",
     "link_gaps_over_2x", "world_ticks", "world_gap_max_ms", "world_gaps_over_2x",
 )
 

@@ -107,6 +107,7 @@ private:
     ShadNetUdp::SocketDrain m_udpDrain;
     ShadNetUdp::TickTiming m_linkTiming{500}, m_worldTiming{50};
     qint64 m_udpYields = 0;
+    qint64 m_udpReadErrors = 0, m_udpRetryRequests = 0, m_udpOversized = 0;
     qint64 m_udpSliceMaxUs = 0;
     SharedState* m_shared;
     ServerLink::Hub m_link;

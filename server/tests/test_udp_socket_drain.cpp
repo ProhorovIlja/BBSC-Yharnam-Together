@@ -19,6 +19,7 @@ public:
     int seen = 0;
     int slices = 0;
     int yields = 0;
+    unsigned oversized = 0;
     int interleaved_at = -1;
 
     void send(int id) {
@@ -45,7 +46,12 @@ public:
             }
             if (seen == Burst + 1)
                 QCoreApplication::quit();
-        }, [this](const QElapsedTimer&, bool yielded) { ++slices; yields += yielded; });
+        }, [this](const QElapsedTimer&, const ShadNetUdp::SliceStats& stats) {
+            ++slices;
+            yields += stats.budget_yield;
+            oversized += stats.oversized;
+            CHECK(!stats.read_failed && !stats.retry_requested);
+        });
     }
 };
 
@@ -71,5 +77,6 @@ int main(int argc, char** argv) {
     CHECK(app.exec() == 0);
     CHECK(f.seen == Fixture::Burst + 1 && f.slices >= 3);
     CHECK(f.yields > 0 && f.yields <= f.slices - 2);
+    CHECK(f.oversized == 2);
     std::cout << "UDP loopback: ordered continuation, event-loop yield and new-burst rearm passed\n";
 }

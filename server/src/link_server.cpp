@@ -280,6 +280,9 @@ void LinkServer::RunAdmin(QLocalSocket* socket, const QString& line) {
     context.link_load = m_linkLoad;
     context.udp_timing = {
         {"rx_yields", m_udpYields},
+        {"rx_read_errors", m_udpReadErrors},
+        {"rx_retry_requests", m_udpRetryRequests},
+        {"rx_oversized", m_udpOversized},
         {"rx_slice_max_us", m_udpSliceMaxUs},
         {"link_ticks", static_cast<qint64>(m_linkTiming.ticks)},
         {"link_gap_max_ms", static_cast<qint64>(m_linkTiming.max_gap_ms)},
@@ -374,8 +377,11 @@ void LinkServer::OnReadyRead() {
             if (!raw.isEmpty() && ServerLink::KindOf(raw))
                 HandleLink(raw, sender, port);
         },
-        [this](const QElapsedTimer& busy, bool yielded) {
-            m_udpYields += yielded;
+        [this](const QElapsedTimer& busy, const ShadNetUdp::SliceStats& stats) {
+            m_udpYields += stats.budget_yield;
+            m_udpReadErrors += stats.read_failed;
+            m_udpRetryRequests += stats.retry_requested;
+            m_udpOversized += stats.oversized;
             m_udpSliceMaxUs = std::max(m_udpSliceMaxUs, busy.nsecsElapsed() / 1000);
             Busy(busy);
         });
