@@ -72,6 +72,12 @@ int main(int argc, char** argv) {
     assert(WriteLedger(path, "retry"));
     assert(read() == "retry");
     assert(WriteLedger(path, {}) && !std::filesystem::exists(path));
+    assert(std::filesystem::create_directory(temp));
+    std::ofstream(temp / "ledger") << "interrupted";
+    assert(!WriteLedger(path, {}));
+    assert(ReadLedger(temp / "ledger") == "interrupted");
+    assert(!std::filesystem::exists(path));
+    assert(std::filesystem::remove(temp / "ledger") && std::filesystem::remove(temp));
     assert(WriteLedger(path, {}));
     assert(ReadLedger(path) == std::string{});
     const std::string limit(MaxLedgerBytes, 'x');
