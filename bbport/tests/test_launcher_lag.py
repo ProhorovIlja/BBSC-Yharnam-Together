@@ -95,6 +95,27 @@ class CoopCardTypingTests(unittest.TestCase):
         self.assertEqual(self.root.resizable(), (1, 1))
 
 
+@unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
+class ShortcutTests(unittest.TestCase):
+    def test_shortcut_passes_paths_as_data_and_handles_start_failure(self):
+        app = types.SimpleNamespace(messagebox=mock.Mock())
+        root = Path("C:/Игры/O'Brien $HOME")
+        with (mock.patch.object(launcher, 'PORT_DIR', root),
+              mock.patch.object(launcher, 'FROZEN', False),
+              mock.patch.object(launcher, '__file__', str(root / 'bbport_launcher_win.py')),
+              mock.patch.object(launcher.subprocess, 'run', return_value=mock.Mock(returncode=0)) as run):
+            launcher.Launcher.shortcut(app)
+            args, kwargs = run.call_args
+            self.assertNotIn(str(root), args[0][-1])
+            self.assertEqual(kwargs['env']['BBPORT_LNK_WORKDIR'], str(root))
+            self.assertEqual(kwargs['env']['BBPORT_LNK_ARGS'],
+                             f'"{root / "bbport_launcher_win.py"}"')
+            app.messagebox.showinfo.assert_called_once()
+            run.side_effect = OSError('PowerShell unavailable')
+            launcher.Launcher.shortcut(app)
+            app.messagebox.showerror.assert_called_once()
+
+
 class FakeRoot:
     """What Motion asks of the Tk root: a window shown, focused or not."""
 
