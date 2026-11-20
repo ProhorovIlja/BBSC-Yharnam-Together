@@ -126,6 +126,48 @@ int FreshRpcFragmentsDrainInBoundedSlices() {
   return 0;
 }
 
+int PacketLossCannotOverflowRpcReorderingWindow() {
+  RpcTunnel game{"game", 7, RpcTunnel::TransportLimits()};
+  RpcTunnel server{"shadnet", 9, RpcTunnel::TransportLimits()};
+  game.Open(0);
+  CHECK(Carry(game, server, 0).size() == 1);
+  const auto reply = Bytes(std::string(384 * 1024, 'r') + "tail");
+  server.Write(reply, 1);
+  server.Close(1);
+  const auto initial = server.UnackedBytes();
+  bool drop_first = true;
+  bool closed = false;
+  bool window_stalled = false;
+  std::vector<u8> received;
+  for (s64 tick = 2; tick <= 2000 && !closed; tick += 5) {
+    const auto frames = server.Flush(tick, 64);
+    if (tick < 200 && frames.empty())
+      window_stalled = true;
+    for (const auto& frame : frames) {
+      if (drop_first) {
+        drop_first = false;
+        continue;
+      }
+      for (const auto& event : game.Receive(frame, tick)) {
+        CHECK(!closed);
+        if (event.kind == Event::Kind::Closed) {
+          closed = true;
+        } else {
+          CHECK(event.kind == Event::Kind::Data);
+          received.insert(received.end(), event.bytes.begin(), event.bytes.end());
+        }
+      }
+      CHECK(!game.Broken());
+    }
+    for (const auto& ack : game.Flush(tick))
+      server.Receive(ack, tick);
+    if (tick < 200)
+      CHECK(received.empty() && server.UnackedBytes() == initial);
+  }
+  CHECK(window_stalled && closed && received == reply && server.UnackedBytes() == 0);
+  return 0;
+}
+
 int ALostDatagramIsSentAgain() {
   RpcTunnel game{"game", 7};
   RpcTunnel server{"shadnet", 9};
@@ -528,6 +570,7 @@ int CoalescedReplyStaysWithinMessageAndQueueBounds() {
 int main() {
   if (AConnectionGoesThrough() != 0 || ALostDatagramIsSentAgain() != 0 ||
       FreshRpcFragmentsDrainInBoundedSlices() != 0 ||
+      PacketLossCannotOverflowRpcReorderingWindow() != 0 ||
       ARestartedServerEndsTheConnection() != 0 ||
       RestartedGameRetiresOldBackendBeforeOpeningNewOne() != 0 ||
       RestartAfterCloseRetiresBackendBeforeNextOpen() != 0 ||
