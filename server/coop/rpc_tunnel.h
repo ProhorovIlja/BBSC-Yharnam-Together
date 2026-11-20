@@ -123,7 +123,9 @@ public:
     std::vector<Event> Receive(std::span<const u8> body, s64 now_ms) {
         std::vector<Event> events;
         std::vector<std::vector<u8>> messages = stream.Receive(body, now_ms);
-        if (stream.TakeRestarted() && open) {
+        // The TCP backend can still be draining after logical Close.
+        // A new peer instance must retire that socket even before its Open.
+        if (stream.TakeRestarted()) {
             open = false;
             events.push_back({Event::Kind::PeerRestarted, {}});
         }
