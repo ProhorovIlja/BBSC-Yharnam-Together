@@ -5,6 +5,11 @@
 #include <utility>
 
 namespace ShadNetRpc {
+inline bool MayBufferBackendRequest(QAbstractSocket::SocketState state) {
+    return state == QAbstractSocket::HostLookupState ||
+           state == QAbstractSocket::ConnectingState;
+}
+
 // Remote EOF goes through disconnected, after the backend's final reads.
 // Other errors (including a refused initial connect) may never disconnect.
 template <typename Handler>

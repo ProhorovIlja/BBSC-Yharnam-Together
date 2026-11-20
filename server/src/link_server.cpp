@@ -888,10 +888,12 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
                 break;
             const auto size = static_cast<qsizetype>(event.bytes.size());
             const auto* data = reinterpret_cast<const char*>(event.bytes.data());
-            const bool connected = end.socket->state() == QAbstractSocket::ConnectedState;
+            const auto state = end.socket->state();
+            const bool connected = state == QAbstractSocket::ConnectedState;
             const bool accepted = connected
                 ? ShadNetRpc::TryQueueBackendWrite(*end.socket, data, size, MaxRpcPendingBytes)
-                : ShadNetRpc::FitsWriteBudget(end.pending.size(), size, MaxRpcPendingBytes);
+                : ShadNetRpc::MayBufferBackendRequest(state) &&
+                      ShadNetRpc::FitsWriteBudget(end.pending.size(), size, MaxRpcPendingBytes);
             if (!accepted) {
                 // This local backend isn't consuming the request. Abort the
                 // socket rather than waiting for its queued writes to drain.

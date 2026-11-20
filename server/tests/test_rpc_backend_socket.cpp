@@ -46,6 +46,11 @@ int main(int argc, char** argv) {
     const auto unusedPort = backend.serverPort();
     backend.close();
     QTcpSocket refused;
+    using ShadNetRpc::MayBufferBackendRequest;
+    CHECK(MayBufferBackendRequest(QAbstractSocket::HostLookupState));
+    CHECK(MayBufferBackendRequest(QAbstractSocket::ConnectingState));
+    CHECK(!MayBufferBackendRequest(QAbstractSocket::ClosingState));
+    CHECK(!MayBufferBackendRequest(refused.state()));
     QEventLoop loop;
     int failures = 0, disconnects = 0;
     QObject::connect(&refused, &QTcpSocket::disconnected, [&] { ++disconnects; });
@@ -58,6 +63,7 @@ int main(int argc, char** argv) {
     QTimer::singleShot(2000, &loop, &QEventLoop::quit);
     loop.exec();
     CHECK(refused.error() == QAbstractSocket::ConnectionRefusedError);
+    CHECK(!MayBufferBackendRequest(refused.state()));
     CHECK(failures == 1 && disconnects == 0);
     std::cout << "RPC backend TCP: initial refusal triggers deferred cleanup without disconnect\n";
 }
