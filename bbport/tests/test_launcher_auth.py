@@ -13,6 +13,7 @@ import os
 import pathlib
 import socketserver
 import ssl
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 import bbport_auth as auth  # noqa: E402
 import bbport_coop as coop  # noqa: E402
 
-OPENSSL = r'C:\Program Files\Git\mingw64\bin\openssl.exe'
+OPENSSL = shutil.which('openssl') or r'C:\Program Files\Git\mingw64\bin\openssl.exe'
 PASSWORD = 'a long and fine password'
 SECRET = format(int(time.time()), '08x') + 'b' * 24
 
@@ -264,6 +265,7 @@ class TlsErrorTests(unittest.TestCase):
         alert.reason = 'TLSV1_ALERT_PROTOCOL_VERSION'
         self.assertEqual(auth._tls_error(alert).args, (auth.CONNECTION_TEXT, 'TLSV1_ALERT_PROTOCOL_VERSION'))
         self.assertEqual(auth._tls_error(ssl.SSLEOFError()).args, (auth.CONNECTION_TEXT, 'SSLEOFError'))
+        self.assertIn('Account data was not sent', auth.CERTIFICATE_TEXT.format('x'))
         for text in (auth.CERTIFICATE_TEXT, auth.CONNECTION_TEXT):
             self.assertIn('not sent', text.format('x'))
 

@@ -10,6 +10,7 @@ on:
       - 'bbport/launcher/**'
       - 'bbport/tests/test_coop_launcher.py'
       - 'bbport/tests/test_launcher_lag.py'
+      - 'bbport/tests/test_launcher_auth.py'
       - '.github/workflows/ultimate-preparation.yml'
   workflow_dispatch:
 
@@ -42,6 +43,9 @@ jobs:
       - name: Windows launcher render and input regressions (no display required)
         if: runner.os == 'Windows'
         run: python -m unittest discover -s bbport/tests -p test_launcher_lag.py -k AnimationTests -v
+      - name: Auth and local TLS regressions
+        if: runner.os == 'Linux'
+        run: python -m unittest discover -s bbport/tests -p test_launcher_auth.py -v
       - name: Existing hybrid acceptance model
         run: python tools/ultimate/ultimate_hybrid_policy.py
       - name: Compile and run C++ policy (POSIX)
