@@ -4,10 +4,31 @@ import re
 import stat
 from pathlib import Path
 
+MAX_DOWNLOAD_BYTES = 2 << 30
 MAX_ENTRIES = 30_000
 MAX_EXPANDED_BYTES = 4 << 30
 _RESERVED = re.compile(r'(?i)(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])\Z')
 _UNSAFE = re.compile(r'[\x00-\x1f<>:"|?*\\]')
+
+
+def download_update(response, out, progress):
+    """Copy a bounded complete HTTP response, with or without a length header."""
+    declared = response.headers.get('Content-Length')
+    expected = int(declared) if declared is not None else None
+    if expected is not None and not 0 < expected <= MAX_DOWNLOAD_BYTES:
+        raise ValueError('Update download has an invalid size')
+    done, shown = 0, -1
+    while chunk := response.read(1 << 20):
+        done += len(chunk)
+        if done > MAX_DOWNLOAD_BYTES or (expected is not None and done > expected):
+            raise ValueError('Update download exceeded its size limit')
+        out.write(chunk)
+        percent = done * 100 // expected if expected is not None else 0
+        if percent != shown:
+            shown = percent
+            progress(percent)
+    if not done or (expected is not None and done != expected):
+        raise ValueError('Update download ended before the expected size')
 
 
 def extract_update(package, destination):
@@ -22,7 +43,7 @@ def extract_update(package, destination):
         name = entry.orig_filename
         directory = entry.is_dir()
         parts = (name[:-1] if directory else name).split('/')
-        if any(not part or part.endswith(('.', ' ')) or _UNSAFE.search(part) or
+        if len(parts) > 32 or len(name) > 1024 or any(not part or part.endswith(('.', ' ')) or _UNSAFE.search(part) or
                _RESERVED.fullmatch(part.split('.')[0].rstrip(' ')) for part in parts):
             raise ValueError(f'Unsafe update archive member: {name!r}')
         if stat.S_IFMT(entry.external_attr >> 16) not in (0, stat.S_IFDIR if directory else stat.S_IFREG):
