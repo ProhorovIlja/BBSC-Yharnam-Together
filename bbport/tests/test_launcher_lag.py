@@ -97,6 +97,37 @@ class CoopCardTypingTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
 class ShortcutTests(unittest.TestCase):
+    def test_real_shell_link_round_trips_unicode_paths(self):
+        import base64
+        import json
+        import os
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / "Игры O'Brien $HOME"
+            root.mkdir()
+            link = root / 'Bloodborne.lnk'
+            script_path = root / 'launcher.py'
+            target = Path(sys.executable).resolve()
+            result = launcher.write_desktop_shortcut(target, root, target, script_path,
+                                                      destination=link)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(link.is_file())
+            # Read the saved COM properties in another process. Base64 avoids
+            # coupling the result to the runner's Windows console code page.
+            read = ('$ErrorActionPreference="Stop";'
+                    '$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:BBPORT_TEST_LINK);'
+                    '$j=@($s.TargetPath,$s.WorkingDirectory,$s.Arguments)|ConvertTo-Json -Compress;'
+                    '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($j))')
+            output = subprocess.check_output(
+                ['powershell', '-NoProfile', '-NonInteractive', '-Command', read],
+                env={**os.environ, 'BBPORT_TEST_LINK': str(link)}, timeout=15)
+            got_target, got_dir, got_args = json.loads(base64.b64decode(output))
+            self.assertEqual(Path(got_target).resolve(), target)
+            self.assertEqual(Path(got_dir).resolve(), root.resolve())
+            self.assertEqual(got_args, f'"{script_path}"')
+
     def test_shortcut_passes_paths_as_data_and_handles_start_failure(self):
         app = types.SimpleNamespace(messagebox=mock.Mock())
         root = Path("C:/Игры/O'Brien $HOME")
