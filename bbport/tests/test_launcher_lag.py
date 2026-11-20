@@ -201,6 +201,29 @@ class AnimationTests(unittest.TestCase):
         root.after_cancel.assert_called_once_with('resize')
         root.geometry.assert_not_called()
 
+    def test_status_line_skips_identical_text_spinner_and_wrap_work(self):
+        line = launcher.StatusLine.__new__(launcher.StatusLine)
+        line.ui = types.SimpleNamespace(px=lambda n: n)
+        line.text, line.glyph, line.spinner = mock.Mock(), mock.Mock(), mock.Mock()
+        line._text_state = line._glyph_state = None
+        line._busy = False
+        line.wraplength = 240
+        for width in (244, 244, 500, 500):
+            line.wrap(types.SimpleNamespace(width=width))
+        line.text.configure.assert_called_once_with(wraplength=496)
+        line.text.configure.reset_mock()
+        for _ in range(30):
+            line.set('Checking', busy=True)
+        line.text.configure.assert_called_once_with(text='Checking', fg=launcher.TEXT)
+        line.spinner.start.assert_called_once()
+        line.glyph.pack_forget.assert_called_once()
+        for _ in range(30):
+            line.set('Ready')
+        line.spinner.stop.assert_called_once()
+        line.glyph.pack.assert_called_once()
+        line.glyph.configure.assert_called_once()
+        self.assertEqual(line.text.configure.call_count, 2)
+
     def test_banner_uses_latest_width_and_cancels_pending_paint_on_destroy(self):
         header = mock.Mock(painted_width=0)
         header.after.return_value = 'paint'

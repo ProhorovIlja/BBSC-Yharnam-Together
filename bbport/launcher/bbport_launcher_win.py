@@ -2405,20 +2405,39 @@ class StatusLine:
         self.text = ui.tk.Label(self.frame, bg=bg, fg=TEXT, font=ui.fonts['body'], justify='left', anchor='w',
                                 wraplength=px(240), width=1)
         self.text.pack(side='left', fill='x', expand=True, anchor='n')
-        self.text.bind('<Configure>', lambda e: self.text.configure(wraplength=max(px(120), e.width - px(4))))
+        self.wraplength = px(240)
+        self._text_state = self._glyph_state = None
+        self._busy = False
+        self.text.bind('<Configure>', self.wrap)
+
+    def wrap(self, event):
+        px = self.ui.px
+        width = max(px(120), event.width - px(4))
+        if width != self.wraplength:
+            self.text.configure(wraplength=width)
+            self.wraplength = width
 
     def set(self, text, busy=False):
         glyph, rest = (text[0], text[1:].strip()) if text[:1] in GLYPH_COLORS else ('', text)
-        self.text.configure(text=rest, fg=MUTED if glyph == '•' else TEXT)
-        if busy:
-            self.glyph.pack_forget()
-            self.spinner.pack(pady=(self.ui.px(2), 0))
-            self.spinner.start()
-        else:
-            self.spinner.stop()
-            self.spinner.pack_forget()
-            self.glyph.pack()
-            self.glyph.configure(text=glyph or '•', fg=GLYPH_COLORS.get(glyph, DIM))
+        text_state = (rest, MUTED if glyph == '•' else TEXT)
+        if text_state != self._text_state:
+            self.text.configure(text=text_state[0], fg=text_state[1])
+            self._text_state = text_state
+        if busy != self._busy:
+            if busy:
+                self.glyph.pack_forget()
+                self.spinner.pack(pady=(self.ui.px(2), 0))
+                self.spinner.start()
+            else:
+                self.spinner.stop()
+                self.spinner.pack_forget()
+                self.glyph.pack()
+            self._busy = busy
+        if not busy:
+            glyph_state = (glyph or '•', GLYPH_COLORS.get(glyph, DIM))
+            if glyph_state != self._glyph_state:
+                self.glyph.configure(text=glyph_state[0], fg=glyph_state[1])
+                self._glyph_state = glyph_state
 
 
 class CaptionButton(Widget):
