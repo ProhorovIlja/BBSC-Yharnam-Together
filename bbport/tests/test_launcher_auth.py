@@ -340,7 +340,7 @@ class OfflineTests(unittest.TestCase):
         import urllib.error
         for truncated in (False, True):
             with self.subTest(truncated=truncated):
-                response = mock.Mock()
+                response = mock.Mock(closed=False)
                 response.read.return_value = b'{"error": "wrong"}'
                 if truncated:
                     response.read.side_effect = http.client.IncompleteRead(b'{', 20)
