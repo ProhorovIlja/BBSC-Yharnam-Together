@@ -7686,12 +7686,24 @@ class Launcher:
             pythonw = Path(sys.executable).with_name('pythonw.exe')
             target = str(pythonw if pythonw.exists() else sys.executable)
             arguments, icon = Path(__file__).resolve(), PORT_DIR / 'launcher' / 'bloodborne.ico'
-        script = ('$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath("Desktop")'
+        # Keep installation paths out of PowerShell source. Apostrophes,
+        # dollar signs and Unicode are data, not syntax.
+        env = {**os.environ, 'BBPORT_LNK_TARGET': target,
+               'BBPORT_LNK_WORKDIR': str(PORT_DIR), 'BBPORT_LNK_ICON': str(icon),
+               'BBPORT_LNK_ARGS': f'"{arguments}"' if arguments else ''}
+        script = ('$ErrorActionPreference="Stop";'
+                  '$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath("Desktop")'
                   '+"\\Bloodborne.lnk");'
-                  f'$s.TargetPath="{target}";$s.WorkingDirectory="{PORT_DIR}";$s.IconLocation="{icon}";'
-                  + (f"$s.Arguments='\"{arguments}\"';" if arguments else '') + '$s.Save()')
-        result = subprocess.run(['powershell', '-NoProfile', '-Command', script], capture_output=True,
-                                creationflags=NO_WINDOW)
+                  '$s.TargetPath=$env:BBPORT_LNK_TARGET;'
+                  '$s.WorkingDirectory=$env:BBPORT_LNK_WORKDIR;'
+                  '$s.IconLocation=$env:BBPORT_LNK_ICON;'
+                  'if ($env:BBPORT_LNK_ARGS) {$s.Arguments=$env:BBPORT_LNK_ARGS};$s.Save()')
+        try:
+            result = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+                                    capture_output=True, creationflags=NO_WINDOW, env=env, timeout=15)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            self.messagebox.showerror('Bloodborne', str(error)[:400])
+            return
         if result.returncode == 0:
             self.messagebox.showinfo('Bloodborne', _('Shortcut created on the desktop.', 'Ярлык создан на рабочем столе.'))
         else:
