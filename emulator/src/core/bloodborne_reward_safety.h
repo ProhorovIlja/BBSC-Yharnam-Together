@@ -102,33 +102,47 @@ inline std::optional<std::string> ReadLedger(const std::filesystem::path& path) 
     return text;
 }
 
-// Single writer (game thread). Replace only after a successful write and close.
-// This avoids truncating the last usable file, but does not fsync or acknowledge savedata.
+// Single writer (game thread). Reserve a fresh staging directory before
+// opening a file, never truncate a preexisting .tmp symlink or hard link.
+// A stale staging path blocks replacement until inspected. This is not fsync
+// or savedata acknowledgement.
 inline bool WriteLedger(const std::filesystem::path& path, std::string_view encoded) {
-    std::error_code error;
     if (encoded.size() > MaxLedgerBytes) {
         return false;
     }
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(path, error);
+    const bool absent = status.type() == std::filesystem::file_type::not_found &&
+                        (!error || error == std::errc::no_such_file_or_directory);
+    if (!absent && (error || !std::filesystem::is_regular_file(status))) {
+        return false;
+    }
+    error.clear();
     if (encoded.empty()) {
         std::filesystem::remove(path, error);
         return !error;
     }
-    auto temp = path;
-    temp += ".tmp";
-    std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-    if (!out) {
+    auto staging = path;
+    staging += ".tmp";
+    if (!std::filesystem::create_directory(staging, error) || error) {
         return false;
     }
-    out << encoded;
-    out.close();
-    if (out) {
-        std::filesystem::rename(temp, path, error);
-        if (!error) {
-            return true;
+    const auto temp = staging / "ledger";
+    bool replaced = false;
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        if (out) {
+            out << encoded;
+            out.close();
+            if (out) {
+                std::filesystem::rename(temp, path, error);
+                replaced = !error;
+            }
         }
     }
     std::filesystem::remove(temp, error);
-    return false;
+    std::filesystem::remove(staging, error);
+    return replaced;
 }
 
 } // namespace Core::Bloodborne::RewardSafety
