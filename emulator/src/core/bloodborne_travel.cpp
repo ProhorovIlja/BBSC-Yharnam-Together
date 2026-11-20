@@ -1674,10 +1674,11 @@ void GiveBackPhantomKeyItems() {
         Common::FS::GetUserPath(Common::FS::PathType::UserDir) / SlotFileName("phantom_keys", slot);
     if (phantom_keys_forgotten.exchange(false) || slot != ledger_slot) {
         const auto text = RewardSafety::ReadLedger(file);
-        if (!text) {
+        auto validated = text ? ValidateOwedKeyItems(*text) : std::nullopt;
+        if (!validated) {
             // Do not replace an unread ledger or continue using the previous slot's data.
             if (reported_read_failure != slot) {
-                LOG_WARNING(Debug, "Bloodborne party: could not read phantom ledger for slot {}", slot);
+                LOG_WARNING(Debug, "Bloodborne party: could not read or validate phantom ledger for slot {}", slot);
                 reported_read_failure = slot;
             }
             ledger_slot = -2;
@@ -1685,7 +1686,7 @@ void GiveBackPhantomKeyItems() {
         }
         reported_read_failure = -2;
         ledger_slot = slot;
-        filed = ParseOwedKeyItems(*text);
+        filed = std::move(*validated);
         ledger.Load(filed);
         return_attempts.Reset();
         if (!filed.empty()) {

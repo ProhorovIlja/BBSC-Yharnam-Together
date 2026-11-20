@@ -455,6 +455,24 @@ std::vector<OwedKeyItem> ParseOwedKeyItems(std::string_view text) {
     return owed;
 }
 
+std::optional<std::vector<OwedKeyItem>> ValidateOwedKeyItems(std::string_view text) {
+    // Accept both line endings, but never silently skip a torn, duplicate,
+    // or invalid record when the result can drive native grants and writes.
+    std::string normalized;
+    normalized.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] != '\r' || i + 1 == text.size() || text[i + 1] != '\n') {
+            normalized.push_back(text[i]);
+        }
+    }
+    auto owed = ParseOwedKeyItems(normalized);
+    if (std::ranges::any_of(owed, [](const auto& item) { return item.goods <= 0; }) ||
+        EncodeOwedKeyItems(owed) != normalized) {
+        return std::nullopt;
+    }
+    return owed;
+}
+
 namespace {
 // Both lists as one: for a goods in both, the one that gained more (the newer one on a tie).
 std::vector<OwedKeyItem> MergeOwed(std::span<const OwedKeyItem> older,

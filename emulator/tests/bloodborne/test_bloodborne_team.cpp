@@ -826,6 +826,17 @@ TEST(PhantomKeyItems, NothingIsGivenIntoThePhantomsList) {
     EXPECT_EQ(ledger.LookAtOwn(0x3000, {}), (std::vector<HeldGoods>{{4114, 1}}));
 }
 
+TEST(PhantomKeyItems, LiveLedgerNeverAcceptsOnlyPartOfAFile) {
+    const std::vector<OwedKeyItem> owed{{4114, 1, 1}, {4001, 1, 2}};
+    EXPECT_EQ(ValidateOwedKeyItems(EncodeOwedKeyItems(owed)), owed);
+    EXPECT_EQ(ValidateOwedKeyItems("4114 1 1\r\n4001 1 2\r\n"), owed);
+    EXPECT_EQ(ValidateOwedKeyItems(""), std::vector<OwedKeyItem>{});
+    EXPECT_FALSE(ValidateOwedKeyItems("4114 1 1\n4001 1"));
+    EXPECT_FALSE(ValidateOwedKeyItems("4114 1 1\n4114 1 2\n"));
+    EXPECT_FALSE(ValidateOwedKeyItems("4114 1 1"));
+    EXPECT_FALSE(ValidateOwedKeyItems("-1 1 1\n"));
+}
+
 TEST(PhantomKeyItems, TheOwedFileReadsBackAndSkipsWhatDoesNotRead) {
     const std::vector<OwedKeyItem> owed{{4114, 1, 1}, {4001, 1, 2}};
     EXPECT_EQ(ParseOwedKeyItems(EncodeOwedKeyItems(owed)), owed);
