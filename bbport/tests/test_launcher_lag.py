@@ -162,6 +162,31 @@ class AnimationTests(unittest.TestCase):
         launcher.Launcher.drain_output(window)
         callback.assert_called_once_with()
 
+    def test_custom_drag_coalesces_bursts_and_applies_release_position(self):
+        root = mock.Mock()
+        root.after.return_value = 'move'
+        motion = types.SimpleNamespace(paused=True)
+        chrome = launcher.WindowChrome(types.SimpleNamespace(root=root, motion=motion))
+        chrome.grab = (10, 20)
+
+        def at(x, y):
+            return types.SimpleNamespace(x_root=x, y_root=y)
+
+        for i in range(100):
+            chrome.drag_move(at(100 + i, 200 + i))
+        root.after.assert_called_once_with(8, chrome.flush_drag)
+        root.geometry.assert_not_called()
+        chrome.flush_drag()
+        root.geometry.assert_called_once_with('+189+279')
+
+        chrome.drag_move(at(201, 301))
+        chrome.drag_end(at(205, 305))
+        root.after_cancel.assert_called_once_with('move')
+        self.assertEqual(root.geometry.call_args_list, [mock.call('+189+279'), mock.call('+195+285')])
+        self.assertFalse(motion.paused)
+        chrome.flush_drag()  # a stale callback cannot move a released window
+        self.assertEqual(root.geometry.call_count, 2)
+
     def test_same_rendered_hover_colors_do_not_write_to_tk_twice(self):
         corner = mock.Mock()
         card = types.SimpleNamespace(configure=mock.Mock(), corners=[corner])
