@@ -98,6 +98,51 @@ class PortableUpdateZipTests(unittest.TestCase):
             self.assertFalse(out.exists())
             self.assertEqual(launcher.read_bytes(), b'old')
 
+    def test_overlay_preserves_saves_and_external_hardlink_target(self):
+        from bbport_update_zip import copy_portable_update
+        import shutil
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            stage, install = root / 'stage', root / 'install'
+            for folder in (stage, install):
+                (folder / 'user').mkdir(parents=True)
+            (stage / 'BLauncher.exe').write_bytes(b'new')
+            (stage / 'user' / 'save').write_bytes(b'package')
+            (install / 'user' / 'save').write_bytes(b'player')
+            external = root / 'external.exe'
+            external.write_bytes(b'old')
+            os.link(external, install / 'BLauncher.exe')
+            copy_portable_update(stage, install, shutil.ignore_patterns('user'))
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'new')
+            self.assertEqual((install / 'user' / 'save').read_bytes(), b'player')
+            self.assertEqual(external.read_bytes(), b'old')
+
+    def test_overlay_rejects_linked_directory_before_any_writes(self):
+        from bbport_update_zip import copy_portable_update
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            stage, install, external = (root / name for name in ('stage', 'install', 'external'))
+            (stage / 'bin').mkdir(parents=True)
+            install.mkdir()
+            external.mkdir()
+            (stage / 'BLauncher.exe').write_bytes(b'new')
+            (stage / 'bin' / 'new.dll').write_bytes(b'new')
+            old = install / 'BLauncher.exe'
+            old.write_bytes(b'old')
+            linked = install / 'bin'
+            if os.name == 'nt':
+                subprocess.run(['cmd.exe', '/d', '/c', 'mklink', '/J', str(linked), str(external)],
+                               check=True, capture_output=True)
+            else:
+                linked.symlink_to(external, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                copy_portable_update(stage, install, lambda *_: ())
+            self.assertEqual(old.read_bytes(), b'old')
+            self.assertFalse((external / 'new.dll').exists())
+
     def test_expanded_budget_is_checked_before_staging(self):
         with mock.patch('bbport_update_zip.MAX_EXPANDED_BYTES', 1):
             self.stage(['BLauncher.exe'])
