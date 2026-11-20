@@ -1979,6 +1979,32 @@ class ConsoleTextTests(unittest.TestCase):
             with mock.patch.object(coop.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=b'\x98\xff')):
                 self.assertFalse(coop.firewall_ready(install, False))
 
+    def test_firewall_probe_shares_deadline_between_host_rules(self):
+        install = Path('C:/Games/Yharnam Together')
+        game = mock.Mock(returncode=0, stdout=f'Program: {install / "bin" / "bb-probe.exe"}\n')
+        with (mock.patch.object(coop.sys, 'platform', 'win32'),
+              mock.patch.object(coop.time, 'monotonic', side_effect=[0, 0, 4.5, 5.0]),
+              mock.patch.object(coop.subprocess, 'run', return_value=game) as run):
+            self.assertFalse(coop.firewall_ready(install, True))
+            self.assertEqual([call.kwargs['timeout'] for call in run.call_args_list], [5.0, 0.5])
+
+    def test_firewall_polling_stops_at_deadline(self):
+        clock = [0.0]
+
+        def check(_install, _host, *, timeout_s):
+            clock[0] += timeout_s
+            return False
+
+        def sleep(delay):
+            clock[0] += delay
+
+        with (mock.patch.object(coop.time, 'monotonic', side_effect=lambda: clock[0]),
+              mock.patch.object(coop.time, 'sleep', side_effect=sleep),
+              mock.patch.object(coop, 'firewall_ready', side_effect=check) as probe):
+            self.assertFalse(coop.wait_for_firewall(Path('unused'), True, timeout_s=3.0))
+            self.assertEqual([call.kwargs['timeout_s'] for call in probe.call_args_list], [2.0, 0.5])
+            self.assertEqual(clock[0], 3.0)
+
     def test_firewall_requires_the_exact_application_field(self):
         install = Path('C:/Games/Yharnam Together')
         app = str(install / 'bin' / 'bb-probe.exe')
