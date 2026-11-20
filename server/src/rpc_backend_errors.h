@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include <QMetaObject>
+#include <QPointer>
 #include <QTcpSocket>
 #include <QTimer>
 #include <utility>
@@ -26,6 +27,15 @@ inline void DrainAndCloseBackend(QTcpSocket& socket, int timeout_ms = 2000) {
             if (socket->state() == QAbstractSocket::ClosingState)
                 socket->abort();
         });
+    }
+}
+
+// Clear ownership before abort emits any synchronous socket signals.
+inline void AbortRetiredBackend(QPointer<QTcpSocket>& socket) {
+    auto retired = std::exchange(socket, QPointer<QTcpSocket>{});
+    if (retired) {
+        retired->abort();
+        retired->deleteLater();
     }
 }
 
