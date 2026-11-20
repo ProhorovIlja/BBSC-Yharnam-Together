@@ -19,6 +19,11 @@ int main() {
         return 2;
     const std::array<std::uint8_t, 4> payload{1, 0, 4, 9};
     std::array<std::uint8_t, 4> received{};
+    std::stop_source shutdown;
+    shutdown.request_stop();
+    if (SendAll(sockets[0], payload, shutdown.get_token()))
+        return 8;
+    // A cancelled send must not put a second copy into the byte stream.
     if (!SendAll(sockets[0], payload) ||
         recv(sockets[1], received.data(), received.size(), MSG_WAITALL) != 4 ||
         received != payload)
