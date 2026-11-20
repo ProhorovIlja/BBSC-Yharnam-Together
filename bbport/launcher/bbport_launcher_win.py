@@ -38,6 +38,7 @@ import webbrowser
 import zipfile
 
 from bbport_shortcut_win import write_shortcut
+from bbport_update_zip import extract_update
 
 FROZEN = getattr(sys, 'frozen', False)
 EXE = '.exe' if sys.platform == 'win32' else ''  # the port's own programs; Linux: no suffix
@@ -7650,16 +7651,13 @@ class Launcher:
                             shown = percent
                             self.ui_calls.put(lambda p=percent: progress(p))
                 with zipfile.ZipFile(archive) as package:
-                    package.extractall(UPDATE_DIR / 'new')
+                    new = extract_update(package, UPDATE_DIR / 'new')
                 archive.unlink()
-                new = next((p.parent for p in (UPDATE_DIR / 'new').rglob('BLauncher.exe')), None)
-                if not new:
-                    raise OSError('BLauncher.exe is missing from the download')
                 # The new launcher copies itself over this installation once this one has closed.
-                subprocess.Popen([str(new / 'BLauncher.exe'), '--install-update', str(PORT_DIR), str(os.getpid())],
-                                 cwd=str(new), stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                subprocess.Popen([str(new), '--install-update', str(PORT_DIR), str(os.getpid())],
+                                 cwd=str(new.parent), stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
                 self.ui_calls.put(self.root.destroy)
-            except (OSError, zipfile.BadZipFile) as failure:
+            except (OSError, ValueError, RuntimeError, http.client.HTTPException, zipfile.BadZipFile) as failure:
                 def failed(error=failure):
                     self.update_button.configure(state='normal')
                     self.update_bar.pack_forget()
