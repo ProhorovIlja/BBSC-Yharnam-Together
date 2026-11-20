@@ -162,6 +162,44 @@ class AnimationTests(unittest.TestCase):
         launcher.Launcher.drain_output(window)
         callback.assert_called_once_with()
 
+    def test_same_rendered_hover_colors_do_not_write_to_tk_twice(self):
+        corner = mock.Mock()
+        card = types.SimpleNamespace(configure=mock.Mock(), corners=[corner])
+        window = types.SimpleNamespace(tk=types.SimpleNamespace(TclError=RuntimeError))
+        launcher.Launcher.light(window, card, 0.0)
+        launcher.Launcher.light(window, card, 0.000001)
+        self.assertEqual(card.glow, 0.000001)
+        card.configure.assert_called_once()
+        corner.itemconfigure.assert_called_once()
+        launcher.Launcher.light(window, card, 1.0)
+        self.assertEqual(card.configure.call_count, 2)
+        self.assertEqual(corner.itemconfigure.call_count, 2)
+
+    def test_log_burst_is_batched_without_reordering_lines_or_exit(self):
+        events = []
+        window = types.SimpleNamespace(
+            ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(), drain_output=mock.Mock(),
+            append=lambda text: events.append(('log', text)),
+            coop_watch_line=lambda text: events.append(('line', text)),
+            job=None, set_running=mock.Mock(), refresh_status=mock.Mock(),
+            coop_game_ended=mock.Mock(), say_start_crash=lambda code: events.append(('exit', code)),
+        )
+        lines = [f'fixture line {i}\n' for i in range(100)]
+        for line in lines:
+            window.output.put(line)
+        window.output.put((7,))
+        with mock.patch.object(launcher.time, 'perf_counter', return_value=1.0), \
+                mock.patch.object(launcher, 'game_is_up', return_value=False), \
+                mock.patch.object(launcher, '_', side_effect=lambda english, *_: english):
+            launcher.Launcher.drain_output(window)
+        self.assertEqual(events[:100], [('line', text) for text in lines])
+        self.assertEqual(events[100:], [
+            ('log', ''.join(lines)),
+            ('log', '\n— the game exited (code 7) —\n'),
+            ('exit', 7),
+        ])
+        window.root.after.assert_called_once_with(100, window.drain_output)
+
     def test_callback_backlog_yields_to_window_events(self):
         window = types.SimpleNamespace(ui_calls=queue.Queue(), output=queue.Queue(),
                                        root=mock.Mock(), drain_output=mock.Mock())
