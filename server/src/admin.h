@@ -41,6 +41,7 @@ struct Context {
     qint64 wall_ms = 0;   // the wall clock: bans' ends, the worlds' last played
     qint64 retire_ms = 0; // a world idle this long retires (0: never)
     double link_load = 0; // the link thread's busy share lately (0-1)
+    QJsonObject udp_timing{};
 };
 
 struct Answer {

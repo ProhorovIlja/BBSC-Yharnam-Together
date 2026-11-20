@@ -22,6 +22,7 @@
 #include "signed_accounts.h"
 
 namespace {
+constexpr qint64 HostedDatagramLimit = 16'384;
 
 // A new id while the region's directory does not answer (it cannot be claimed).
 const QByteArray DirectoryDown = "the region's directory does not answer: try again in a minute";
@@ -229,9 +230,11 @@ LinkServer::LinkServer(SharedState* shared, const QString& db_path, quint16 tcp_
         m_shardConfig = shared->config->GetShard();
     if (m_shardConfig.Enabled())
         SetupRegion();
+    m_linkTiming.Start(m_clock.elapsed());
     m_linkTimer->start(500);
     // The worlds' clock is the wall clock: their journals keep it across restarts.
     Apply(m_world.Load(QDateTime::currentMSecsSinceEpoch()));
+    m_worldTiming.Start(m_clock.elapsed());
     m_worldTimer->start(50);
     // The worlds' writes are on their own thread: on disk before anything else goes down.
     if (QCoreApplication::instance())
@@ -275,6 +278,19 @@ void LinkServer::RunAdmin(QLocalSocket* socket, const QString& line) {
     context.wall_ms = QDateTime::currentMSecsSinceEpoch();
     context.retire_ms = qint64{std::max(0, m_hosted.retireDays)} * 24 * 3600 * 1000;
     context.link_load = m_linkLoad;
+    context.udp_timing = {
+        {"rx_yields", m_udpYields},
+        {"rx_read_errors", m_udpReadErrors},
+        {"rx_retry_requests", m_udpRetryRequests},
+        {"rx_oversized", m_udpOversized},
+        {"rx_slice_max_us", m_udpSliceMaxUs},
+        {"link_ticks", static_cast<qint64>(m_linkTiming.ticks)},
+        {"link_gap_max_ms", static_cast<qint64>(m_linkTiming.max_gap_ms)},
+        {"link_gaps_over_2x", static_cast<qint64>(m_linkTiming.gaps_over_2x)},
+        {"world_ticks", static_cast<qint64>(m_worldTiming.ticks)},
+        {"world_gap_max_ms", static_cast<qint64>(m_worldTiming.max_gap_ms)},
+        {"world_gaps_over_2x", static_cast<qint64>(m_worldTiming.gaps_over_2x)},
+    };
     const Admin::Answer answer = Admin::Run(line, context);
     qInfo().noquote() << "Admin:" << line << (answer.json["ok"].toBool() ? "done" : "refused");
     Apply(answer.link);
@@ -354,38 +370,34 @@ bool LinkServer::Start(const QHostAddress& addr, uint16_t port) {
 }
 
 void LinkServer::OnReadyRead() {
-    QElapsedTimer busy;
-    busy.start();
-    while (m_socket->hasPendingDatagrams()) {
-        QByteArray raw;
-        raw.resize(static_cast<int>(m_socket->pendingDatagramSize()));
-        QHostAddress sender;
-        uint16_t senderPort = 0;
-        m_socket->readDatagram(raw.data(), raw.size(), &sender, &senderPort);
-
-        if (raw.isEmpty())
-            continue;
-
-        // The games' link only (phase 9: no STUN, nothing else on this port).
-        if (ServerLink::KindOf(raw)) {
-            HandleLink(raw, sender, senderPort);
-        }
-    }
-    Busy(busy);
+    m_udpDrain.Run(
+        *this, *m_socket, m_hosted.enabled ? HostedDatagramLimit : 0,
+        [this](const QByteArray& raw, const QHostAddress& sender, quint16 port) {
+            // The games' link only (phase 9: no STUN, nothing else on this port).
+            if (const auto kind = ServerLink::KindOf(raw))
+                HandleLink(raw, *kind, sender, port);
+        },
+        [this](const QElapsedTimer& busy, const ShadNetUdp::SliceStats& stats) {
+            m_udpYields += stats.budget_yield;
+            m_udpReadErrors += stats.read_failed;
+            m_udpRetryRequests += stats.retry_requested;
+            m_udpOversized += stats.oversized;
+            m_udpSliceMaxUs = std::max(m_udpSliceMaxUs, busy.nsecsElapsed() / 1000);
+            Busy(busy);
+        });
 }
 
-void LinkServer::HandleLink(const QByteArray& datagram, const QHostAddress& sender,
-                            uint16_t senderPort) {
+void LinkServer::HandleLink(const QByteArray& datagram, ServerLink::Kind kind,
+                            const QHostAddress& sender, uint16_t senderPort) {
     bool ipv4 = false;
     const quint32 address = sender.toIPv4Address(&ipv4);
     if (!ipv4)
         return;
     const ServerLink::Endpoint from{address, senderPort};
     if (m_hosted.enabled) {
-        const auto kind = ServerLink::KindOf(datagram);
-        if (!kind || !Admit(datagram, *kind, address, from))
+        if (!Admit(datagram, kind, address, from))
             return;
-    } else if (ServerLink::KindOf(datagram) == ServerLink::Kind::Hello &&
+    } else if (kind == ServerLink::Kind::Hello &&
                m_link.CookieValid(from, datagram, m_clock.elapsed()) &&
                !m_helloBudget.Allow(address, m_clock.elapsed())) {
         return; // the hosted guard limits hellos tighter
@@ -399,7 +411,7 @@ bool LinkServer::Admit(const QByteArray& datagram, ServerLink::Kind kind, quint3
     const qint64 now = m_clock.elapsed();
     // Game frames share 1200 bytes (coop/game_link.h); a large game packet goes alone, never this
     // big.
-    if (datagram.size() > 16384 || m_guard.Banned(address))
+    if (datagram.size() > HostedDatagramLimit || m_guard.Banned(address))
         return false;
     if (kind == ServerLink::Kind::Hello) {
         // Without a cookie of its source the hub only sends one back (no larger, nothing kept):
@@ -445,6 +457,7 @@ void LinkServer::LogFloods() {
 }
 
 void LinkServer::OnLinkTick() {
+    m_linkTiming.Observe(m_clock.elapsed());
     if (m_hosted.enabled)
         m_link.SetSignupWork(m_signupWork.Bits(m_clock.elapsed()));
     QElapsedTimer busy;
@@ -456,6 +469,7 @@ void LinkServer::OnLinkTick() {
 }
 
 void LinkServer::OnWorldTick() {
+    m_worldTiming.Observe(m_clock.elapsed());
     QElapsedTimer busy;
     busy.start();
     Apply(m_world.Tick(QDateTime::currentMSecsSinceEpoch()));

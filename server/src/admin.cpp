@@ -276,6 +276,7 @@ Answer Stats(Context& context) {
                         {"worlds", static_cast<int>(context.world.Lobby().Worlds().size())},
                         {"worlds_in_memory", context.world.Parties()},
                         {"link_load", context.link_load},
+                        {"udp_timing", context.udp_timing},
                         {"link_key", Key(context)},
                         {"bad_hellos", static_cast<qint64>(context.hub.BadHellos())},
                         {"bad_tags", static_cast<qint64>(context.hub.BadTags())},

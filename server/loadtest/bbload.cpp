@@ -39,6 +39,7 @@
 #include "coop/coop_messages.h"
 #include "coop/coop_stream.h"
 #include "coop/game_link.h"
+#include "coop/team_lobby.h"
 #include "server_link.h"
 
 using namespace BloodborneCoop;
@@ -66,6 +67,7 @@ struct Settings {
   quint16 port = 31314;
   int teams = 10;
   int team_size = 3;
+  bool require_steady = false;
   int seconds = 60;
   int ramp_ms = 50;     // between two games' first hellos
   int owner_fps = 30;   // the owner's frames a second to each teammate
@@ -113,9 +115,11 @@ struct Samples {
 };
 
 struct Totals {
+  quint64 send_errors = 0;
   quint64 packets_sent = 0;
   quint64 packets_received = 0;
-  quint64 packets_lost = 0; // gaps in the sequence numbers
+  quint64 packets_lost = 0; // forward gaps, not total end-to-end drops
+  quint64 packets_late_or_duplicate = 0;
   quint64 bytes_sent = 0;
   quint64 bytes_received = 0;
   quint64 datagrams_sent = 0;
@@ -123,6 +127,7 @@ struct Totals {
   quint64 refused = 0;
   quint64 untagged = 0; // datagrams from the server that did not open
   Samples relay_us;     // a game packet's time from its game to its teammate's
+  Samples steady_relay_us; // packets sent after every hunter in this worker entered play
   Samples ping_us;      // ping -> pong
   Samples welcome_ms;   // first hello -> welcomed
   Samples work_ms;      // hosted: a new account's work asked -> done
@@ -142,6 +147,13 @@ public:
   void Tick(s64 now_us);
   bool Playing() const { return state == State::Playing; }
   bool Linked() const { return state != State::Linking; }
+  bool ExchangedGameTraffic() const { return sent_game && received_game; }
+  int IncomingGamePaths() const { return static_cast<int>(heard.size()); }
+  int FreshGamePaths(s64 now_us) const {
+    return static_cast<int>(std::count_if(heard.begin(), heard.end(), [&](const auto &path) {
+      return now_us - path.second.received_us <= 2'000'000;
+    }));
+  }
   std::string name; // its online id
   std::string
       member; // its board name: the online id in hex, as the games say it
@@ -149,7 +161,7 @@ public:
 private:
   enum class State { Linking, Lobby, Started, Playing };
   void OnReadyRead();
-  void Send(const QByteArray &datagram);
+  bool Send(const QByteArray &datagram);
   void SendHello();
   void SendCoop(const bbcoop::Envelope &envelope, s64 now_ms);
   void FlushCoop(s64 now_ms);
@@ -188,12 +200,15 @@ private:
   u64 epoch = 0;
   std::string team_id;
   bool invited = false;
+  bool sent_game = false;
+  bool received_game = false;
   int team_members = 0; // in its team, as its last lobby state said
   bool readied = false;
   bool started = false;
   std::string party;
   std::map<std::string, u32> sent_seq;  // per teammate
-  std::map<std::string, u32> heard_seq; // per teammate: the last packet's
+  struct Heard { u32 seq = 0; s64 received_us = 0; };
+  std::map<std::string, Heard> heard; // latest usable packet from each teammate
   u32 frame_count = 0;
   std::mt19937 random;
   // Link version 4 (coop/link_auth.h): the cookie round trip, the handshake
@@ -226,9 +241,14 @@ public:
                          [game = games[at].get()] { game->Start(); });
     }
     connect_timer();
-    QTimer::singleShot((settings.seconds) * 1000 +
-                           static_cast<int>(games.size()) * settings.ramp_ms,
-                       [this] { Finish(); });
+    if (settings.require_steady) {
+      join_deadline_us = started_us + 20'000'000 +
+                         static_cast<s64>(games.size()) * settings.ramp_ms * 1000;
+    } else {
+      QTimer::singleShot(settings.seconds * 1000 +
+                             static_cast<int>(games.size()) * settings.ramp_ms,
+                         [this] { Finish(); });
+    }
   }
 
   std::string NameOf(int team, int seat) const {
@@ -251,8 +271,13 @@ public:
   Totals totals;
   s64 started_us = 0;
   int max_work_bits = 0;
+  bool SentDuringSteady(u64 sent_us) const {
+    return steady_started_us && sent_us >= static_cast<u64>(steady_started_us);
+  }
 
 private:
+  s64 join_deadline_us = 0;
+  s64 steady_started_us = 0;
   void connect_timer() {
     auto *timer = new QTimer();
     timer->setTimerType(Qt::PreciseTimer);
@@ -260,6 +285,26 @@ private:
       const s64 now = NowUs();
       for (auto &game : games) {
         game->Tick(now);
+      }
+      if (settings.require_steady) {
+        const bool all_playing = std::all_of(games.begin(), games.end(),
+                                             [](const auto &game) { return game->Playing(); });
+        if (!all_playing && steady_started_us) {
+          std::fprintf(stderr, "bbload: a hunter left play during the steady window\n");
+          QCoreApplication::exit(3);
+          return;
+        }
+        if (!all_playing && now >= join_deadline_us) {
+          std::fprintf(stderr, "bbload: not all hunters entered play before the deadline\n");
+          QCoreApplication::exit(3);
+          return;
+        }
+        if (all_playing && !steady_started_us)
+          steady_started_us = now;
+        if (steady_started_us && now - steady_started_us >= static_cast<s64>(settings.seconds) * 1'000'000) {
+          Finish();
+          return;
+        }
       }
       if (now - last_report_us >= 5'000'000) {
         Report(now);
@@ -300,22 +345,37 @@ private:
   }
 
   void Finish() {
-    Report(NowUs());
+    const s64 finished_us = NowUs();
+    Report(finished_us);
     int linked = 0;
     int playing = 0;
+    int exchanging = 0;
+    int incoming_game_paths = 0;
+    int fresh_game_paths = 0;
     for (auto &game : games) {
       linked += game->Linked();
       playing += game->Playing();
+      exchanging += game->ExchangedGameTraffic();
+      incoming_game_paths += game->IncomingGamePaths();
+      fresh_game_paths += game->FreshGamePaths(finished_us);
     }
-    const double seconds = (NowUs() - started_us) / 1e6;
+    const double seconds = (finished_us - started_us) / 1e6;
     QJsonObject out{
         {"games", static_cast<int>(games.size())},
+        {"teams", settings.teams},
+        {"team_size", settings.team_size},
         {"linked", linked},
         {"playing", playing},
+        {"exchanging_game_traffic", exchanging},
+        {"incoming_game_paths", incoming_game_paths},
+        {"fresh_game_paths", fresh_game_paths},
+        {"send_errors", static_cast<double>(totals.send_errors)},
         {"seconds", seconds},
+        {"all_playing_seconds", steady_started_us ? (finished_us - steady_started_us) / 1e6 : 0.0},
         {"packets_sent", static_cast<double>(totals.packets_sent)},
         {"packets_received", static_cast<double>(totals.packets_received)},
         {"packets_lost", static_cast<double>(totals.packets_lost)},
+        {"packets_late_or_duplicate", static_cast<double>(totals.packets_late_or_duplicate)},
         {"datagrams_sent", static_cast<double>(totals.datagrams_sent)},
         {"datagrams_received", static_cast<double>(totals.datagrams_received)},
         {"bytes_sent", static_cast<double>(totals.bytes_sent)},
@@ -326,6 +386,10 @@ private:
         {"relay_ms_p95", totals.relay_us.Percentile(0.95) / 1000.0},
         {"relay_ms_p99", totals.relay_us.Percentile(0.99) / 1000.0},
         {"relay_ms_max", totals.relay_us.Percentile(1.0) / 1000.0},
+        {"steady_relay_samples", static_cast<double>(totals.steady_relay_us.values.size())},
+        {"steady_relay_ms_p50", totals.steady_relay_us.Percentile(0.5) / 1000.0},
+        {"steady_relay_ms_p95", totals.steady_relay_us.Percentile(0.95) / 1000.0},
+        {"steady_relay_ms_p99", totals.steady_relay_us.Percentile(0.99) / 1000.0},
         {"ping_ms_p50", totals.ping_us.Percentile(0.5) / 1000.0},
         {"ping_ms_p99", totals.ping_us.Percentile(0.99) / 1000.0},
         {"welcome_ms_p50",
@@ -421,20 +485,24 @@ void Game::Start() {
   next_hello_us = started_us;
 }
 
-void Game::Send(const QByteArray &plain) {
+bool Game::Send(const QByteArray &plain) {
   QByteArray datagram = plain;
   if (ServerLink::KindOf(plain) != ServerLink::Kind::Hello) {
     const auto trailer = auth.Seal({reinterpret_cast<u8 *>(datagram.data()),
                                     static_cast<size_t>(datagram.size())});
     if (!trailer) {
-      return; // no session yet: the server would drop it
+      return false; // no session yet: the server would drop it
     }
     datagram.append(reinterpret_cast<const char *>(trailer->data()),
                     static_cast<qsizetype>(trailer->size()));
   }
-  socket.writeDatagram(datagram, server, port);
+  if (socket.writeDatagram(datagram, server, port) != datagram.size()) {
+    ++load.totals.send_errors;
+    return false;
+  }
   ++load.totals.datagrams_sent;
   load.totals.bytes_sent += static_cast<quint64>(datagram.size());
+  return true;
 }
 
 void Game::SendCoop(const bbcoop::Envelope &envelope, s64 now_ms) {
@@ -642,19 +710,22 @@ void Game::SendGamePackets(s64 now_us) {
     } else {
       add(0x06, 96);
     }
-    load.totals.packets_sent += frame.entries.size();
     const std::vector<u8> payload = EncodeGameFrame(frame);
     QByteArray body = QByteArray::fromHex("0e4a0e4a") + "SHAD";
     body.append(static_cast<char>(GamePacketsType));
     body.append(reinterpret_cast<const char *>(payload.data()),
                 static_cast<qsizetype>(payload.size()));
-    Send(ServerLink::Encode(ServerLink::Data{load.VirtualOf(to), body}));
+    if (Send(ServerLink::Encode(ServerLink::Data{load.VirtualOf(to), body}))) {
+      sent_game = true;
+      load.totals.packets_sent += frame.entries.size();
+    }
   }
 }
 
 void Game::TakeData(const QByteArray &frame, s64 now_us) {
   constexpr qsizetype GameFrameAt = 9;
-  if (frame.size() < GameFrameAt || frame.mid(4, 4) != "SHAD") {
+  if (frame.size() < GameFrameAt || frame.mid(4, 4) != "SHAD" ||
+      static_cast<u8>(frame.at(8)) != GamePacketsType) {
     return;
   }
   const auto game_frame = DecodeGameFrame(
@@ -663,6 +734,17 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
   if (!game_frame) {
     return;
   }
+  bool teammate = false;
+  for (int other = 0; other < load.settings.team_size; ++other) {
+    if (other != seat &&
+        game_frame->instance == static_cast<u32>(0x2000 + team * load.settings.team_size + other) &&
+        game_frame->sender == load.NameOf(team, other)) {
+      teammate = true;
+      break;
+    }
+  }
+  if (!teammate)
+    return;
   for (const GameFrameEntry &entry : game_frame->entries) {
     if (entry.packet.size() < 8 + 12) {
       continue;
@@ -672,14 +754,27 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
     u32 seq = 0;
     GameLinkDetail::Get(std::span<const u8>{entry.packet}, at, sent);
     GameLinkDetail::Get(std::span<const u8>{entry.packet}, at, seq);
+    if (!seq || sent < static_cast<u64>(load.started_us) ||
+        sent > static_cast<u64>(now_us)) {
+      continue; // Only this worker's monotonic clock is valid for this measurement.
+    }
+    auto &path = heard[game_frame->sender];
+    const u32 last = path.seq;
+    if (seq <= last) {
+      ++load.totals.packets_late_or_duplicate;
+      continue; // Don't inflate usable delivery or its latency samples.
+    }
+    received_game = true;
     ++load.totals.packets_received;
-    load.totals.relay_us.Add(now_us - static_cast<s64>(sent));
+    const auto relay_us = now_us - static_cast<s64>(sent);
+    load.totals.relay_us.Add(relay_us);
+    if (load.SentDuringSteady(sent))
+      load.totals.steady_relay_us.Add(relay_us);
     load.window_relay.Add(now_us - static_cast<s64>(sent));
-    u32 &last = heard_seq[game_frame->sender];
     if (seq > last + 1 && last != 0) {
       load.totals.packets_lost += seq - last - 1;
     }
-    last = std::max(last, seq);
+    path = {seq, now_us};
   }
 }
 
@@ -935,8 +1030,10 @@ int main(int argc, char **argv) {
       {"server", "server address", "address", "127.0.0.1"},
       {"port", "link UDP port", "port", "31314"},
       {"teams", "teams", "n", "10"},
-      {"team-size", "players a team (2-4)", "n", "3"},
-      {"seconds", "seconds to play after the last game starts", "n", "60"},
+      {"team-size", QStringLiteral("players a team (2-%1)")
+                        .arg(static_cast<int>(TeamSize)), "n", "3"},
+      {"seconds", "run duration (after everyone plays with --require-steady)", "n", "60"},
+      {"require-steady", "require the full duration with every hunter playing"},
       {"ramp-ms", "ms between two games' starts", "n", "50"},
       {"owner-fps", "the enemy owner's frames a second per teammate", "n",
        "30"},
@@ -965,8 +1062,16 @@ int main(int argc, char **argv) {
   settings.server = QHostAddress(parser.value("server"));
   settings.port = static_cast<quint16>(parser.value("port").toUInt());
   settings.teams = parser.value("teams").toInt();
-  settings.team_size = std::clamp(parser.value("team-size").toInt(), 2, 4);
+  bool valid_team_size = false;
+  settings.team_size = parser.value("team-size").toInt(&valid_team_size);
+  if (!valid_team_size || settings.team_size < 2 ||
+      settings.team_size > static_cast<int>(TeamSize)) {
+    std::fprintf(stderr, "bbload: --team-size must be an integer from 2 to %d\n",
+                 static_cast<int>(TeamSize));
+    return 2;
+  }
   settings.seconds = parser.value("seconds").toInt();
+  settings.require_steady = parser.isSet("require-steady");
   settings.ramp_ms = parser.value("ramp-ms").toInt();
   settings.owner_fps = std::max(1, parser.value("owner-fps").toInt());
   settings.follower_fps = std::max(1, parser.value("follower-fps").toInt());

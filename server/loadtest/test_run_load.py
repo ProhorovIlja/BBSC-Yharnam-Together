@@ -1,82 +1,70 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-from contextlib import redirect_stderr
-import io
-from pathlib import Path
-import subprocess
-import tempfile
-import sys
-import time
 import unittest
 
-from unittest.mock import Mock
-
-from run_load import local_build_fingerprint, print_refusals, stop_child, worker_result
+from run_load import validate_worker
 
 
-class WorkerTests(unittest.TestCase):
-    def spawn(self, code):
-        child = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
-        self.addCleanup(stop_child, child)
-        return child
+class WorkerResultTests(unittest.TestCase):
+    def row(self, **overrides):
+        return dict(teams=2, team_size=5, games=10, linked=10, playing=10,
+                    refused=0, packets_sent=100, packets_received=98,
+                    exchanging_game_traffic=10, incoming_game_paths=40,
+                    fresh_game_paths=40, send_errors=0, all_playing_seconds=10.01,
+                    steady_relay_samples=75) | overrides
 
-    def test_one_nonempty_row(self):
-        child = self.spawn("print('diagnostic'); print('{\"games\": 3}')")
-        self.assertEqual(worker_result(child, time.monotonic() + 5), {"games": 3})
+    def test_exact_five_hunter_run(self):
+        validate_worker(self.row(), 2, 5, True)
 
-    def test_failed_empty_or_duplicate_worker_is_not_a_successful_sample(self):
-        for code in ("raise SystemExit(1)", "print('{}')",
-                     "print('{\"games\": 3}'); print('{\"games\": 3}')"):
-            with self.subTest(code=code), self.assertRaises(RuntimeError):
-                worker_result(self.spawn(code), time.monotonic() + 5)
+    def test_correct_game_total_does_not_hide_wrong_team_shape(self):
+        with self.assertRaisesRegex(RuntimeError, "party shape"):
+            validate_worker(self.row(teams=5, team_size=2), 2, 5, True)
 
-    def test_timeout_has_bounded_cleanup(self):
-        child = self.spawn("import time; time.sleep(30)")
-        with self.assertRaises(subprocess.TimeoutExpired):
-            worker_result(child, time.monotonic() + 0.2)
-        stop_child(child)
-        self.assertIsNotNone(child.poll())
+    def test_healthy_worker_cannot_mask_another_with_no_traffic(self):
+        validate_worker(self.row(), 2, 5, True)
+        for field in ("packets_sent", "packets_received"):
+            with self.subTest(field=field), self.assertRaisesRegex(RuntimeError, "incomplete"):
+                validate_worker(self.row(**{field: 0}), 2, 5, True)
 
-class LocalBuildTests(unittest.TestCase):
-    def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.home = Path(folder.name)
-        self.log = self.home / "shadnet.log"
-        self.server = Mock(returncode=None)
-        self.server.poll.return_value = None
+    def test_incomplete_lobby_or_refusal_fails_smoke(self):
+        for row in (self.row(playing=9), self.row(refused=1)):
+            with self.assertRaisesRegex(RuntimeError, "incomplete"):
+                validate_worker(row, 2, 5, True)
+            validate_worker(row, 2, 5, False)
 
-    def test_reads_checked_build_instead_of_simulator_placeholder(self):
-        fingerprint = "bb-build 1;version=1.5.1-test;revision=abcd-dirty;protocol=5;"
-        self.log.write_text("other output\nLink: games must run this server's build: "
-                            + fingerprint + "\n", encoding="utf-8")
-        self.assertEqual(local_build_fingerprint(self.log, self.server, 0), fingerprint)
+    def test_missing_and_malformed_counters(self):
+        missing = self.row()
+        del missing["playing"]
+        for row in (missing, self.row(refused=False), self.row(packets_received=-1)):
+            with self.assertRaisesRegex(RuntimeError, "counters"):
+                validate_worker(row, 2, 5, True)
 
-    def test_reads_container_build_with_no_git_revision(self):
-        fingerprint = "bb-build 1;version=dev;revision=;protocol=9;"
-        self.log.write_text("Link: games must run this server's build: " + fingerprint + "\n",
-                            encoding="utf-8")
-        self.assertEqual(local_build_fingerprint(self.log, self.server, 0), fingerprint)
+    def test_participation_cannot_exceed_linked_or_scheduled(self):
+        for row in (self.row(linked=9), self.row(linked=11)):
+            with self.assertRaisesRegex(RuntimeError, "participation"):
+                validate_worker(row, 2, 5, True)
 
-    def test_missing_disabled_and_malformed_build_fail_closed(self):
-        for line in ("", "Link: this server's build is not checked",
-                     "Link: games must run this server's build: bbload",
-                     "Link: games must run this server's build: bb-build 1;version=dev;"):
-            with self.subTest(line=line), self.assertRaises(RuntimeError):
-                self.log.write_text(line + "\n", encoding="utf-8")
-                local_build_fingerprint(self.log, self.server, 0)
+    def test_one_silent_hunter_fails_despite_nonzero_worker_totals(self):
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            validate_worker(self.row(exchanging_game_traffic=9), 2, 5, True)
 
-    def test_early_server_exit_is_reported(self):
-        self.log.touch()
-        self.server.poll.return_value = self.server.returncode = 17
-        with self.assertRaisesRegex(RuntimeError, "exited during startup: 17"):
-            local_build_fingerprint(self.log, self.server, 0)
+    def test_missing_directed_pair_or_socket_failure_cannot_pass(self):
+        for row in (self.row(incoming_game_paths=39, fresh_game_paths=39),
+                    self.row(fresh_game_paths=39), self.row(send_errors=1)):
+            with self.assertRaisesRegex(RuntimeError, "incomplete"):
+                validate_worker(row, 2, 5, True)
 
-    def test_refusal_diagnostics_are_bounded_and_exclude_server_log(self):
-        self.log.write_text("server refused: do not print\n", encoding="utf-8")
-        (self.home / "bbload0.log").write_text(
-            "bot0 refused: another build\n" * 10, encoding="utf-8")
-        out = io.StringIO()
-        with redirect_stderr(out):
-            print_refusals(self.home)
-        self.assertEqual(out.getvalue().count("another build"), 8)
-        self.assertNotIn("do not print", out.getvalue())
+    def test_impossible_directed_pair_count(self):
+        with self.assertRaisesRegex(RuntimeError, "too many"):
+            validate_worker(self.row(incoming_game_paths=41), 2, 5, False)
+
+    def test_steady_window_must_cover_the_requested_duration(self):
+        validate_worker(self.row(), 2, 5, True, 10)
+        with self.assertRaisesRegex(RuntimeError, "window was too short"):
+            validate_worker(self.row(all_playing_seconds=9.99), 2, 5, True, 10)
+        with self.assertRaisesRegex(RuntimeError, "invalid steady window"):
+            validate_worker(self.row(all_playing_seconds=float("nan")), 2, 5, True, 10)
+
+    def test_steady_sample_count_must_be_positive_and_not_exceed_received(self):
+        for count in (0, 99, True):
+            with self.assertRaisesRegex(RuntimeError, "steady relay samples"):
+                validate_worker(self.row(steady_relay_samples=count), 2, 5, True, 10)

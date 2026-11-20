@@ -95,16 +95,29 @@ RUN test -f externals/protobuf/CMakeLists.txt \
         || (echo "externals/protobuf is empty: run git submodule update --init" && exit 1)
 # The build folder is a BuildKit cache: a rebuild after a source change compiles only that.
 ARG RUN_WORLD_TESTS=0
-RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
+ARG BUILD_CACHE_ID=shadnet-build
+RUN --mount=type=cache,id=${BUILD_CACHE_ID},target=/src/server/build \
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/qt \
     && cmake --build build --target shadnet $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
     && if [ "$RUN_WORLD_TESTS" = 1 ]; then \
-           cmake --build build --target test_bloodborne_world test_world_writer $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
-           && ctest --test-dir build --output-on-failure --no-tests=error -R '^(bloodborne_world|world_writer)$' \
+           cmake --build build --target test_bloodborne_world test_world_writer test_team_lobby $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
+           && ctest --test-dir build --output-on-failure --no-tests=error -R '^(bloodborne_world|world_writer|team_lobby)$' \
            && cmake --build build --target bbload $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
-           && LD_LIBRARY_PATH=/opt/qt/lib QT_PLUGIN_PATH=/opt/qt/plugins python3 loadtest/run_load.py \
-              --shadnet build/shadnet --bbload build/bbload --players 6 --team-size 3 --seconds 10 \
-              --port 32014 --match-local-build --require-all-playing; \
+           && ( export LD_LIBRARY_PATH=/opt/qt/lib QT_PLUGIN_PATH=/opt/qt/plugins; \
+                for size in 2 5; do \
+                    python3 loadtest/run_load.py --shadnet build/shadnet --bbload build/bbload \
+                      --players "$((size * 2))" --team-size "$size" --seconds 10 \
+                      --port "$((32012 + size * 3))" --match-local-build --require-all-playing \
+                      || exit $?; \
+                done; \
+                python3 loadtest/run_load.py --shadnet build/shadnet --bbload build/bbload \
+                  --players 5 --team-size 5 --seconds 10 --port 32034 \
+                  --match-local-build --require-all-playing --collect-admin-timing \
+                  --cfg Hosted=true --cfg SignIn=open --cfg HostedSignupWorkBits=0 --cfg HostedSignupWorkMaxBits=0 \
+                  || exit $?; \
+                for size in 1 6 invalid; do \
+                    if build/bbload --team-size "$size"; then exit 1; else test "$?" -eq 2 || exit 1; fi; \
+                done ); \
        fi \
     && mkdir -p /bin-out && strip -o /bin-out/shadnet build/shadnet
 COPY server/hosting/collect-runtime.sh /usr/local/bin/
@@ -114,7 +127,8 @@ RUN sh /usr/local/bin/collect-runtime.sh /bin-out/shadnet /opt/qt /out
 #   docker build --target loadtest -t yharnam-bbload:local -f server/hosting/Dockerfile .
 FROM build AS loadtest-build
 ARG BUILD_JOBS=0
-RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
+ARG BUILD_CACHE_ID=shadnet-build
+RUN --mount=type=cache,id=${BUILD_CACHE_ID},target=/src/server/build \
     cmake --build build --target bbload $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
     && strip -o /bin-out/bbload build/bbload \
     && sh /usr/local/bin/collect-runtime.sh /bin-out/bbload /opt/qt /out-bbload

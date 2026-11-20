@@ -139,6 +139,16 @@ jobs:
             sleep 2
           done
           test "$ready" = 1
+          docker exec smoke shadnet --admin stats | python3 -c '
+          import json, sys
+          row = json.load(sys.stdin)
+          timing = row["udp_timing"]
+          keys = ("rx_yields", "rx_read_errors", "rx_retry_requests", "rx_oversized",
+                  "rx_slice_max_us", "link_ticks", "link_gap_max_ms",
+                  "link_gaps_over_2x", "world_ticks", "world_gap_max_ms", "world_gaps_over_2x")
+          if not row.get("ok") or not all(type(timing.get(k)) is int and timing[k] >= 0 for k in keys):
+              raise SystemExit("missing or invalid local UDP timing counters")
+          '
           docker exec smoke test -s /data/link_key.bin
           docker exec smoke shadnet --admin key >/dev/null
           docker logs smoke 2>&1 | tail -20

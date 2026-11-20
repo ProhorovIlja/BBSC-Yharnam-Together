@@ -212,6 +212,22 @@ int Contracts() {
   CHECK(datagrams.size() == 19);
   const auto datagram = [&](const char *name) { return datagrams.at(name); };
 
+  // Exercise the fixed binary envelope independently of round-trip encoding.
+  const auto wire = datagram("hello");
+  CHECK(KindOf(wire) == Kind::Hello);
+  for (int length = 0; length < 9; ++length)
+    CHECK(!KindOf(wire.left(length)));
+  for (int offset = 0; offset < 8; ++offset) {
+    auto corrupt = wire;
+    corrupt[offset] = '\0';
+    CHECK(!KindOf(corrupt) && !DecodeHello(corrupt));
+  }
+  auto bad_kind = wire;
+  bad_kind[8] = static_cast<char>(0xff);
+  CHECK(!KindOf(bad_kind) && !DecodeHello(bad_kind));
+  bad_kind[8] = static_cast<char>(Kind::Ping);
+  CHECK(KindOf(bad_kind) == Kind::Ping && !DecodeHello(bad_kind));
+
   const QByteArray cookie(16, '\x11');
   CHECK(Encode(Hello{LinkVersion, "Kaniel", ContractBuild, "s3cr3t", cookie}) ==
         datagram("hello"));

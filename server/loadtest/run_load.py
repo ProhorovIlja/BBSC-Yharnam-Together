@@ -11,8 +11,10 @@ with the players' numbers (relay delay, losses, join times) and the server's (CP
 import argparse
 from contextlib import ExitStack
 import json
+import math
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -69,11 +71,44 @@ def stop_child(child):
 def worker_result(child, deadline):
     output, _ = child.communicate(timeout=max(0.01, deadline - time.monotonic()))
     if child.returncode:
-        raise RuntimeError(f"bbload exited with status {child.returncode}")
+        reason = " (incomplete all-playing window)" if child.returncode == 3 else ""
+        raise RuntimeError(f"bbload exited with status {child.returncode}{reason}")
     rows = [json.loads(line) for line in output.splitlines() if line.startswith("{")]
-    if len(rows) != 1 or not isinstance(rows[0], dict) or rows[0].get("games", 0) < 1:
-        raise RuntimeError("bbload did not return exactly one nonempty results row")
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        raise RuntimeError("bbload did not return exactly one results object")
     return rows[0]
+
+
+def validate_worker(row, teams, team_size, require_all_playing, seconds=0):
+    expected = {"teams": teams, "team_size": team_size, "games": teams * team_size}
+    if any(type(row.get(key)) is not int or row[key] != value
+           for key, value in expected.items()):
+        raise RuntimeError("bbload reported a different party shape than scheduled")
+    counters = ("linked", "playing", "refused", "packets_sent", "packets_received",
+                "exchanging_game_traffic", "incoming_game_paths", "fresh_game_paths", "send_errors")
+    if any(type(row.get(key)) is not int or row[key] < 0 for key in counters):
+        raise RuntimeError("bbload reported invalid or missing smoke counters")
+    if not (0 <= row["playing"] <= row["linked"] <= row["games"]
+            and row["exchanging_game_traffic"] <= row["games"]):
+        raise RuntimeError("bbload reported inconsistent participation counts")
+    steady = row.get("all_playing_seconds")
+    if type(steady) not in (int, float) or not math.isfinite(steady) or steady < 0:
+        raise RuntimeError("bbload reported an invalid steady window")
+    if require_all_playing and steady < seconds:
+        raise RuntimeError("incomplete loopback smoke: steady window was too short")
+    if require_all_playing and seconds and (
+            type(row.get("steady_relay_samples")) is not int
+            or not 0 < row["steady_relay_samples"] <= row["packets_received"]):
+        raise RuntimeError("incomplete loopback smoke: missing usable steady relay samples")
+    expected_paths = row["games"] * (team_size - 1)
+    if not row["fresh_game_paths"] <= row["incoming_game_paths"] <= expected_paths:
+        raise RuntimeError("bbload reported too many directed game paths or fresh paths")
+    if require_all_playing and (
+            row["playing"] != row["games"] or row["refused"]
+            or row["exchanging_game_traffic"] != row["games"]
+            or row["fresh_game_paths"] != expected_paths or row["send_errors"]
+            or not row["packets_sent"] or not row["packets_received"]):
+        raise RuntimeError("incomplete loopback smoke: a worker did not reach play and exchange traffic")
 
 
 BUILD_LOG_MARKER = "Link: games must run this server's build:"
@@ -118,6 +153,35 @@ def print_refusals(home):
                         return
 
 
+TIMING_KEYS = (
+    "rx_yields", "rx_read_errors", "rx_retry_requests", "rx_oversized",
+    "rx_slice_max_us", "link_ticks", "link_gap_max_ms",
+    "link_gaps_over_2x", "world_ticks", "world_gap_max_ms", "world_gaps_over_2x",
+)
+
+
+def admin_timing(binary, home, env):
+    result = subprocess.run([os.path.abspath(binary), "--admin", "stats"],
+                            cwd=home, env=env, capture_output=True, text=True, timeout=8)
+    if result.returncode:
+        raise RuntimeError("local admin stats failed; enable Hosted mode for timing runs")
+    row = json.loads(result.stdout)
+    timing = row.get("udp_timing") if isinstance(row, dict) and row.get("ok") is True else None
+    return validate_timing(timing)
+
+
+def validate_timing(timing):
+    if not isinstance(timing, dict) or any(type(timing.get(key)) is not int or timing[key] < 0
+                                          for key in TIMING_KEYS):
+        raise RuntimeError("local admin stats did not provide valid UDP timing")
+    if (not timing["link_ticks"] or not timing["world_ticks"]
+            or timing["link_gaps_over_2x"] > timing["link_ticks"]
+            or timing["world_gaps_over_2x"] > timing["world_ticks"]):
+        raise RuntimeError("local admin stats did not observe valid link and world ticks")
+    # Never include the raw admin response in benchmark output.
+    return {key: timing[key] for key in TIMING_KEYS}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--shadnet", required=True)
@@ -134,6 +198,8 @@ def main():
     parser.add_argument("--cfg", action="append", default=[], help="Key=Value for shadnet.cfg")
     parser.add_argument("--require-all-playing", action="store_true",
                         help="fail if any scheduled simulated player does not play")
+    parser.add_argument("--collect-admin-timing", action="store_true",
+                        help="require timing counters via the disposable server's local admin socket")
     parser.add_argument("--keep", action="store_true", help="keep the server's folder")
     parser.add_argument("--attack", default="", help="attack.py arguments, run beside the players")
     parser.add_argument("--attack-delay", type=float, default=20, help="seconds before it")
@@ -143,17 +209,25 @@ def main():
             or min(args.ramp_ms, args.processes, args.attack_delay) < 0
             or not 1025 <= args.port <= 65534):
         parser.error("invalid workload, duration, process count or test port")
-    if args.match_local_build and any(option == "--build" or option.startswith("--build=")
-                                      for option in args.extra.split()):
+    if args.team_size < 2 or args.players % args.team_size:
+        parser.error("--players must be a multiple of --team-size (at least two per team)")
+    try:
+        args.extra = shlex.split(args.extra)
+    except ValueError as error:
+        parser.error(f"invalid --extra: {error}")
+    reserved = {"--teams", "--team-size", "--seconds", "--ramp-ms", "--tag",
+                "--json", "--port", "--server", "--shards", "--require-steady", "--"}
+    if any(option.partition("=")[0] in reserved or option.startswith("-") and
+           not option.startswith("--") and not option[1:].replace(".", "", 1).isdigit()
+           for option in args.extra):
+        parser.error("--extra cannot override workload, endpoint, or output options")
+    if args.match_local_build and any(option.partition("=")[0] == "--build"
+                                      for option in args.extra):
         parser.error("--match-local-build conflicts with an explicit --extra --build")
     home = tempfile.mkdtemp(prefix="shadnet-load-")
     try:
         with ExitStack() as cleanup:
             summary = run(args, home, cleanup)
-            if args.require_all_playing and (
-                    summary["playing"] != summary["scheduled_players"] or summary["refused"]
-                    or not summary["packets_sent"] or not summary["packets_received"]):
-                raise RuntimeError(f"incomplete loopback smoke: {summary}")
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(f"load test failed: {error}; diagnostic folder: {home}", file=sys.stderr)
         if args.match_local_build:
@@ -185,6 +259,8 @@ def run(args, home, cleanup):
     for item in args.cfg:
         key, value = item.split("=", 1)
         cfg[key] = value
+    if args.collect_admin_timing:
+        cfg["HostedAdminSocket"] = os.path.join(home, "benchmark.sock")
     with open(os.path.join(home, "shadnet.cfg"), "w") as f:
         f.write("[General]\n")
         for key, value in cfg.items():
@@ -195,7 +271,7 @@ def run(args, home, cleanup):
     server = subprocess.Popen([os.path.abspath(args.shadnet)], cwd=home, env=env, stdout=log,
                               stderr=subprocess.STDOUT)
     cleanup.callback(stop_child, server)
-    extra = args.extra.split()
+    extra = list(args.extra)
     if args.match_local_build:
         build = local_build_fingerprint(os.path.join(home, "shadnet.log"), server)
         extra += ["--build", build]
@@ -247,10 +323,12 @@ def run(args, home, cleanup):
                    str(count), "--team-size", str(args.team_size), "--seconds",
                    str(args.seconds), "--ramp-ms", str(args.ramp_ms * processes), "--tag",
                    f"lt{index}"] + extra
+        if args.require_all_playing:
+            command.append("--require-steady")
         worker_log = cleanup.enter_context(open(os.path.join(home, f"bbload{index}.log"), "w"))
         load = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=worker_log, text=True)
         cleanup.callback(stop_child, load)
-        loads.append(load)
+        loads.append((load, count))
     attack_result = {}
     if args.attack:
         time.sleep(min(args.attack_delay, max(0, deadline - time.monotonic())))
@@ -262,31 +340,52 @@ def run(args, home, cleanup):
                 attack_result = json.loads(line)
         if attack.returncode or not attack_result:
             raise RuntimeError("attack.py failed or did not produce a results row")
-    results = [worker_result(load, deadline) for load in loads]
+    results = []
+    for load, count in loads:
+        row = worker_result(load, deadline)
+        validate_worker(row, count, args.team_size, args.require_all_playing, args.seconds)
+        results.append(row)
     stop_sampler()
     if server.poll() is not None or not samples:
         raise RuntimeError("shadNet stopped early or no server resource samples were collected")
     if sum(row["games"] for row in results) != teams * args.team_size:
         raise RuntimeError("simulator results do not cover the scheduled players")
     udp_drops = udp_rcvbuf_errors() - drops_before
+    timing = admin_timing(args.shadnet, home, env) if args.collect_admin_timing else None
     stop_child(server)
 
-    # Steady state: the samples after every game played (the last two thirds of the run).
+    # Approximation: last two thirds of CPU samples; not a timestamp-aligned window.
     steady = samples[len(samples) // 3:] or samples
     summary = {
         "players": sum(r["games"] for r in results),
+        "teams": teams,
+        "team_size": args.team_size,
+        "min_all_playing_seconds": min(row["all_playing_seconds"] for row in results),
         "playing": sum(r["playing"] for r in results),
+        "exchanging_game_traffic": sum(r["exchanging_game_traffic"] for r in results),
+        "incoming_game_paths": sum(r["incoming_game_paths"] for r in results),
+        "fresh_game_paths": sum(r["fresh_game_paths"] for r in results),
+        "expected_game_paths": teams * args.team_size * (args.team_size - 1),
+        "send_errors": sum(r["send_errors"] for r in results),
         "refused": sum(r["refused"] for r in results),
         "packets_sent": sum(r["packets_sent"] for r in results),
         "packets_received": sum(r["packets_received"] for r in results),
+        # Legacy name: forward gaps, not a definitive count of dropped datagrams.
         "packets_lost": sum(r["packets_lost"] for r in results),
+        "packets_late_or_duplicate": sum(r["packets_late_or_duplicate"] for r in results),
         "server_out_mbit": sum(r["bytes_received"] for r in results) * 8 / 1e6 /
         max(1, max(r["seconds"] for r in results)) if results else 0,
         "server_in_mbit": sum(r["bytes_sent"] for r in results) * 8 / 1e6 /
         max(1, max(r["seconds"] for r in results)) if results else 0,
         "relay_ms_p50": max((r["relay_ms_p50"] for r in results), default=0),
+        # These are maxima of worker percentiles, not pooled percentiles.
+        "relay_ms_p95": max((r["relay_ms_p95"] for r in results), default=0),
         "relay_ms_p99": max((r["relay_ms_p99"] for r in results), default=0),
         "relay_ms_max": max((r["relay_ms_max"] for r in results), default=0),
+        "steady_relay_samples": sum(r["steady_relay_samples"] for r in results),
+        "steady_relay_ms_p50": max(r["steady_relay_ms_p50"] for r in results),
+        "steady_relay_ms_p95": max(r["steady_relay_ms_p95"] for r in results),
+        "steady_relay_ms_p99": max(r["steady_relay_ms_p99"] for r in results),
         "ping_ms_p99": max((r["ping_ms_p99"] for r in results), default=0),
         "welcome_ms_p50": max((r["welcome_ms_p50"] for r in results), default=0),
         "welcome_ms_p99": max((r["welcome_ms_p99"] for r in results), default=0),
@@ -309,6 +408,8 @@ def run(args, home, cleanup):
         "server_rss_mb_max": round(max((s["rss_mb"] for s in samples), default=0), 1),
         "server_threads": max((s["threads"] for s in samples), default=0),
     }
+    if timing is not None:
+        summary["udp_timing"] = timing
     if attack_result:
         summary["attack"] = attack_result
         with open(os.path.join(home, "shadnet.log")) as f:

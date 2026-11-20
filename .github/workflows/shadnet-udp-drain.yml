@@ -1,0 +1,52 @@
+name: ShadNet UDP receive budget
+on:
+  pull_request:
+    paths:
+      - 'server/src/link_server.*'
+      - 'server/src/server_link.*'
+      - 'server/tests/test_server_link.cpp'
+      - 'server/tests/contracts/server_link_frames.txt'
+      - 'server/src/udp_drain_slice.h'
+      - 'server/src/udp_socket_drain.h'
+      - 'server/src/link_loop_timing.h'
+      - 'server/tests/test_link_loop_timing.cpp'
+      - 'server/tests/test_udp_drain_slice.cpp'
+      - 'server/tests/test_udp_socket_drain.cpp'
+      - 'server/loadtest/run_load.py'
+      - 'server/loadtest/test_run_load.py'
+      - 'server/loadtest/compare_relay.py'
+      - 'server/loadtest/test_compare_relay.py'
+      - '.github/workflows/shadnet-udp-drain.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  slice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate load harness pass and failure cases
+        run: python3 -m unittest discover -s server/loadtest -p 'test_*.py' -v
+      - name: Build and exercise the receive budget
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic server/tests/test_udp_drain_slice.cpp -o "$RUNNER_TEMP/udp-drain"
+          "$RUNNER_TEMP/udp-drain"
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic server/tests/test_link_loop_timing.cpp -o "$RUNNER_TEMP/link-timing"
+          "$RUNNER_TEMP/link-timing"
+      - name: Install Qt Network development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qt6-base-dev
+      - name: Exercise the production drain on real loopback UDP sockets
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic server/tests/test_udp_socket_drain.cpp $(pkg-config --cflags --libs Qt6Network) -o "$RUNNER_TEMP/udp-socket-drain"
+          "$RUNNER_TEMP/udp-socket-drain"
+
+      - name: Exercise production server wire contracts and malformed envelopes
+        run: |
+          c++ -std=c++20 -O2 -Iserver -Iserver/src \
+            "-DBLOODBORNE_SERVER_LINK_CONTRACTS=\"$PWD/server/tests/contracts/server_link_frames.txt\"" \
+            server/tests/test_server_link.cpp server/src/server_link.cpp server/coop/link_crypto.cpp \
+            $(pkg-config --cflags --libs Qt6Core) -o "$RUNNER_TEMP/server-link"
+          "$RUNNER_TEMP/server-link"

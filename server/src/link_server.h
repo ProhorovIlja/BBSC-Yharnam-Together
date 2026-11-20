@@ -22,6 +22,8 @@
 #include "lobby_friends_db.h"
 #include "region.h"
 #include "server_link.h"
+#include "udp_socket_drain.h"
+#include "link_loop_timing.h"
 
 // shadNet's UDP port: the games' link (server_link.h), which relays their frames and carries
 // their messages with the parties' worlds (bloodborne_world.h). Phase 11: its hello signs the
@@ -43,7 +45,8 @@ private slots:
 private:
     void LogFloods();
     // The games' link (co-op phase 2, server_link.h): relayed frames, hellos, pings.
-    void HandleLink(const QByteArray& datagram, const QHostAddress& sender, uint16_t senderPort);
+    void HandleLink(const QByteArray& datagram, ServerLink::Kind kind,
+                    const QHostAddress& sender, uint16_t senderPort);
     void Apply(const ServerLink::Hub::Result& result);
     void Apply(const BloodborneWorld::Service::Result& result);
     std::optional<ServerLink::SignInVerdict> SignIn(const QByteArray& online_id,
@@ -102,6 +105,11 @@ private:
     void FlushRpc(RpcEnd& end);
 
     QUdpSocket* m_socket;
+    ShadNetUdp::SocketDrain m_udpDrain;
+    ShadNetUdp::TickTiming m_linkTiming{500}, m_worldTiming{50};
+    qint64 m_udpYields = 0;
+    qint64 m_udpReadErrors = 0, m_udpRetryRequests = 0, m_udpOversized = 0;
+    qint64 m_udpSliceMaxUs = 0;
     SharedState* m_shared;
     ServerLink::Hub m_link;
     QTimer* m_linkTimer;
