@@ -44,4 +44,14 @@ int main(int argc, char** argv) {
     assert(read() == "retry");
     assert(WriteLedger(path, {}) && !std::filesystem::exists(path));
     assert(WriteLedger(path, {}));
+    assert(ReadLedger(path) == std::string{});
+    const std::string limit(MaxLedgerBytes, 'x');
+    assert(WriteLedger(path, limit) && ReadLedger(path) == limit);
+    assert(!WriteLedger(path, limit + 'x') && ReadLedger(path) == limit);
+    std::ofstream(path, std::ios::binary | std::ios::app).put('x');
+    assert(!ReadLedger(path));
+    assert(std::filesystem::file_size(path) == MaxLedgerBytes + 1);
+    assert(std::filesystem::remove(path));
+    assert(std::filesystem::create_directory(path));
+    assert(!ReadLedger(path));
 }

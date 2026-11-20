@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -54,10 +56,42 @@ std::vector<T> TakeDue(std::vector<Pending<T>>& queue, Owner owner, Time now) {
     return result;
 }
 
+// Adapted to the live ledger from the bounded journal reader in PR #139.
+inline constexpr std::size_t MaxLedgerBytes = 64 * 1024;
+
+inline std::optional<std::string> ReadLedger(const std::filesystem::path& path) {
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(path, error);
+    if (status.type() == std::filesystem::file_type::not_found &&
+        (!error || error == std::errc::no_such_file_or_directory)) {
+        return std::string{};
+    }
+    if (error || !std::filesystem::is_regular_file(status)) {
+        return std::nullopt;
+    }
+    const auto size = std::filesystem::file_size(path, error);
+    if (error || size > MaxLedgerBytes) {
+        return std::nullopt;
+    }
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return std::nullopt;
+    }
+    std::string text(static_cast<std::size_t>(size), '\0');
+    if (!in.read(text.data(), static_cast<std::streamsize>(size)) ||
+        in.peek() != std::char_traits<char>::eof() || !in.eof() || in.bad()) {
+        return std::nullopt;
+    }
+    return text;
+}
+
 // Single writer (game thread). Replace only after a successful write and close.
 // This avoids truncating the last usable file, but does not fsync or acknowledge savedata.
 inline bool WriteLedger(const std::filesystem::path& path, std::string_view encoded) {
     std::error_code error;
+    if (encoded.size() > MaxLedgerBytes) {
+        return false;
+    }
     if (encoded.empty()) {
         std::filesystem::remove(path, error);
         return !error;
