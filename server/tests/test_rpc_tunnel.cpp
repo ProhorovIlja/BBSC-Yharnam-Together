@@ -87,6 +87,45 @@ int AConnectionGoesThrough() {
   return 0;
 }
 
+int FreshRpcFragmentsDrainInBoundedSlices() {
+  RpcTunnel game{"game", 7};
+  RpcTunnel server{"shadnet", 9};
+  game.Open(0);
+  CHECK(Carry(game, server, 0).size() == 1);
+  const auto reply = Bytes(std::string(100 * 1024, 'r') + "tail");
+  server.Write(reply, 1);
+  server.Close(1);
+  const auto initial = server.UnackedBytes();
+  std::vector<u8> got;
+  bool closed = false;
+  for (s64 tick = 2; tick < 100 && !closed; ++tick) {
+    const auto frames = server.Flush(tick, 7);
+    CHECK(!frames.empty());
+    size_t fragments = 0;
+    for (const auto& body : frames) {
+      const auto decoded = BloodborneCoop::DecodeGameFrame(body);
+      CHECK(decoded.has_value());
+      fragments += decoded->entries.size();
+      for (const auto& event : game.Receive(body, tick)) {
+        CHECK(!closed);
+        if (event.kind == Event::Kind::Closed) {
+          closed = true;
+        } else {
+          CHECK(event.kind == Event::Kind::Data);
+          got.insert(got.end(), event.bytes.begin(), event.bytes.end());
+        }
+      }
+    }
+    CHECK(fragments <= 7);
+    for (const auto& ack : game.Flush(tick))
+      server.Receive(ack, tick);
+    if (tick == 2)
+      CHECK(server.UnackedBytes() > 0 && server.UnackedBytes() < initial && !closed);
+  }
+  CHECK(closed && got == reply && server.UnackedBytes() == 0);
+  return 0;
+}
+
 int ALostDatagramIsSentAgain() {
   RpcTunnel game{"game", 7};
   RpcTunnel server{"shadnet", 9};
@@ -488,6 +527,7 @@ int CoalescedReplyStaysWithinMessageAndQueueBounds() {
 
 int main() {
   if (AConnectionGoesThrough() != 0 || ALostDatagramIsSentAgain() != 0 ||
+      FreshRpcFragmentsDrainInBoundedSlices() != 0 ||
       ARestartedServerEndsTheConnection() != 0 ||
       RestartedGameRetiresOldBackendBeforeOpeningNewOne() != 0 ||
       RestartAfterCloseRetiresBackendBeforeNextOpen() != 0 ||
