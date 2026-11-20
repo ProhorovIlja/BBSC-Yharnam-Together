@@ -2492,6 +2492,7 @@ class WindowChrome:
         self.native_frame = sys.platform == 'win32' and os.environ.get('BB_LAUNCHER_CUSTOM_CHROME') != '1'
         self.enabled = sys.platform == 'win32' and not self.native_frame
         self.applied, self.restore, self.sizing, self.grab = False, None, None, None
+        self.native_grab = self.drag_job = self.drag_point = self.drag_target = None
 
     def hwnd(self):
         return int(self.root.wm_frame(), 16)
@@ -2540,19 +2541,46 @@ class WindowChrome:
                 pass
 
     def drag_move(self, event):
-        if not self.grab:
+        if self.grab is None:
             return
+        # High-rate mouse input can enqueue more moves than the window can paint.
+        # Keep the latest position, not one window move per queued event.
+        self.drag_point = event.x_root, event.y_root
+        if self.drag_job is None:
+            self.drag_job = self.root.after(8, self.flush_drag)
+
+    def flush_drag(self):
+        self.drag_job = None
+        if self.grab is None or self.drag_point is None:
+            return
+        x, y = self.drag_point
+        self.drag_point = None
         if self.native_grab is not None:
             win, hwnd, pointer, dx, dy = self.native_grab
-            if win.GetCursorPos(ctypes.byref(pointer)) and win.SetWindowPos(
-                    hwnd, None, pointer.x - dx, pointer.y - dy, 0, 0, 0x0215):
+            if win.GetCursorPos(ctypes.byref(pointer)):
+                target = ('win32', pointer.x - dx, pointer.y - dy)
+                if target == self.drag_target:
+                    return
                 # NOSIZE | NOZORDER | NOACTIVATE | NOOWNERZORDER
-                return
-        self.root.geometry(f'+{event.x_root - self.grab[0]}+{event.y_root - self.grab[1]}')
+                if win.SetWindowPos(hwnd, None, target[1], target[2], 0, 0, 0x0215):
+                    self.drag_target = target
+                    return
+        target = ('tk', x - self.grab[0], y - self.grab[1])
+        if target != self.drag_target:
+            self.root.geometry(f'+{target[1]}+{target[2]}')
+            self.drag_target = target
 
-    def drag_end(self, _event=None):
-        self.grab = self.native_grab = None
-        self.ui.motion.paused = False
+    def drag_end(self, event=None):
+        if self.drag_job is not None:
+            self.root.after_cancel(self.drag_job)
+            self.drag_job = None
+        try:
+            if event is not None and self.grab is not None:
+                self.drag_point = event.x_root, event.y_root
+                self.flush_drag()
+        finally:
+            self.grab = self.native_grab = self.drag_point = self.drag_target = None
+            self.ui.motion.paused = False
 
     def bind_drag(self, widget):
         widget.bind('<ButtonPress-1>', self.drag, add='+')
@@ -7442,6 +7470,9 @@ class Launcher:
     def cancel_window_polls(self, event):
         # Close-on-PLAY destroys the root directly. Ignore child widgets' destroy events.
         if event.widget is self.root:
+            chrome = getattr(self, 'chrome', None)
+            if isinstance(chrome, WindowChrome):
+                chrome.drag_end()
             for name in ('output_poll', 'motion_start', 'server_poll', 'count_poll'):
                 job = getattr(self, name, None)
                 if job is not None:
