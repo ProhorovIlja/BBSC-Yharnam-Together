@@ -93,7 +93,8 @@ public:
         if (!frame) {
             return messages;
         }
-        if (std::ranges::any_of(frame->entries, [&](const GameFrameEntry& entry) {
+        if (peer.CanAffectReceiveState(*frame) &&
+            std::ranges::any_of(frame->entries, [&](const GameFrameEntry& entry) {
                 return entry.packet.size() > limits.chunk_bytes;
             })) {
             Break();

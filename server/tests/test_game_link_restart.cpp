@@ -125,15 +125,42 @@ static bool DelayedRetiredRunsCannotResetTheActiveStream() {
     return true;
 }
 
+static bool StaleChunksCannotBreakTheCurrentCoopStream() {
+    CoopStream receiver{"server", 1, {.message_bytes = 2048, .chunk_bytes = 1001}};
+    receiver.Receive(EncodeGameFrame(GameFrame{"game", 9, 1, 0, {}}), 0);
+    CoopStream sender{"game", 10};
+    std::vector<u8> message(1500, 0x42);
+    sender.Send(message, 1);
+    const auto chunks = sender.Flush(1);
+    CHECK(chunks.size() == 2);
+    CHECK(receiver.Receive(chunks[0], 1).empty());
+    CHECK(receiver.TakeRestarted());
+    CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+
+    const std::vector<u8> oversized(1002, 0);
+    for (const auto& stale : {GameFrame{"game", 9, 1, 0, {{PacketClass::Reliable, 0, oversized}}},
+                             GameFrame{"game", 10, 99, 0, {{PacketClass::Reliable, 0, oversized}}}}) {
+        CHECK(receiver.Receive(EncodeGameFrame(stale), 2).empty());
+        CHECK(!receiver.Broken() && !receiver.TakeRestarted());
+        CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+    }
+    CHECK(receiver.Receive(chunks[1], 3) == std::vector<std::vector<u8>>{message});
+    const GameFrame active{"game", 10, 1, 0, {{PacketClass::Reliable, 2, oversized}}};
+    CHECK(receiver.Receive(EncodeGameFrame(active), 4).empty());
+    CHECK(receiver.Broken());
+    return true;
+}
+
 int main() {
     unsigned failed = 0;
     for (auto test : {WrongRecipientCannotResetOrAcknowledgeTheCurrentStream,
                       OldQueuedVisualsCannotPoisonTheNewSequenceSpace,
                       RejectedFrameCannotDiscardAPartialCoopMessage,
                       ARejectedOldTargetStillAdvertisesTheNewLocalRun,
-                      DelayedRetiredRunsCannotResetTheActiveStream}) {
+                      DelayedRetiredRunsCannotResetTheActiveStream,
+                      StaleChunksCannotBreakTheCurrentCoopStream}) {
         if (!test()) ++failed;
     }
-    std::cout << "Game-link restart scenarios: " << (5 - failed) << "/5 passed\n";
+    std::cout << "Game-link restart scenarios: " << (6 - failed) << "/6 passed\n";
     return failed ? 1 : 0;
 }

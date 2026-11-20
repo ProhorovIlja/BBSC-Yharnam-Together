@@ -278,6 +278,12 @@ public:
         return frames;
     }
 
+    // Preflight for callers that validate payload limits before Receive.
+    [[nodiscard]] bool CanAffectReceiveState(const GameFrame& frame) const {
+        return (frame.peer_instance == 0 || frame.peer_instance == instance) &&
+               !IsRetired(frame.instance);
+    }
+
     // A frame from the member: the packets for the game, in order.
     std::vector<std::vector<u8>> Receive(const GameFrame& frame, s64 now_ms) {
         return ReceiveFrame(frame, now_ms);
@@ -289,6 +295,11 @@ public:
     }
 
 private:
+    bool IsRetired(u32 remote) const {
+        return peer_instance && remote != *peer_instance &&
+               std::find(retired_instances.begin(), retired_instances.end(), remote) != retired_instances.end();
+    }
+
     template <typename Frame>
     std::vector<std::vector<u8>> ReceiveFrame(Frame& frame, s64 now_ms) {
         if (frame.peer_instance != 0 && frame.peer_instance != instance) {
@@ -299,8 +310,7 @@ private:
         }
         // A delayed frame from a recently replaced run is not a restart or
         // evidence of liveness. Instance IDs are opaque, not ordered counters.
-        if (std::find(retired_instances.begin(), retired_instances.end(), frame.instance) !=
-            retired_instances.end()) {
+        if (IsRetired(frame.instance)) {
             return {};
         }
         if (was_quiet) {
