@@ -83,15 +83,19 @@ def validate_worker(row, teams, team_size, require_all_playing):
            for key, value in expected.items()):
         raise RuntimeError("bbload reported a different party shape than scheduled")
     counters = ("linked", "playing", "refused", "packets_sent", "packets_received",
-                "exchanging_game_traffic")
+                "exchanging_game_traffic", "incoming_game_paths", "send_errors")
     if any(type(row.get(key)) is not int or row[key] < 0 for key in counters):
         raise RuntimeError("bbload reported invalid or missing smoke counters")
     if not (0 <= row["playing"] <= row["linked"] <= row["games"]
             and row["exchanging_game_traffic"] <= row["games"]):
         raise RuntimeError("bbload reported inconsistent participation counts")
+    expected_paths = row["games"] * (team_size - 1)
+    if row["incoming_game_paths"] > expected_paths:
+        raise RuntimeError("bbload reported too many directed game paths")
     if require_all_playing and (
             row["playing"] != row["games"] or row["refused"]
             or row["exchanging_game_traffic"] != row["games"]
+            or row["incoming_game_paths"] != expected_paths or row["send_errors"]
             or not row["packets_sent"] or not row["packets_received"]):
         raise RuntimeError("incomplete loopback smoke: a worker did not reach play and exchange traffic")
 
@@ -311,6 +315,9 @@ def run(args, home, cleanup):
         "team_size": args.team_size,
         "playing": sum(r["playing"] for r in results),
         "exchanging_game_traffic": sum(r["exchanging_game_traffic"] for r in results),
+        "incoming_game_paths": sum(r["incoming_game_paths"] for r in results),
+        "expected_game_paths": teams * args.team_size * (args.team_size - 1),
+        "send_errors": sum(r["send_errors"] for r in results),
         "refused": sum(r["refused"] for r in results),
         "packets_sent": sum(r["packets_sent"] for r in results),
         "packets_received": sum(r["packets_received"] for r in results),

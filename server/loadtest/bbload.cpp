@@ -114,6 +114,7 @@ struct Samples {
 };
 
 struct Totals {
+  quint64 send_errors = 0;
   quint64 packets_sent = 0;
   quint64 packets_received = 0;
   quint64 packets_lost = 0; // gaps in the sequence numbers
@@ -144,6 +145,7 @@ public:
   bool Playing() const { return state == State::Playing; }
   bool Linked() const { return state != State::Linking; }
   bool ExchangedGameTraffic() const { return sent_game && received_game; }
+  int IncomingGamePaths() const { return static_cast<int>(heard_seq.size()); }
   std::string name; // its online id
   std::string
       member; // its board name: the online id in hex, as the games say it
@@ -151,7 +153,7 @@ public:
 private:
   enum class State { Linking, Lobby, Started, Playing };
   void OnReadyRead();
-  void Send(const QByteArray &datagram);
+  bool Send(const QByteArray &datagram);
   void SendHello();
   void SendCoop(const bbcoop::Envelope &envelope, s64 now_ms);
   void FlushCoop(s64 now_ms);
@@ -308,10 +310,12 @@ private:
     int linked = 0;
     int playing = 0;
     int exchanging = 0;
+    int incoming_game_paths = 0;
     for (auto &game : games) {
       linked += game->Linked();
       playing += game->Playing();
       exchanging += game->ExchangedGameTraffic();
+      incoming_game_paths += game->IncomingGamePaths();
     }
     const double seconds = (NowUs() - started_us) / 1e6;
     QJsonObject out{
@@ -321,6 +325,8 @@ private:
         {"linked", linked},
         {"playing", playing},
         {"exchanging_game_traffic", exchanging},
+        {"incoming_game_paths", incoming_game_paths},
+        {"send_errors", static_cast<double>(totals.send_errors)},
         {"seconds", seconds},
         {"packets_sent", static_cast<double>(totals.packets_sent)},
         {"packets_received", static_cast<double>(totals.packets_received)},
@@ -430,20 +436,24 @@ void Game::Start() {
   next_hello_us = started_us;
 }
 
-void Game::Send(const QByteArray &plain) {
+bool Game::Send(const QByteArray &plain) {
   QByteArray datagram = plain;
   if (ServerLink::KindOf(plain) != ServerLink::Kind::Hello) {
     const auto trailer = auth.Seal({reinterpret_cast<u8 *>(datagram.data()),
                                     static_cast<size_t>(datagram.size())});
     if (!trailer) {
-      return; // no session yet: the server would drop it
+      return false; // no session yet: the server would drop it
     }
     datagram.append(reinterpret_cast<const char *>(trailer->data()),
                     static_cast<qsizetype>(trailer->size()));
   }
-  socket.writeDatagram(datagram, server, port);
+  if (socket.writeDatagram(datagram, server, port) != datagram.size()) {
+    ++load.totals.send_errors;
+    return false;
+  }
   ++load.totals.datagrams_sent;
   load.totals.bytes_sent += static_cast<quint64>(datagram.size());
+  return true;
 }
 
 void Game::SendCoop(const bbcoop::Envelope &envelope, s64 now_ms) {
@@ -651,14 +661,15 @@ void Game::SendGamePackets(s64 now_us) {
     } else {
       add(0x06, 96);
     }
-    sent_game = true;
-    load.totals.packets_sent += frame.entries.size();
     const std::vector<u8> payload = EncodeGameFrame(frame);
     QByteArray body = QByteArray::fromHex("0e4a0e4a") + "SHAD";
     body.append(static_cast<char>(GamePacketsType));
     body.append(reinterpret_cast<const char *>(payload.data()),
                 static_cast<qsizetype>(payload.size()));
-    Send(ServerLink::Encode(ServerLink::Data{load.VirtualOf(to), body}));
+    if (Send(ServerLink::Encode(ServerLink::Data{load.VirtualOf(to), body}))) {
+      sent_game = true;
+      load.totals.packets_sent += frame.entries.size();
+    }
   }
 }
 
@@ -673,6 +684,15 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
   if (!game_frame) {
     return;
   }
+  bool teammate = false;
+  for (int other = 0; other < load.settings.team_size; ++other) {
+    if (other != seat && game_frame->sender == load.NameOf(team, other)) {
+      teammate = true;
+      break;
+    }
+  }
+  if (!teammate)
+    return;
   for (const GameFrameEntry &entry : game_frame->entries) {
     if (entry.packet.size() < 8 + 12) {
       continue;
