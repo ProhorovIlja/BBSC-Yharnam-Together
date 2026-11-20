@@ -983,11 +983,7 @@ void LinkServer::CloseRpc(RpcEnd& end, bool abort) {
     if (abort || end.socket) {
         // A replaced or lost tunnel must not leave an older graceful drain
         // writing to the backend alongside the new tunnel.
-        auto retired = std::exchange(end.draining, QPointer<QTcpSocket>{});
-        if (retired) {
-            retired->abort();
-            retired->deleteLater();
-        }
+        ShadNetRpc::AbortRetiredBackend(end.draining);
     }
     if (QTcpSocket* socket = std::exchange(end.socket, nullptr)) {
         // Its disconnected signal finds it no longer the game's connection, and deletes it.
