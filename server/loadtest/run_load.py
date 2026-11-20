@@ -96,6 +96,10 @@ def validate_worker(row, teams, team_size, require_all_playing, seconds=0):
         raise RuntimeError("bbload reported an invalid steady window")
     if require_all_playing and steady < seconds:
         raise RuntimeError("incomplete loopback smoke: steady window was too short")
+    if require_all_playing and seconds and (
+            type(row.get("steady_relay_samples")) is not int
+            or not 0 < row["steady_relay_samples"] <= row["packets_received"]):
+        raise RuntimeError("incomplete loopback smoke: missing usable steady relay samples")
     expected_paths = row["games"] * (team_size - 1)
     if not row["fresh_game_paths"] <= row["incoming_game_paths"] <= expected_paths:
         raise RuntimeError("bbload reported too many directed game paths or fresh paths")
@@ -378,6 +382,10 @@ def run(args, home, cleanup):
         "relay_ms_p95": max((r["relay_ms_p95"] for r in results), default=0),
         "relay_ms_p99": max((r["relay_ms_p99"] for r in results), default=0),
         "relay_ms_max": max((r["relay_ms_max"] for r in results), default=0),
+        "steady_relay_samples": sum(r["steady_relay_samples"] for r in results),
+        "steady_relay_ms_p50": max(r["steady_relay_ms_p50"] for r in results),
+        "steady_relay_ms_p95": max(r["steady_relay_ms_p95"] for r in results),
+        "steady_relay_ms_p99": max(r["steady_relay_ms_p99"] for r in results),
         "ping_ms_p99": max((r["ping_ms_p99"] for r in results), default=0),
         "welcome_ms_p50": max((r["welcome_ms_p50"] for r in results), default=0),
         "welcome_ms_p99": max((r["welcome_ms_p99"] for r in results), default=0),

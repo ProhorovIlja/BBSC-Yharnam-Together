@@ -127,6 +127,7 @@ struct Totals {
   quint64 refused = 0;
   quint64 untagged = 0; // datagrams from the server that did not open
   Samples relay_us;     // a game packet's time from its game to its teammate's
+  Samples steady_relay_us; // packets sent after every hunter in this worker entered play
   Samples ping_us;      // ping -> pong
   Samples welcome_ms;   // first hello -> welcomed
   Samples work_ms;      // hosted: a new account's work asked -> done
@@ -270,6 +271,9 @@ public:
   Totals totals;
   s64 started_us = 0;
   int max_work_bits = 0;
+  bool SentDuringSteady(u64 sent_us) const {
+    return steady_started_us && sent_us >= static_cast<u64>(steady_started_us);
+  }
 
 private:
   s64 join_deadline_us = 0;
@@ -382,6 +386,10 @@ private:
         {"relay_ms_p95", totals.relay_us.Percentile(0.95) / 1000.0},
         {"relay_ms_p99", totals.relay_us.Percentile(0.99) / 1000.0},
         {"relay_ms_max", totals.relay_us.Percentile(1.0) / 1000.0},
+        {"steady_relay_samples", static_cast<double>(totals.steady_relay_us.values.size())},
+        {"steady_relay_ms_p50", totals.steady_relay_us.Percentile(0.5) / 1000.0},
+        {"steady_relay_ms_p95", totals.steady_relay_us.Percentile(0.95) / 1000.0},
+        {"steady_relay_ms_p99", totals.steady_relay_us.Percentile(0.99) / 1000.0},
         {"ping_ms_p50", totals.ping_us.Percentile(0.5) / 1000.0},
         {"ping_ms_p99", totals.ping_us.Percentile(0.99) / 1000.0},
         {"welcome_ms_p50",
@@ -758,7 +766,10 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
     }
     received_game = true;
     ++load.totals.packets_received;
-    load.totals.relay_us.Add(now_us - static_cast<s64>(sent));
+    const auto relay_us = now_us - static_cast<s64>(sent);
+    load.totals.relay_us.Add(relay_us);
+    if (load.SentDuringSteady(sent))
+      load.totals.steady_relay_us.Add(relay_us);
     load.window_relay.Add(now_us - static_cast<s64>(sent));
     if (seq > last + 1 && last != 0) {
       load.totals.packets_lost += seq - last - 1;

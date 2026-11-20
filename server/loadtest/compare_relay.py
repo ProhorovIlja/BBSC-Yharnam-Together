@@ -13,7 +13,7 @@ from pathlib import Path
 from run_load import validate_timing
 
 RUNNER = Path(__file__).with_name("run_load.py")
-METRICS = ("relay_ms_p50", "relay_ms_p95", "relay_ms_p99", "server_cpu_avg",
+METRICS = ("steady_relay_ms_p50", "steady_relay_ms_p95", "steady_relay_ms_p99", "server_cpu_avg",
            "main_thread_cpu_avg", "server_out_mbit", "delivered_pct", "udp_buffer_drops")
 
 
@@ -43,6 +43,8 @@ def validate(summary, size, players, seconds=0):
         value = summary.get(key)
         if type(value) not in (float, int) or not math.isfinite(value) or value < 0:
             raise ValueError(f"invalid benchmark metric: {key}")
+    if type(summary.get("steady_relay_samples")) is not int or summary["steady_relay_samples"] <= 0:
+        raise ValueError("benchmark has no steady relay samples")
     if summary["min_all_playing_seconds"] < seconds:
         raise ValueError("benchmark did not complete the requested steady window")
     return summary

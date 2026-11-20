@@ -15,7 +15,7 @@ class ComparisonTests(unittest.TestCase):
             team_size=5, teams=2, playing=10, scheduled_players=10,
             expected_game_paths=40, incoming_game_paths=40, fresh_game_paths=40,
             send_errors=0, refused=0,
-            min_all_playing_seconds=10.01)
+            min_all_playing_seconds=10.01, steady_relay_samples=100)
 
     def test_counterbalanced_pairs(self):
         self.assertEqual(list(schedule(2)), [
@@ -30,15 +30,15 @@ class ComparisonTests(unittest.TestCase):
     def test_invalid_metrics_fail(self):
         for value in (math.nan, math.inf, True, -1, None):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "metric"):
-                validate(self.row() | {"relay_ms_p99": value}, 5, 10)
+                validate(self.row() | {"steady_relay_ms_p99": value}, 5, 10)
 
     def test_median_paired_deltas_keep_party_sizes_separate(self):
         runs = [{"trial": trial, "team_size": size, "side": side,
                  "metrics": {key: 10 + (size + trial if side == "candidate" else 0)
                              for key in METRICS}} for trial, size, side in schedule(4)]
-        self.assertEqual(summarize(runs, 4)["2"]["relay_ms_p99"], 3.5)
-        self.assertEqual(summarize(runs, 4)["5"]["relay_ms_p99"], 6.5)
-        self.assertEqual(paired_deltas(runs, 4)["5"]["relay_ms_p99"], [5, 6, 7, 8])
+        self.assertEqual(summarize(runs, 4)["2"]["steady_relay_ms_p99"], 3.5)
+        self.assertEqual(summarize(runs, 4)["5"]["steady_relay_ms_p99"], 6.5)
+        self.assertEqual(paired_deltas(runs, 4)["5"]["steady_relay_ms_p99"], [5, 6, 7, 8])
 
     @patch("run_load.subprocess.run")
     def test_only_known_timing_fields_returned(self, run):
@@ -75,3 +75,7 @@ class ComparisonTests(unittest.TestCase):
             {"ok": True, "udp_timing": timing}))
         with self.assertRaisesRegex(RuntimeError, "valid link and world ticks"):
             admin_timing("shadnet", ".", {})
+
+    def test_no_steady_samples_is_not_zero_latency(self):
+        with self.assertRaisesRegex(ValueError, "no steady relay samples"):
+            validate(self.row() | {"steady_relay_samples": 0}, 5, 10)

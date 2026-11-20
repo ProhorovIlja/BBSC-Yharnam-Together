@@ -52,3 +52,10 @@ counters; use two instrumented binaries for that comparison.
 The disposable hosted test explicitly uses `SignIn=open`: the simulator uses
 synthetic local accounts, not credentials from the launcher. Leave deployed
 servers' sign-in policies unchanged.
+
+The A/B latency deltas use `steady_relay_ms_p*`: usable packets sent only
+after all simulated hunters in that worker entered play. Each strict worker
+must contribute samples; the report retains their total count. Worker
+percentiles are still summarized by their maximum. Legacy latency fields
+continue to include startup; CPU samples are still approximate and admin
+timing maxima are still process-lifetime values.
