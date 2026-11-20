@@ -159,18 +159,30 @@ private:
             DropClient();
             return;
         }
-        if (!tunnel.TryOpen(now_ms, MaxRequestUnackedBytes)) {
-            LOG_ERROR(Lib_Net, "Rpc bridge: previous requests have not drained");
-            DropClient();
+        // Normal EOF can drain in the old stream while idle. As soon as a
+        // new local client is accepted, never deliver old replies to it.
+        if (stream_used) {
+            RenewTunnel();
         }
+        if (!tunnel.TryOpen(now_ms, MaxRequestUnackedBytes)) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: could not queue an open");
+            DropClient();
+            return;
+        }
+        stream_used = true;
     }
 
     // Forced replacement abandons the old stream. Reusing its instance
     // would let delayed replies reach the new local TCP socket.
     void ResetTunnel() {
         DropClient();
+        RenewTunnel();
+    }
+
+    void RenewTunnel() {
         instance = NewRpcInstance(instance);
         tunnel = NewTunnel();
+        stream_used = false;
     }
 
     void DropClient() {
@@ -221,6 +233,7 @@ private:
     Socket listener = NoSocket;
     Socket client = NoSocket;
     BloodborneCoop::RpcReadPause read_pause;
+    bool stream_used = false;
     u32 instance = NewRpcInstance();
     BloodborneCoop::RpcTunnel NewTunnel() const {
         return {"game", instance, BloodborneCoop::RpcTunnel::TransportLimits()};

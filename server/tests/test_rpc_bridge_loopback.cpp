@@ -28,6 +28,9 @@ struct Peer {
     std::vector<u8> held_reply;
     std::atomic<bool> hold_ack{true};
     std::atomic<bool> inject_old{false};
+    std::atomic<bool> stage_reply{false};
+    std::atomic<bool> reply_staged{false};
+    std::atomic<int> closes{0};
     std::atomic<int> opens{0};
     std::atomic<size_t> received{0};
     std::atomic<bool> ordered{true};
@@ -79,7 +82,10 @@ bool ServerRpcSend(const void* body, u32 len) {
     for (const auto& event : p.tunnel.Receive({static_cast<const u8*>(body), len}, now)) {
         if (event.kind == Kind::Opened) {
             p.offset = 0;
+            p.received = 0;
             ++p.opens;
+        } else if (event.kind == Kind::Closed) {
+            ++p.closes;
         } else if (event.kind == Kind::Data) {
             for (u8 value : event.bytes) {
                 if (value != Pattern(p.offset++)) {
@@ -95,13 +101,14 @@ bool ServerRpcSend(const void* body, u32 len) {
 int ServerRpcReceive(void* body, u32 len) {
     auto& p = Remote();
     const auto now = RpcLocal::NowMs();
-    // Generate a stale reply addressed to the FIRST tunnel before replacement.
-    if (p.opens == 1 && p.received > 1024 * 1024 && p.held_reply.empty()) {
+    // Keep one addressed reply from the current stream for delayed delivery.
+    if (p.stage_reply.exchange(false)) {
         const std::array<u8, 1> stale{0xEE};
         p.tunnel.Write(stale, now);
         auto frames = p.tunnel.Flush(now);
         assert(frames.size() == 1);
         p.held_reply = std::move(frames.front());
+        p.reply_staged = true;
     }
     if (p.inject_old.exchange(false)) {
         assert(!p.held_reply.empty());
@@ -144,6 +151,8 @@ int main() {
 
     // A live replacement supersedes the old stream. Inject an old addressed
     // response before the fresh one: only the fresh byte may reach the new TCP client.
+    p.stage_reply = true;
+    Await([&] { return p.reply_staged.load(); });
     int second = Connect(port);
     Await([&] { return p.opens == 2; });
     p.inject_old = true;
@@ -169,7 +178,18 @@ int main() {
     SendPayload(third, std::vector<u8>(payload.begin(), payload.begin() + 32));
     Await([&] { return p.received == 32; });
     assert(p.ordered);
+    p.reply_staged = false;
+    p.stage_reply = true;
+    Await([&] { return p.reply_staged.load(); });
     close(third);
+    Await([&] { return p.closes > 0; });
+    const int fourth = Connect(port);
+    Await([&] { return p.opens == 4; });
+    p.inject_old = true;
+    response = {fourth, POLLIN, 0};
+    assert(poll(&response, 1, 4000) == 1);
+    assert(recv(fourth, &byte, 1, 0) == 1 && byte == 0xAB);
+    close(fourth);
     // Avoid destructors racing the intentionally process-lifetime worker.
     _exit(0);
 }
