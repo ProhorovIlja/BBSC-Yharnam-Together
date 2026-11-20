@@ -400,6 +400,28 @@ class AnimationTests(unittest.TestCase):
         ])
         window.root.after.assert_called_once_with(100, window.drain_output)
 
+    def test_sign_in_refusal_survives_post_exit_status_refresh(self):
+        window = types.SimpleNamespace(
+            ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),
+            drain_output=mock.Mock(), append=mock.Mock(), job=None, status=mock.Mock(),
+            cancel_ready_close=mock.Mock(), set_running=mock.Mock(),
+            coop_new_id='give_up_account', coop_playing=object(), say_start_crash=mock.Mock(),
+        )
+        window.refresh_status = lambda: window.status.configure(text='Ready')
+        window.coop_game_ended = lambda: launcher.Launcher.coop_game_ended(window)
+        window.show_coop_sign_in_required = lambda: launcher.Launcher.show_coop_sign_in_required(window)
+        window.output.put((7,))
+        with mock.patch.object(launcher.time, 'perf_counter', return_value=1), \
+                mock.patch.object(launcher, '_', side_effect=lambda english, *_: english):
+            launcher.Launcher.drain_output(window)
+        self.assertEqual(window.status.configure.call_args_list, [
+            mock.call(text='Ready'),
+            mock.call(text='Sign in again (Co-op settings, the first step).', fg=launcher.BAD),
+        ])
+        self.assertIsNone(window.coop_new_id)
+        self.assertIsNone(window.coop_playing)
+        window.say_start_crash.assert_not_called()
+
     def test_account_recovery_exit_does_not_show_startup_crash(self):
         for reason in ('retry', 'give_up', 'give_up_account'):
             with self.subTest(reason=reason):

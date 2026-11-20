@@ -5483,8 +5483,7 @@ class Launcher:
                 self.coop_auth_view = 'sign_in'
                 self.coop_auth_show()
             self.coop_auth_saved_settings()
-            self.status.configure(text=_('Sign in again (Co-op settings, the first step).',
-                                         'Войдите снова (настройки кооператива, первый шаг).'), fg=BAD)
+            self.show_coop_sign_in_required()
             self.coop_new_id = 'give_up_account'
             if self.job:
                 self.job.terminate()
@@ -5513,6 +5512,10 @@ class Launcher:
         if self.job:
             self.job.terminate()
 
+    def show_coop_sign_in_required(self):
+        self.status.configure(text=_('Sign in again (Co-op settings, the first step).',
+                                     'Войдите снова (настройки кооператива, первый шаг).'), fg=BAD)
+
     def coop_game_ended(self):
         """The co-op game ended: started again with the new id coop_watch_line made, or the status line
         keeps saying why it was stopped."""
@@ -5523,7 +5526,9 @@ class Launcher:
             account, secret = bbport_coop.player_id_for(self.coop, settings['server'])
             self.coop_start_game(dict(settings, account=account, password=secret), root, None, '')
         elif what == 'give_up_account':
-            pass  # the status line already says why (coop_watch_line)
+            # The normal post-exit status refresh restores the Play button
+            # but also replaces the text written when we received the refusal.
+            self.show_coop_sign_in_required()
         elif what == 'give_up':
             self.status.configure(text=_(bbport_coop.NEW_ID_FAILED_TEXT).format(getattr(self, 'coop_id_tries', 0)),
                                   fg=BAD)
