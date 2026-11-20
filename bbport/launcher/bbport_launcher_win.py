@@ -5523,7 +5523,7 @@ class Launcher:
         self.reset_run_output(env)
         self.job = GameJob(self.process)
         self.coop_playing = playing
-        threading.Thread(target=self.read_output, args=(self.process, self.job, log_path), daemon=True).start()
+        self.start_output_watcher(log_path)
         self.set_running(True, preparing=True)
         self.status.configure(text=_('Preparing the game; it opens in its own window…',
                                      'Подготовка игры; она откроется в своём окне…'), fg=GOLD)
@@ -6787,7 +6787,7 @@ class Launcher:
             return
         self.reset_run_output(env)
         self.job = GameJob(self.process)
-        threading.Thread(target=self.read_output, args=(self.process, self.job, log_path), daemon=True).start()
+        self.start_output_watcher(log_path)
         self.set_running(True, preparing=True)
         self.status.configure(text=_('Preparing the game; it opens in its own window…',
                                      'Подготовка игры; она откроется в своём окне…'), fg=GOLD)
@@ -6819,6 +6819,27 @@ class Launcher:
         self.close_on_ready_job = None
         self.coop_release_server()
         self.root.destroy()
+
+    def start_output_watcher(self, log_path):
+        process, job = self.process, self.job
+        try:
+            threading.Thread(target=self.read_output, args=(process, job, log_path), daemon=True).start()
+        except RuntimeError as error:
+            # The process already exists. Keep Stop and exit handling usable
+            # without reading the log or waiting for the child on the Tk thread.
+            self.output.put('\n' + _('Could not watch the game log: {}',
+                                       'Не удалось отслеживать журнал игры: {}').format(error) + '\n')
+            if job is not None:
+                job.say = self.output.put
+            self.root.after(200, self.poll_unwatched_game, process, job)
+
+    def poll_unwatched_game(self, process, job):
+        if self.process is not process or self.job is not job:
+            return
+        if game_over(process, job) and (code := process.poll()) is not None:
+            self.output.put((code,))
+            return
+        self.root.after(200, self.poll_unwatched_game, process, job)
 
     def read_output(self, process, job, log_path):
         # The game writes last_run.log itself (start_game), so a crash report survives the launcher

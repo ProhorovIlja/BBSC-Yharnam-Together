@@ -517,6 +517,35 @@ class AnimationTests(unittest.TestCase):
         self.assertFalse(window.server_checking)
         window.coop_server_line.configure.assert_not_called()
 
+    def test_watcher_start_failure_polls_game_exit_without_blocking_tk(self):
+        methods = launcher.Launcher
+        process, job = mock.Mock(), mock.Mock()
+        window = types.SimpleNamespace(
+            process=process, job=job, output=queue.Queue(), root=mock.Mock(), read_output=mock.Mock(),
+        )
+        window.poll_unwatched_game = lambda *args: methods.poll_unwatched_game(window, *args)
+        with (
+            mock.patch.object(launcher.threading, 'Thread') as thread,
+            mock.patch.object(launcher, '_', side_effect=lambda english, *_: english),
+            mock.patch.object(launcher, 'game_over', side_effect=[False, True]) as game_over,
+        ):
+            thread.return_value.start.side_effect = RuntimeError('worker unavailable')
+            methods.start_output_watcher(window, 'test.log')
+            self.assertIn('worker unavailable', window.output.get_nowait())
+            window.root.after.assert_called_once_with(200, window.poll_unwatched_game, process, job)
+            window.poll_unwatched_game(process, job)
+            self.assertEqual(window.root.after.call_count, 2)
+            process.poll.return_value = 7
+            window.poll_unwatched_game(process, job)
+            self.assertEqual(window.output.get_nowait(), (7,))
+            window.process = mock.Mock()
+            window.poll_unwatched_game(process, job)
+            self.assertEqual(game_over.call_count, 2)
+        process.wait.assert_not_called()
+        window.read_output.assert_not_called()
+        self.assertEqual(window.root.after.call_count, 2)
+        self.assertTrue(window.output.empty())
+
     def test_play_recovers_when_preparation_worker_cannot_start(self):
         methods = launcher.Launcher
         window = types.SimpleNamespace(
