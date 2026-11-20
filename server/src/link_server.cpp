@@ -907,6 +907,10 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
         case Kind::Closed:
             CloseRpc(end);
             break;
+        case Kind::PeerRestarted:
+            // The old process no longer owns these pending TCP requests.
+            CloseRpc(end, true);
+            break;
         }
     }
     FlushRpc(end);

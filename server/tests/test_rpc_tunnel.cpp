@@ -118,7 +118,7 @@ int ARestartedServerEndsTheConnection() {
   for (s64 now = 1100; now < 3000 && events.empty(); now += 100) {
     events = Carry(restarted, game, now);
   }
-  CHECK(events.size() == 1 && events[0].kind == Event::Kind::Closed);
+  CHECK(events.size() == 1 && events[0].kind == Event::Kind::PeerRestarted);
   CHECK(!game.IsOpen());
 
   game.Open(4000);
@@ -126,6 +126,26 @@ int ARestartedServerEndsTheConnection() {
   events = Carry(game, restarted, 4000);
   CHECK(events.size() == 2 && events[0].kind == Event::Kind::Opened);
   std::cout << "rpc tunnel: a restarted server ends the connection\n";
+  return 0;
+}
+
+int RestartedGameRetiresOldBackendBeforeOpeningNewOne() {
+  RpcTunnel game{"game", 7};
+  RpcTunnel server{"shadnet", 9};
+  game.Open(0);
+  CHECK(Carry(game, server, 0).size() == 1);
+  RpcTunnel restarted{"game", 8};
+  restarted.Open(20);
+  restarted.Write(Bytes("fresh"), 20);
+  const std::vector<Event> expected{{Event::Kind::PeerRestarted, {}},
+                                    {Event::Kind::Opened, {}},
+                                    {Event::Kind::Data, Bytes("fresh")}};
+  CHECK(Carry(restarted, server, 20) == expected);
+  game.Write(Bytes("old"), 30);
+  CHECK(Carry(game, server, 30).empty());
+  CHECK(server.IsOpen());
+  restarted.Close(40);
+  CHECK(Carry(restarted, server, 40) == (std::vector<Event>{{Event::Kind::Closed, {}}}));
   return 0;
 }
 
@@ -381,6 +401,7 @@ int CoalescedReplyStaysWithinMessageAndQueueBounds() {
 int main() {
   if (AConnectionGoesThrough() != 0 || ALostDatagramIsSentAgain() != 0 ||
       ARestartedServerEndsTheConnection() != 0 ||
+      RestartedGameRetiresOldBackendBeforeOpeningNewOne() != 0 ||
       AMessagePastTheLimitBreaksTheStream() != 0 ||
       AChunkLargerThanASendsBreaksTheStream() != 0 ||
       OutOfOrderChunksAreHeldUpToTheLimit() != 0 ||

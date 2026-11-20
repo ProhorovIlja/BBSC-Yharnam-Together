@@ -8,7 +8,7 @@
 //
 // The tunnel is a reliable stream (coop/coop_stream.h) of messages, each a byte saying what it is
 // and its bytes: Open (a connection starts; one before is over), Data (its bytes, in order) and
-// Close (it is over). A side whose peer restarted lost the connection: Receive says Closed then.
+// Close (it is over). A side whose peer restarted lost the connection: Receive says PeerRestarted then.
 #pragma once
 
 #include <algorithm>
@@ -25,7 +25,7 @@ class RpcTunnel {
 public:
     enum class Message : u8 { Open = 1, Data = 2, Close = 3 };
     struct Event {
-        enum class Kind { Opened, Data, Closed };
+        enum class Kind { Opened, Data, Closed, PeerRestarted };
         Kind kind = Kind::Data;
         std::vector<u8> bytes; // Data only
         bool operator==(const Event&) const = default;
@@ -94,7 +94,7 @@ public:
         std::vector<std::vector<u8>> messages = stream.Receive(body, now_ms);
         if (stream.TakeRestarted() && open) {
             open = false;
-            events.push_back({Event::Kind::Closed, {}});
+            events.push_back({Event::Kind::PeerRestarted, {}});
         }
         for (std::vector<u8>& message : messages) {
             if (message.empty()) {

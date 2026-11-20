@@ -174,7 +174,8 @@ private:
                         DropClient();
                         tunnel.Close(NowMs());
                     }
-                } else if (event.kind == Kind::Closed && client != NoSocket) {
+                } else if ((event.kind == Kind::Closed || event.kind == Kind::PeerRestarted) &&
+                           client != NoSocket) {
                     // shadNet's end is over (or shadNet restarted): the game's client sees its
                     // connection end and connects again.
                     LOG_INFO(Lib_Net, "Rpc bridge: shadNet ended the connection");
