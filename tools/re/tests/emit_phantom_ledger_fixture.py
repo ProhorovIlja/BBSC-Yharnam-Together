@@ -13,7 +13,7 @@ def between(source, begin, end):
     return source[start:source.index(end, start + len(begin))]
 
 
-bell = between(header, "constexpr bool IsBellGoods(", "\n}") + "\n}\n"
+bell = between(header, "inline constexpr std::array<u32, 4> BellGoods", "\n}") + "\n}\n"
 types = between(header, "struct HeldGoods {", "// Kaniel 2026-10-23:")
 count = between(team, "namespace {\ns32 CountIn(", "namespace {\nthread_local u32 silent_item_gets")
 ledger = between(team, "std::vector<OwedKeyItem> PhantomKeyItemsGained(", "bool IsWorldFlag(")
@@ -43,6 +43,7 @@ int main() {
 }
 '''
 preamble = """#include <algorithm>
+#include <array>
 #include <cassert>
 #include <charconv>
 #include <cstdint>
