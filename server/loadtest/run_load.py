@@ -72,9 +72,25 @@ def worker_result(child, deadline):
     if child.returncode:
         raise RuntimeError(f"bbload exited with status {child.returncode}")
     rows = [json.loads(line) for line in output.splitlines() if line.startswith("{")]
-    if len(rows) != 1 or not isinstance(rows[0], dict) or rows[0].get("games", 0) < 1:
-        raise RuntimeError("bbload did not return exactly one nonempty results row")
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        raise RuntimeError("bbload did not return exactly one results object")
     return rows[0]
+
+
+def validate_worker(row, teams, team_size, require_all_playing):
+    expected = {"teams": teams, "team_size": team_size, "games": teams * team_size}
+    if any(type(row.get(key)) is not int or row[key] != value
+           for key, value in expected.items()):
+        raise RuntimeError("bbload reported a different party shape than scheduled")
+    counters = ("linked", "playing", "refused", "packets_sent", "packets_received")
+    if any(type(row.get(key)) is not int or row[key] < 0 for key in counters):
+        raise RuntimeError("bbload reported invalid or missing smoke counters")
+    if not 0 <= row["playing"] <= row["linked"] <= row["games"]:
+        raise RuntimeError("bbload reported inconsistent participation counts")
+    if require_all_playing and (
+            row["playing"] != row["games"] or row["refused"]
+            or not row["packets_sent"] or not row["packets_received"]):
+        raise RuntimeError("incomplete loopback smoke: a worker did not reach play and exchange traffic")
 
 
 BUILD_LOG_MARKER = "Link: games must run this server's build:"
@@ -163,10 +179,6 @@ def main():
     try:
         with ExitStack() as cleanup:
             summary = run(args, home, cleanup)
-            if args.require_all_playing and (
-                    summary["playing"] != summary["scheduled_players"] or summary["refused"]
-                    or not summary["packets_sent"] or not summary["packets_received"]):
-                raise RuntimeError(f"incomplete loopback smoke: {summary}")
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(f"load test failed: {error}; diagnostic folder: {home}", file=sys.stderr)
         if args.match_local_build:
@@ -278,9 +290,7 @@ def run(args, home, cleanup):
     results = []
     for load, count in loads:
         row = worker_result(load, deadline)
-        if (row["games"] != count * args.team_size or row.get("teams") != count
-                or row.get("team_size") != args.team_size):
-            raise RuntimeError("bbload reported a different party shape than scheduled")
+        validate_worker(row, count, args.team_size, args.require_all_playing)
         results.append(row)
     stop_sampler()
     if server.poll() is not None or not samples:

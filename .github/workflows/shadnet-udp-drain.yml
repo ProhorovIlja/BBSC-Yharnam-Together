@@ -7,6 +7,8 @@ on:
       - 'server/src/udp_socket_drain.h'
       - 'server/tests/test_udp_drain_slice.cpp'
       - 'server/tests/test_udp_socket_drain.cpp'
+      - 'server/loadtest/run_load.py'
+      - 'server/loadtest/test_run_load.py'
       - '.github/workflows/shadnet-udp-drain.yml'
   workflow_dispatch:
 permissions:
@@ -17,6 +19,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Validate load harness pass and failure cases
+        run: python3 -m unittest discover -s server/loadtest -p test_run_load.py -v
       - name: Build and exercise the receive budget
         run: |
           c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic server/tests/test_udp_drain_slice.cpp -o "$RUNNER_TEMP/udp-drain"
