@@ -13,6 +13,7 @@ from contextlib import ExitStack
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -143,8 +144,20 @@ def main():
             or min(args.ramp_ms, args.processes, args.attack_delay) < 0
             or not 1025 <= args.port <= 65534):
         parser.error("invalid workload, duration, process count or test port")
-    if args.match_local_build and any(option == "--build" or option.startswith("--build=")
-                                      for option in args.extra.split()):
+    if args.team_size < 2 or args.players % args.team_size:
+        parser.error("--players must be a multiple of --team-size (at least two per team)")
+    try:
+        args.extra = shlex.split(args.extra)
+    except ValueError as error:
+        parser.error(f"invalid --extra: {error}")
+    reserved = {"--teams", "--team-size", "--seconds", "--ramp-ms", "--tag",
+                "--json", "--port", "--server", "--shards", "--"}
+    if any(option.partition("=")[0] in reserved or option.startswith("-") and
+           not option.startswith("--") and not option[1:].replace(".", "", 1).isdigit()
+           for option in args.extra):
+        parser.error("--extra cannot override workload, endpoint, or output options")
+    if args.match_local_build and any(option.partition("=")[0] == "--build"
+                                      for option in args.extra):
         parser.error("--match-local-build conflicts with an explicit --extra --build")
     home = tempfile.mkdtemp(prefix="shadnet-load-")
     try:
@@ -195,7 +208,7 @@ def run(args, home, cleanup):
     server = subprocess.Popen([os.path.abspath(args.shadnet)], cwd=home, env=env, stdout=log,
                               stderr=subprocess.STDOUT)
     cleanup.callback(stop_child, server)
-    extra = args.extra.split()
+    extra = list(args.extra)
     if args.match_local_build:
         build = local_build_fingerprint(os.path.join(home, "shadnet.log"), server)
         extra += ["--build", build]
@@ -250,7 +263,7 @@ def run(args, home, cleanup):
         worker_log = cleanup.enter_context(open(os.path.join(home, f"bbload{index}.log"), "w"))
         load = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=worker_log, text=True)
         cleanup.callback(stop_child, load)
-        loads.append(load)
+        loads.append((load, count))
     attack_result = {}
     if args.attack:
         time.sleep(min(args.attack_delay, max(0, deadline - time.monotonic())))
@@ -262,7 +275,13 @@ def run(args, home, cleanup):
                 attack_result = json.loads(line)
         if attack.returncode or not attack_result:
             raise RuntimeError("attack.py failed or did not produce a results row")
-    results = [worker_result(load, deadline) for load in loads]
+    results = []
+    for load, count in loads:
+        row = worker_result(load, deadline)
+        if (row["games"] != count * args.team_size or row.get("teams") != count
+                or row.get("team_size") != args.team_size):
+            raise RuntimeError("bbload reported a different party shape than scheduled")
+        results.append(row)
     stop_sampler()
     if server.poll() is not None or not samples:
         raise RuntimeError("shadNet stopped early or no server resource samples were collected")
@@ -275,6 +294,8 @@ def run(args, home, cleanup):
     steady = samples[len(samples) // 3:] or samples
     summary = {
         "players": sum(r["games"] for r in results),
+        "teams": teams,
+        "team_size": args.team_size,
         "playing": sum(r["playing"] for r in results),
         "refused": sum(r["refused"] for r in results),
         "packets_sent": sum(r["packets_sent"] for r in results),
@@ -285,6 +306,8 @@ def run(args, home, cleanup):
         "server_in_mbit": sum(r["bytes_sent"] for r in results) * 8 / 1e6 /
         max(1, max(r["seconds"] for r in results)) if results else 0,
         "relay_ms_p50": max((r["relay_ms_p50"] for r in results), default=0),
+        # These are maxima of worker percentiles, not pooled percentiles.
+        "relay_ms_p95": max((r["relay_ms_p95"] for r in results), default=0),
         "relay_ms_p99": max((r["relay_ms_p99"] for r in results), default=0),
         "relay_ms_max": max((r["relay_ms_max"] for r in results), default=0),
         "ping_ms_p99": max((r["ping_ms_p99"] for r in results), default=0),
