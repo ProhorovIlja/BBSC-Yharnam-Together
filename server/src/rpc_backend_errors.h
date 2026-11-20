@@ -57,12 +57,16 @@ void OnBackendConnectTimeout(QTcpSocket& socket, int timeout_ms, Handler handler
 
 // Remote EOF goes through disconnected, after the backend's final reads.
 // Other errors (including a refused initial connect) may never disconnect.
-template <typename Handler>
-void OnBackendFailure(QTcpSocket& socket, Handler handler) {
+template <typename Mark, typename Handler>
+void OnBackendFailure(QTcpSocket& socket, Mark mark, Handler handler) {
     QObject::connect(&socket, &QTcpSocket::errorOccurred, &socket,
-                     [socket = &socket, handler = std::move(handler)](auto error) {
-        if (error != QAbstractSocket::RemoteHostClosedError)
+                     [socket = &socket, mark = std::move(mark), handler = std::move(handler)](auto error) {
+        if (error != QAbstractSocket::RemoteHostClosedError) {
+            // Record the failure now: disconnected may be emitted before the
+            // queued cleanup. Do not forward bytes in that interval.
+            mark();
             QMetaObject::invokeMethod(socket, handler, Qt::QueuedConnection);
+        }
     });
 }
 }
