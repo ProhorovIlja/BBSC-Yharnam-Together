@@ -1012,6 +1012,16 @@ void LinkServer::FlushRpc(RpcEnd& end) {
 }
 
 void LinkServer::Apply(const ServerLink::Hub::Result& result) {
+    const auto retire_rpc = [this](const ServerLink::Endpoint& endpoint) {
+        for (auto it = m_rpc.begin(); it != m_rpc.end();) {
+            if (it->second->to == endpoint) {
+                CloseRpc(*it->second, true);
+                it = m_rpc.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
     for (const auto& send : result.sends)
         m_socket->writeDatagram(send.datagram, QHostAddress(send.to.ipv4), send.to.port);
     for (const auto& line : result.log)
@@ -1033,14 +1043,7 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
         m_guard.Forget(gone.Key());
         m_shared->httpGate.Gone(gone.Key());
         // A game gone (or moved to another address): its connection to the TCP port is over.
-        for (auto it = m_rpc.begin(); it != m_rpc.end();) {
-            if (it->second->to == gone) {
-                CloseRpc(*it->second, true);
-                it = m_rpc.erase(it);
-            } else {
-                ++it;
-            }
-        }
+        retire_rpc(gone);
     }
     // Phase 7: a linked game's address for the rooms and signaling is its virtual one, known from
     // its hello.
@@ -1060,12 +1063,9 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
     // and the game is told when it is back (its client signs in again by itself).
     for (const auto& lost : result.lost) {
         Apply(m_world.LinkLost(lost));
-        for (auto& [id, end] : m_rpc) {
-            if (end->to == lost && (end->socket || end->draining)) {
-                CloseRpc(*end, true);
-                end->tunnel->Close(m_clock.elapsed());
-            }
-        }
+        // A lost authenticated session cannot resume the previous TCP stream.
+        // Discard unsent and unacknowledged replies as well as socket writes.
+        retire_rpc(lost);
     }
     for (const auto& coop : result.coop)
         Apply(m_world.Receive(coop.from, coop.online_id, coop.body,
