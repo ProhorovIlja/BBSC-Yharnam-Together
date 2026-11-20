@@ -1,0 +1,175 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Production client bridge and real loopback TCP; only the server-link wire is substituted.
+#include <arpa/inet.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <atomic>
+#include <cassert>
+#include <chrono>
+#include <cstring>
+#include <deque>
+#include <thread>
+
+#include "coop/rpc_tunnel.h"
+#include "core/libraries/network/rpc_bridge.h"
+#include "core/libraries/network/rpc_local_send.h"
+#include "core/libraries/network/server_link.h"
+
+using BloodborneCoop::RpcTunnel;
+using Kind = RpcTunnel::Event::Kind;
+using namespace std::chrono_literals;
+
+namespace {
+struct Peer {
+    RpcTunnel tunnel{"shadnet", 9, RpcTunnel::TransportLimits()};
+    std::deque<std::vector<u8>> inbound;
+    std::vector<u8> held_reply;
+    std::atomic<bool> hold_ack{true};
+    std::atomic<bool> inject_old{false};
+    std::atomic<int> opens{0};
+    std::atomic<size_t> received{0};
+    std::atomic<bool> ordered{true};
+    size_t offset = 0; // Only the bridge thread touches the remote tunnel.
+};
+
+Peer& Remote() {
+    // Same lifetime as the bridge's detached worker in this process.
+    static auto* peer = new Peer;
+    return *peer;
+}
+
+u8 Pattern(size_t i) {
+    return static_cast<u8>((i ^ (i >> 8) ^ (i >> 16)) & 255);
+}
+
+int Connect(u16 port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    assert(fd >= 0);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(port);
+    assert(connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0);
+    return fd;
+}
+
+template <typename Predicate>
+void Await(Predicate ready) {
+    auto deadline = std::chrono::steady_clock::now() + 4s;
+    while (!ready()) {
+        assert(std::chrono::steady_clock::now() < deadline);
+        std::this_thread::sleep_for(5ms);
+    }
+}
+
+void SendPayload(int fd, const std::vector<u8>& bytes) {
+    for (size_t at = 0; at < bytes.size(); at += 16384) {
+        assert(Libraries::Net::RpcLocal::SendAll(
+            fd, std::span(bytes).subspan(at, (std::min)(size_t{16384}, bytes.size() - at))));
+    }
+}
+} // namespace
+
+namespace Libraries::Net {
+bool ServerRpcSend(const void* body, u32 len) {
+    auto& p = Remote();
+    const auto now = RpcLocal::NowMs();
+    for (const auto& event : p.tunnel.Receive({static_cast<const u8*>(body), len}, now)) {
+        if (event.kind == Kind::Opened) {
+            p.offset = 0;
+            ++p.opens;
+        } else if (event.kind == Kind::Data) {
+            for (u8 value : event.bytes) {
+                if (value != Pattern(p.offset++)) {
+                    p.ordered = false;
+                }
+            }
+            p.received = p.offset;
+        }
+    }
+    return true;
+}
+
+int ServerRpcReceive(void* body, u32 len) {
+    auto& p = Remote();
+    const auto now = RpcLocal::NowMs();
+    // Generate a stale reply addressed to the FIRST tunnel before replacement.
+    if (p.opens == 1 && p.received > 1024 * 1024 && p.held_reply.empty()) {
+        const std::array<u8, 1> stale{0xEE};
+        p.tunnel.Write(stale, now);
+        auto frames = p.tunnel.Flush(now);
+        assert(frames.size() == 1);
+        p.held_reply = std::move(frames.front());
+    }
+    if (p.inject_old.exchange(false)) {
+        assert(!p.held_reply.empty());
+        p.inbound.push_back(p.held_reply);
+        const std::array<u8, 1> fresh{0xAB};
+        p.tunnel.Write(fresh, now);
+    }
+    if (!p.hold_ack) {
+        for (auto& frame : p.tunnel.Flush(now)) {
+            p.inbound.push_back(std::move(frame));
+        }
+    }
+    if (p.inbound.empty()) {
+        return -1;
+    }
+    auto frame = std::move(p.inbound.front());
+    p.inbound.pop_front();
+    assert(frame.size() <= len);
+    std::memcpy(body, frame.data(), frame.size());
+    return static_cast<int>(frame.size());
+}
+} // namespace Libraries::Net
+
+int main() {
+    const u16 port = Libraries::Net::StartRpcBridge();
+    assert(port != 0);
+    auto& p = Remote();
+    std::vector<u8> payload(1280 * 1024);
+    for (size_t i = 0; i < payload.size(); ++i) {
+        payload[i] = Pattern(i);
+    }
+    int first = Connect(port);
+    SendPayload(first, payload);
+    Await([&] { return p.received > 960 * 1024; });
+    std::this_thread::sleep_for(120ms);
+    assert(p.received < payload.size()); // The full queue paused reads, not a disconnect.
+    p.hold_ack = false;
+    Await([&] { return p.received == payload.size(); });
+    assert(p.ordered);
+
+    // A live replacement supersedes the old stream. Inject an old addressed
+    // response before the fresh one: only the fresh byte may reach the new TCP client.
+    int second = Connect(port);
+    Await([&] { return p.opens == 2; });
+    p.inject_old = true;
+    pollfd response{second, POLLIN, 0};
+    assert(poll(&response, 1, 4000) == 1);
+    u8 byte = 0;
+    assert(recv(second, &byte, 1, 0) == 1 && byte == 0xAB);
+    close(first);
+
+    p.hold_ack = true;
+    SendPayload(second, payload);
+    Await([&] { return p.received > 960 * 1024; });
+    pollfd ended{second, POLLIN, 0};
+    assert(poll(&ended, 1, 8000) == 1);
+    assert(recv(second, &byte, 1, 0) <= 0);
+    close(second);
+
+    // With the previous budget abandoned, a new connection can send even
+    // before an ACK to the old stream would have arrived.
+    const int third = Connect(port);
+    Await([&] { return p.opens == 3; });
+    p.hold_ack = false;
+    SendPayload(third, std::vector<u8>(payload.begin(), payload.begin() + 32));
+    Await([&] { return p.received == 32; });
+    assert(p.ordered);
+    close(third);
+    // Avoid destructors racing the intentionally process-lifetime worker.
+    _exit(0);
+}

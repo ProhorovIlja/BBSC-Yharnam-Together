@@ -6,6 +6,8 @@ on:
       - 'emulator/src/core/libraries/network/rpc_bridge.cpp'
       - 'emulator/src/core/libraries/network/rpc_local_send.h'
       - 'server/tests/test_rpc_local_send.cpp'
+      - 'server/tests/test_rpc_bridge_loopback.cpp'
+      - 'server/tests/rpc_bridge_fixture/**'
       - 'server/coop/rpc_tunnel.h'
       - 'server/coop/coop_stream.h'
       - 'server/coop/game_link.h'
@@ -52,6 +54,13 @@ jobs:
         run: |
           c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -Iemulator/src server/tests/test_rpc_local_send.cpp -o "$RUNNER_TEMP/rpc-local-send"
           timeout 5s "$RUNNER_TEMP/rpc-local-send"
+      - name: Run the production RPC bridge on loopback TCP
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -pthread \
+            -Iserver/tests/rpc_bridge_fixture -Iserver -Iemulator/src \
+            emulator/src/core/libraries/network/rpc_bridge.cpp server/tests/test_rpc_bridge_loopback.cpp \
+            -o "$RUNNER_TEMP/rpc-bridge-loopback"
+          timeout 25s "$RUNNER_TEMP/rpc-bridge-loopback"
       - name: Install Qt Network development files
         run: |
           sudo apt-get update

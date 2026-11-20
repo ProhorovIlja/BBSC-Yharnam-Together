@@ -120,8 +120,7 @@ private:
                 // Leave unread request bytes in TCP while exchanging ACKs.
                 if (read_pause.Expired(now_ms)) {
                     LOG_ERROR(Lib_Net, "Rpc bridge: request queue remained full");
-                    DropClient();
-                    tunnel.Close(now_ms);
+                    ResetTunnel();
                 } else {
                     std::this_thread::sleep_for(std::chrono::milliseconds(TickMs));
                 }
@@ -143,8 +142,7 @@ private:
             }
             // A new connection while one is open replaces it (the game reconnected).
             if (client != NoSocket && Readable(listener, 0)) {
-                DropClient();
-                tunnel.Close(now_ms);
+                ResetTunnel();
                 Accept(now_ms);
             }
             Exchange(buffer);
@@ -167,6 +165,14 @@ private:
         }
     }
 
+    // Forced replacement abandons the old stream. Reusing its instance
+    // would let delayed replies reach the new local TCP socket.
+    void ResetTunnel() {
+        DropClient();
+        instance = NewRpcInstance(instance);
+        tunnel = NewTunnel();
+    }
+
     void DropClient() {
         read_pause.Reset();
         if (client != NoSocket) {
@@ -185,9 +191,7 @@ private:
             auto events = tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, NowMs());
             if (tunnel.Broken()) {
                 LOG_ERROR(Lib_Net, "Rpc bridge: invalid reply stream; reopening on the next local connection");
-                DropClient();
-                instance = NewRpcInstance(instance);
-                tunnel = NewTunnel();
+                ResetTunnel();
                 break;
             }
             for (auto& event : events) {
