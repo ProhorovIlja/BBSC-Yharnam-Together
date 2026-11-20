@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Validate portable update archives before staging them for the Windows launcher."""
+import os
 import re
 import shutil
 import stat
+import tempfile
 from pathlib import Path
 
 MAX_DOWNLOAD_BYTES = 2 << 30
@@ -77,3 +79,57 @@ def extract_update(package, destination):
         shutil.rmtree(destination, ignore_errors=True)
         raise
     return destination.joinpath(*launchers[0])
+
+
+def _check_install_path(path, directory, *, required=False):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if required:
+            raise
+        return
+    if (getattr(info, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT or
+            not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))):
+        raise ValueError(f'Update cannot replace a linked or incompatible path: {path}')
+
+
+def copy_portable_update(source, target, ignore):
+    """Validate an idle installation and atomically replace individual files, not the whole tree."""
+    source, target = Path(source), Path(target)
+    if not target.is_dir():
+        raise ValueError('The current installation directory is missing')
+    _check_install_path(source, True, required=True)
+    _check_install_path(target, True, required=True)
+    source_real, target_real = source.resolve(), target.resolve()
+    if (source_real == target_real or source_real in target_real.parents or
+            target_real in source_real.parents):
+        raise ValueError('Update staging and installation must be separate trees')
+
+    def preflight(src, dst):
+        entries = list(src.iterdir())
+        skipped = ignore(str(src), [item.name for item in entries])
+        for item in entries:
+            if item.name in skipped:
+                continue
+            directory = item.is_dir()
+            _check_install_path(item, directory, required=True)
+            candidate = dst / item.name
+            _check_install_path(candidate, directory)
+            if directory:
+                preflight(item, candidate)
+
+    def replace_file(src, dst):
+        fd, name = tempfile.mkstemp(prefix='.bb-update-', dir=Path(dst).parent)
+        os.close(fd)
+        try:
+            shutil.copyfile(src, name)
+            os.replace(name, dst)
+        finally:
+            try:
+                os.unlink(name)
+            except FileNotFoundError:
+                pass
+        return dst
+
+    preflight(source, target)
+    shutil.copytree(source, target, dirs_exist_ok=True, ignore=ignore, copy_function=replace_file)
