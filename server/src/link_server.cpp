@@ -853,14 +853,10 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
     if (!slot) {
         // The game's calls: none past a read of its bridge (16 KiB), its chunks a Send's. Each end
         // its own instance: a game whose end was dropped sees a new one and connects again.
-        BloodborneCoop::CoopStream::Limits limits;
-        limits.message_bytes = MaxRpcMessageBytes;
-        limits.chunk_bytes = BloodborneCoop::CoopStream::ChunkBytes + 1;
-        limits.held_bytes = MaxRpcHeldBytes;
-        limits.unreliable_channels = 16;
         slot = std::make_unique<RpcEnd>();
         slot->tunnel = std::make_unique<BloodborneCoop::RpcTunnel>(
-            "shadnet", QRandomGenerator::global()->generate() | 1u, limits);
+            "shadnet", QRandomGenerator::global()->generate() | 1u,
+            BloodborneCoop::RpcTunnel::TransportLimits());
     }
     RpcEnd& end = *slot;
     end.to = from;
@@ -868,10 +864,8 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
         std::span{reinterpret_cast<const u8*>(body.constData()), static_cast<size_t>(body.size())};
     const auto events = end.tunnel->Receive(bytes, m_clock.elapsed());
     if (end.tunnel->Broken()) {
-        qInfo().noquote() << QStringLiteral("Link: %1's Rpc tunnel dropped: a message past %2 "
-                                            "bytes")
-                                 .arg(QString::fromLatin1(online_id.toHex()))
-                                 .arg(MaxRpcMessageBytes);
+        qInfo().noquote() << QStringLiteral("Link: %1's RPC tunnel exceeded a receive limit")
+                                 .arg(QString::fromLatin1(online_id.toHex()));
         // The stream is no longer trustworthy: do not drain pending TCP writes.
         CloseRpc(end, true);
         m_rpc.erase(online_id);

@@ -88,8 +88,6 @@ private:
     // held out of order; what came before the TCP connection was up (it is up within a moment on
     // 127.0.0.1); shadNet's answers it has not acked (one packet is at most 8 MiB, protocol.h).
     // Past the first the tunnel goes, past the others its connection ends.
-    static constexpr size_t MaxRpcMessageBytes = 64 << 10;
-    static constexpr size_t MaxRpcHeldBytes = 256 << 10;
     static constexpr qsizetype MaxRpcPendingBytes = 1 << 20;
     static constexpr size_t MaxRpcUnackedBytes = 9 << 20;
     struct RpcEnd {

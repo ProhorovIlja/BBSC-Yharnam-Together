@@ -177,7 +177,7 @@ private:
                 LOG_ERROR(Lib_Net, "Rpc bridge: invalid reply stream; reopening on the next local connection");
                 DropClient();
                 instance = NewRpcInstance(instance);
-                tunnel = BloodborneCoop::RpcTunnel{"game", instance};
+                tunnel = NewTunnel();
                 break;
             }
             for (auto& event : events) {
@@ -207,7 +207,10 @@ private:
     Socket listener = NoSocket;
     Socket client = NoSocket;
     u32 instance = NewRpcInstance();
-    BloodborneCoop::RpcTunnel tunnel{"game", instance};
+    BloodborneCoop::RpcTunnel NewTunnel() const {
+        return {"game", instance, BloodborneCoop::RpcTunnel::TransportLimits()};
+    }
+    BloodborneCoop::RpcTunnel tunnel = NewTunnel();
 };
 
 Bridge& Instance() {

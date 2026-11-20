@@ -287,6 +287,32 @@ int AnRpcMessagePastTheLimitBreaksTheTunnel() {
   return 0;
 }
 
+int ProductionReplyLimitsRejectOversizedFragmentsAndMessages() {
+  const auto limits = RpcTunnel::TransportLimits();
+  RpcTunnel game{"game", 7, limits};
+  RpcTunnel server{"shadnet", 9, limits};
+  game.Open(0);
+  CHECK(Carry(game, server, 0).size() == 1);
+  const std::vector<u8> normal(RpcTunnel::MaxDataBytes, 'r');
+  server.Write(normal, 1);
+  CHECK(Carry(server, game, 1) == (std::vector<Event>{{Event::Kind::Data, normal}}));
+
+  CoopStream raw{"shadnet", 9};
+  RpcTunnel bounded{"game", 7, limits};
+  raw.Send(std::vector<u8>(limits.message_bytes + 1, 'x'), 0);
+  for (const auto& frame : raw.Flush(0)) CHECK(bounded.Receive(frame, 0).empty());
+  CHECK(bounded.Broken());
+
+  GameLinkPeer bad{"shadnet", 9};
+  bounded = RpcTunnel{"game", 11, limits};
+  std::vector<u8> fragment(limits.chunk_bytes + 1, 'x');
+  fragment[0] = CoopStream::LastChunk;
+  bad.Send(PacketClass::Reliable, fragment, 0);
+  for (const auto& frame : bad.Flush(0)) CHECK(bounded.Receive(EncodeGameFrame(frame), 0).empty());
+  CHECK(bounded.Broken());
+  return 0;
+}
+
 int FreshClientTunnelRecoversAfterInvalidReply() {
   RpcTunnel game{"game", 7, SmallLimits()};
   RpcTunnel server{"shadnet", 9};
@@ -434,6 +460,7 @@ int main() {
       UnreliableChannelsAreCapped() != 0 || UnackedBytesAreCounted() != 0 ||
       AnRpcMessagePastTheLimitBreaksTheTunnel() != 0 ||
       FreshClientTunnelRecoversAfterInvalidReply() != 0 ||
+      ProductionReplyLimitsRejectOversizedFragmentsAndMessages() != 0 ||
       CoalescedReplyStaysWithinMessageAndQueueBounds() != 0 ||
       RequestBudgetReservesCloseAndRecoversAfterAck() != 0 ||
       BackendWriteBudgetIsCheckedBeforeBuffering() != 0 ||

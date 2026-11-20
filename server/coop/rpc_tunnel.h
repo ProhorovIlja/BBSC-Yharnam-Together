@@ -45,6 +45,15 @@ public:
     static constexpr size_t MaxDataBytes = 16 * 1024;
     static constexpr size_t ControlBytes = 2; // opcode and one fragment marker
 
+    // Bound memory on either side. Send emits at most MaxDataBytes + opcode.
+    // Keep the existing 64 KiB receive allowance for older peers.
+    static constexpr CoopStream::Limits TransportLimits() {
+        return {.message_bytes = 64 * 1024,
+                .chunk_bytes = CoopStream::ChunkBytes + 1,
+                .held_bytes = 256 * 1024,
+                .unreliable_channels = 16};
+    }
+
     // Keep room for the eventual Close even if the peer stops acknowledging data.
     [[nodiscard]] bool TryOpen(s64 now_ms, size_t budget) {
         if (budget < 2 * ControlBytes || UnackedBytes() > budget - 2 * ControlBytes)
