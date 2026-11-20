@@ -983,7 +983,7 @@ void LinkServer::CloseRpc(RpcEnd& end, bool abort) {
         if (abort)
             socket->abort();
         else
-            socket->disconnectFromHost();
+            ShadNetRpc::DrainAndCloseBackend(*socket);
         if (socket->state() == QAbstractSocket::UnconnectedState)
             socket->deleteLater();
     }

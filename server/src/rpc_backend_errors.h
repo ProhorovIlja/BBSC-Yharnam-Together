@@ -2,12 +2,25 @@
 #pragma once
 #include <QMetaObject>
 #include <QTcpSocket>
+#include <QTimer>
 #include <utility>
 
 namespace ShadNetRpc {
 inline bool MayBufferBackendRequest(QAbstractSocket::SocketState state) {
     return state == QAbstractSocket::HostLookupState ||
            state == QAbstractSocket::ConnectingState;
+}
+
+// Retired sockets get a chance to drain, but a backend that stops reading
+// must not keep a detached socket and its write queue indefinitely.
+inline void DrainAndCloseBackend(QTcpSocket& socket, int timeout_ms = 2000) {
+    socket.disconnectFromHost();
+    if (socket.state() == QAbstractSocket::ClosingState) {
+        QTimer::singleShot(timeout_ms, &socket, [socket = &socket] {
+            if (socket->state() == QAbstractSocket::ClosingState)
+                socket->abort();
+        });
+    }
 }
 
 // Remote EOF goes through disconnected, after the backend's final reads.
