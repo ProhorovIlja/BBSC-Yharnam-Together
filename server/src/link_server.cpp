@@ -21,6 +21,7 @@
 #include "link_server.h"
 #include "rpc_write_budget.h"
 #include "rpc_backend_errors.h"
+#include "rpc_backend_read.h"
 #include "signed_accounts.h"
 
 namespace {
@@ -476,8 +477,10 @@ void LinkServer::OnWorldTick() {
     busy.start();
     Apply(m_world.Tick(QDateTime::currentMSecsSinceEpoch()));
     // The Rpc tunnels' resends and keepalives.
-    for (auto& [id, end] : m_rpc)
+    for (auto& [id, end] : m_rpc) {
+        PumpRpcReply(*end);
         FlushRpc(*end);
+    }
     Busy(busy);
 }
 
@@ -915,7 +918,7 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
     // any bytes still queued for its local socket.
     CloseRpc(end, true);
     QTcpSocket* socket = new QTcpSocket(this);
-    socket->setReadBufferSize(MaxRpcUnackedBytes + 1);
+    socket->setReadBufferSize(256 * 1024);
     end.socket = socket;
     // The game's end, while this socket is still its connection (it may be gone by then).
     const auto mine = [this, online_id, socket]() -> RpcEnd* {
@@ -934,35 +937,20 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
             }
         }
     });
-    connect(socket, &QTcpSocket::readyRead, this, [this, socket, mine] {
-        RpcEnd* at = mine();
-        if (!at)
-            return;
-        const auto bytes = socket->bytesAvailable();
-        if (bytes <= 0)
-            return;
-        const auto now = m_clock.elapsed();
-        // Fail before copying/fragmenting an over-budget reply. Leave two
-        // bytes for the close opcode and its fragment marker.
-        if (!at->tunnel->CanQueueWrite(static_cast<size_t>(bytes), MaxRpcUnackedBytes - 2)) {
-            CloseRpc(*at, true);
-            at->tunnel->Close(now);
-        } else {
-            const QByteArray data = socket->read(bytes);
-            at->tunnel->Write(std::span{reinterpret_cast<const u8*>(data.constData()),
-                                        static_cast<size_t>(data.size())}, now);
+    connect(socket, &QTcpSocket::readyRead, this, [this, mine] {
+        if (RpcEnd* at = mine()) {
+            PumpRpcReply(*at);
+            FlushRpc(*at);
         }
-        FlushRpc(*at);
     });
     connect(socket, &QTcpSocket::disconnected, this, [this, socket, mine] {
-        RpcEnd* at = mine();
-        socket->deleteLater();
-        if (!at)
-            return;
-        at->socket = nullptr;
-        at->pending.clear();
-        at->tunnel->Close(m_clock.elapsed());
-        FlushRpc(*at);
+        if (RpcEnd* at = mine()) {
+            at->backend_eof = true;
+            PumpRpcReply(*at);
+            FlushRpc(*at);
+        } else {
+            socket->deleteLater();
+        }
     });
     const auto fail = [this, mine] {
         if (RpcEnd* at = mine()) {
@@ -978,8 +966,22 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
     }
 }
 
+void LinkServer::PumpRpcReply(RpcEnd& end) {
+    if (!end.socket)
+        return;
+    const auto now = m_clock.elapsed();
+    const auto result = ShadNetRpc::PumpBackendReply(*end.socket, *end.tunnel,
+        end.reply_pause, end.backend_eof, now, MaxRpcUnackedBytes, 256 * 1024);
+    if (result != ShadNetRpc::BackendRead::Pending) {
+        CloseRpc(end, result == ShadNetRpc::BackendRead::Failed);
+        end.tunnel->Close(now);
+    }
+}
+
 void LinkServer::CloseRpc(RpcEnd& end, bool abort) {
     end.pending.clear();
+    end.reply_pause.Reset();
+    end.backend_eof = false;
     if (abort || end.socket) {
         // A replaced or lost tunnel must not leave an older graceful drain
         // writing to the backend alongside the new tunnel.
