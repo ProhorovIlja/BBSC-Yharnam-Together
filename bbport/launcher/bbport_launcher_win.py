@@ -6736,11 +6736,17 @@ class Launcher:
             self.output_poll = self.root.after(32, self.drain_output)
             return
         began = time.perf_counter()
-        try:
-            while time.perf_counter() - began < 0.003:
-                self.ui_calls.get_nowait()()
-        except queue.Empty:
-            pass
+        while time.perf_counter() - began < 0.003:
+            try:
+                callback = self.ui_calls.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                callback()
+            except Exception:
+                # Match Tk's callback exception reporting; one failed worker
+                # completion must not stop log and process-exit polling.
+                self.root.report_callback_exception(*sys.exc_info())
         pending, chars = [], 0
         try:
             for _i in range(500):

@@ -386,6 +386,27 @@ class AnimationTests(unittest.TestCase):
         ])
         window.root.after.assert_called_once_with(100, window.drain_output)
 
+    def test_failed_worker_callback_does_not_stop_output_polling(self):
+        for error in (ValueError('invalid result'), queue.Empty()):
+            with self.subTest(error=type(error)):
+                window = types.SimpleNamespace(
+                    ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),
+                    drain_output=mock.Mock(), append=mock.Mock(), coop_watch_line=mock.Mock(),
+                )
+                following = mock.Mock()
+                window.ui_calls.put(mock.Mock(side_effect=error))
+                window.ui_calls.put(following)
+                window.output.put('ready\n')
+                with mock.patch.object(launcher.time, 'perf_counter', return_value=1), \
+                        mock.patch.object(launcher, 'game_is_up', return_value=False):
+                    launcher.Launcher.drain_output(window)
+                following.assert_called_once_with()
+                report = window.root.report_callback_exception
+                report.assert_called_once()
+                self.assertIs(report.call_args.args[1], error)
+                window.append.assert_called_once_with('ready\n')
+                window.root.after.assert_called_once_with(100, window.drain_output)
+
     def test_callback_backlog_yields_to_window_events(self):
         window = types.SimpleNamespace(ui_calls=queue.Queue(), output=queue.Queue(),
                                        root=mock.Mock(), drain_output=mock.Mock())
