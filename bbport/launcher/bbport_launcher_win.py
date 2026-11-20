@@ -3319,9 +3319,15 @@ class Launcher:
     def light(self, card, value):
         card.glow = value
         try:
-            card.configure(highlightbackground=mix(LINE, ACCENT, value * 0.75))
-            for corner in getattr(card, 'corners', ()):
-                corner.itemconfigure('arm', fill=mix(GOLD_DIM, GOLD, value * 0.8))
+            border = mix(LINE, ACCENT, value * 0.75)
+            arm = mix(GOLD_DIM, GOLD, value * 0.8)
+            previous = getattr(card, '_glow_colors', (None, None))
+            if border != previous[0]:
+                card.configure(highlightbackground=border)
+            if arm != previous[1]:
+                for corner in getattr(card, 'corners', ()):
+                    corner.itemconfigure('arm', fill=arm)
+            card._glow_colors = border, arm
         except self.tk.TclError:
             # The card's page was rebuilt under the pointer: forget it. Every pointer move logged
             # this traceback again (a player's launcher-errors.txt grew to 15.8 MB).
@@ -6594,12 +6600,17 @@ class Launcher:
                 self.ui_calls.get_nowait()()
         except queue.Empty:
             pass
+        pending, chars = [], 0
         try:
             for _i in range(500):
                 if _i and time.perf_counter() - began >= 0.006:
                     break
                 item = self.output.get_nowait()
                 if isinstance(item, tuple):
+                    # Publish earlier output before any exit/status handlers run.
+                    if pending:
+                        self.append(''.join(pending))
+                        pending, chars = [], 0
                     self.append(_('\n— the game exited (code {}) —\n', '\n— игра завершилась (код {}) —\n').format(item[0]))
                     self.process = None
                     if self.job:
@@ -6623,9 +6634,15 @@ class Launcher:
                     elif 'restarting through run.py' in item:
                         self.set_running(True, preparing=True)
                         self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)
-                    self.append(item)
+                    pending.append(item)
+                    chars += len(item)
+                    if chars >= 16384:
+                        self.append(''.join(pending))
+                        pending, chars = [], 0
         except queue.Empty:
             pass
+        if pending:
+            self.append(''.join(pending))
         delay = 16 if not self.ui_calls.empty() or not self.output.empty() else 100
         self.output_poll = self.root.after(delay, self.drain_output)
 
