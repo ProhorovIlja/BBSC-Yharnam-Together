@@ -76,10 +76,15 @@ int main(int argc, char** argv) {
     std::ofstream(temp / "ledger") << "interrupted";
     assert(!WriteLedger(path, {}));
     assert(ReadLedger(temp / "ledger") == "interrupted");
+    assert(!ReadLiveLedger(path));
+    std::ofstream(path, std::ios::binary) << "committed";
+    assert(!ReadLiveLedger(path));
+    assert(ReadLedger(path) == "committed");
+    assert(std::filesystem::remove(path));
     assert(!std::filesystem::exists(path));
     assert(std::filesystem::remove(temp / "ledger") && std::filesystem::remove(temp));
     assert(WriteLedger(path, {}));
-    assert(ReadLedger(path) == std::string{});
+    assert(ReadLiveLedger(path) == std::string{});
     const std::string limit(MaxLedgerBytes, 'x');
     assert(WriteLedger(path, limit) && ReadLedger(path) == limit);
     assert(!WriteLedger(path, limit + 'x') && ReadLedger(path) == limit);
