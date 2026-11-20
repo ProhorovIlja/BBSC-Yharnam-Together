@@ -28,6 +28,7 @@ struct Peer {
     std::vector<u8> held_reply;
     std::atomic<bool> hold_ack{true};
     std::atomic<bool> inject_old{false};
+    std::atomic<int> invalid_lengths{0};
     std::atomic<bool> stage_reply{false};
     std::atomic<bool> reply_staged{false};
     std::atomic<int> closes{0};
@@ -100,6 +101,17 @@ bool ServerRpcSend(const void* body, u32 len) {
 
 int ServerRpcReceive(void* body, u32 len) {
     auto& p = Remote();
+    // A truncated/empty adapter result must not poison the live stream.
+    // Copy a plausible header, then claim bytes past the caller's buffer.
+    const int invalid = p.invalid_lengths.exchange(0);
+    if (invalid == 2) {
+        assert(!p.held_reply.empty() && p.held_reply.size() <= len);
+        std::memcpy(body, p.held_reply.data(), p.held_reply.size());
+        p.invalid_lengths = 1;
+        return static_cast<int>(len) + 1;
+    }
+    if (invalid == 1)
+        return 0;
     const auto now = RpcLocal::NowMs();
     // Keep one addressed reply from the current stream for delayed delivery.
     if (p.stage_reply.exchange(false)) {
@@ -185,6 +197,7 @@ int main() {
     Await([&] { return p.closes > 0; });
     const int fourth = Connect(port);
     Await([&] { return p.opens == 4; });
+    p.invalid_lengths = 2;
     p.inject_old = true;
     response = {fourth, POLLIN, 0};
     assert(poll(&response, 1, 4000) == 1);
