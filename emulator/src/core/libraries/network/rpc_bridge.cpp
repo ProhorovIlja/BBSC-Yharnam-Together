@@ -9,6 +9,7 @@
 #include <mutex>
 #include <random>
 #include <span>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -100,8 +101,15 @@ public:
             listener = NoSocket;
             return 0;
         }
+        try {
+            std::thread{[this] { Run(); }}.detach();
+        } catch (const std::system_error&) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: could not start the local worker");
+            CloseSocket(listener);
+            listener = NoSocket;
+            return 0;
+        }
         port = ntohs(address.sin_port);
-        std::thread{[this] { Run(); }}.detach();
         LOG_INFO(Lib_Net, "Rpc bridge: shadNet's calls go through the server link (127.0.0.1:{})",
                  port);
         return port;

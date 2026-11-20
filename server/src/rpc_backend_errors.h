@@ -29,6 +29,16 @@ inline void DrainAndCloseBackend(QTcpSocket& socket, int timeout_ms = 2000) {
     }
 }
 
+// A pending backend connect is scoped to this socket; established and
+// replaced sockets are not affected by an expired deadline.
+template <typename Handler>
+void OnBackendConnectTimeout(QTcpSocket& socket, int timeout_ms, Handler handler) {
+    QTimer::singleShot(timeout_ms, &socket, [socket = &socket, handler = std::move(handler)] {
+        if (MayBufferBackendRequest(socket->state()))
+            handler();
+    });
+}
+
 // Remote EOF goes through disconnected, after the backend's final reads.
 // Other errors (including a refused initial connect) may never disconnect.
 template <typename Handler>

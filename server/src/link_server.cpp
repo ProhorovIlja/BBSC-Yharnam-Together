@@ -964,14 +964,18 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
         at->tunnel->Close(m_clock.elapsed());
         FlushRpc(*at);
     });
-    ShadNetRpc::OnBackendFailure(*socket, [this, mine] {
+    const auto fail = [this, mine] {
         if (RpcEnd* at = mine()) {
             CloseRpc(*at, true);
             at->tunnel->Close(m_clock.elapsed());
             FlushRpc(*at);
         }
-    });
+    };
+    ShadNetRpc::OnBackendFailure(*socket, fail);
     socket->connectToHost(QHostAddress::LocalHost, m_tcpPort);
+    if (ShadNetRpc::MayBufferBackendRequest(socket->state())) {
+        ShadNetRpc::OnBackendConnectTimeout(*socket, 5000, fail);
+    }
 }
 
 void LinkServer::CloseRpc(RpcEnd& end, bool abort) {

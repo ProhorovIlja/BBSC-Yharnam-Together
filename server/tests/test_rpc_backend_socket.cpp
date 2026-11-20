@@ -22,6 +22,12 @@ int main(int argc, char** argv) {
     CHECK(backend.hasPendingConnections() || backend.waitForNewConnection(2000));
     QTcpSocket* local = backend.nextPendingConnection();
     CHECK(local);
+    int deadlines = 0;
+    ShadNetRpc::OnBackendConnectTimeout(forward, 0, [&] { ++deadlines; });
+    QEventLoop established;
+    QTimer::singleShot(10, &established, &QEventLoop::quit);
+    established.exec();
+    CHECK(deadlines == 0); // a successful connect is not torn down by the timer
     constexpr qint64 cap = 4096;
     const QByteArray first(cap - 1, 'a');
     CHECK(ShadNetRpc::TryQueueBackendWrite(forward, first.constData(), first.size(), cap));
