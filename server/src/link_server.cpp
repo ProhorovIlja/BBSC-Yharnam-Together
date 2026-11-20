@@ -980,12 +980,24 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
 
 void LinkServer::CloseRpc(RpcEnd& end, bool abort) {
     end.pending.clear();
+    if (abort || end.socket) {
+        // A replaced or lost tunnel must not leave an older graceful drain
+        // writing to the backend alongside the new tunnel.
+        auto retired = std::exchange(end.draining, QPointer<QTcpSocket>{});
+        if (retired) {
+            retired->abort();
+            retired->deleteLater();
+        }
+    }
     if (QTcpSocket* socket = std::exchange(end.socket, nullptr)) {
         // Its disconnected signal finds it no longer the game's connection, and deletes it.
-        if (abort)
+        if (abort) {
             socket->abort();
-        else
+        } else {
             ShadNetRpc::DrainAndCloseBackend(*socket);
+            if (socket->state() == QAbstractSocket::ClosingState)
+                end.draining = socket;
+        }
         if (socket->state() == QAbstractSocket::UnconnectedState)
             socket->deleteLater();
     }
@@ -1050,7 +1062,7 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
     for (const auto& lost : result.lost) {
         Apply(m_world.LinkLost(lost));
         for (auto& [id, end] : m_rpc) {
-            if (end->to == lost && end->socket) {
+            if (end->to == lost && (end->socket || end->draining)) {
                 CloseRpc(*end, true);
                 end->tunnel->Close(m_clock.elapsed());
             }
