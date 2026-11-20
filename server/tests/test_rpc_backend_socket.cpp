@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "../src/rpc_write_budget.h"
 #include "../src/rpc_backend_errors.h"
+#include "../src/rpc_backend_read.h"
 
 #include <QCoreApplication>
 #include <QEventLoop>
@@ -19,8 +20,64 @@ public:
     using QAbstractSocket::setSocketState;
 };
 
+int BufferedReplyAcrossAckAndEof() {
+    using namespace ShadNetRpc;
+    using BloodborneCoop::RpcTunnel;
+    QTcpServer backend;
+    CHECK(backend.listen(QHostAddress::LocalHost, 0));
+    QTcpSocket forward;
+    forward.setReadBufferSize(4096);
+    forward.connectToHost(QHostAddress::LocalHost, backend.serverPort());
+    CHECK(forward.waitForConnected(2000));
+    CHECK(backend.hasPendingConnections() || backend.waitForNewConnection(2000));
+    auto* local = backend.nextPendingConnection();
+    CHECK(local);
+    const QByteArray reply("reply after the ACK");
+    CHECK(local->write(reply) == reply.size());
+    CHECK(local->waitForBytesWritten(2000));
+    CHECK(forward.bytesAvailable() || forward.waitForReadyRead(2000));
+
+    RpcTunnel out{"shadnet", 7}, in{"game", 9};
+    out.Open(0);
+    const std::array<u8, 24> prior{};
+    out.Write(prior, 0);
+    BloodborneCoop::RpcReadPause pause;
+    constexpr size_t budget = 32;
+    CHECK(PumpBackendReply(forward, out, pause, false, 1, budget, 64) == BackendRead::Pending);
+    CHECK(forward.bytesAvailable() == reply.size());
+    CHECK(PumpBackendReply(forward, out, pause, false, 5001, budget, 64) == BackendRead::Failed);
+    CHECK(forward.bytesAvailable() == reply.size());
+
+    local->disconnectFromHost();
+    CHECK(forward.state() == QAbstractSocket::UnconnectedState || forward.waitForDisconnected(2000));
+    CHECK(forward.bytesAvailable() == reply.size());
+    for (const auto& wire : out.Flush(2))
+        in.Receive(wire, 2);
+    for (const auto& ack : in.Flush(3))
+        out.Receive(ack, 3);
+    CHECK(out.UnackedBytes() == 0);
+    CHECK(PumpBackendReply(forward, out, pause, true, 4, budget, 5) == BackendRead::Pending);
+    CHECK(forward.bytesAvailable() == reply.size() - 5);
+    CHECK(PumpBackendReply(forward, out, pause, true, 5, budget, 64) == BackendRead::DrainedEof);
+    out.Close(5);
+    QByteArray received;
+    bool closed = false;
+    for (const auto& wire : out.Flush(5)) {
+        for (const auto& event : in.Receive(wire, 5)) {
+            CHECK(!closed);
+            if (event.kind == RpcTunnel::Event::Kind::Data)
+                received.append(reinterpret_cast<const char*>(event.bytes.data()), event.bytes.size());
+            else if (event.kind == RpcTunnel::Event::Kind::Closed)
+                closed = true;
+        }
+    }
+    CHECK(closed && received == reply);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    CHECK(BufferedReplyAcrossAckAndEof() == 0);
     PendingSocket pending;
     pending.setSocketState(QAbstractSocket::ConnectingState);
     int expired = 0;
