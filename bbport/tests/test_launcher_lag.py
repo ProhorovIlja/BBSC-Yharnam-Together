@@ -97,6 +97,30 @@ class CoopCardTypingTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
 class ShortcutTests(unittest.TestCase):
+    def test_portable_update_blocks_play_and_recovers_when_thread_cannot_start(self):
+        window = types.SimpleNamespace(
+            updating=False, installing=False, process=None, update_button=mock.Mock(),
+            play_button=mock.Mock(), update_bar=mock.Mock(), update_label=mock.Mock(),
+            messagebox=mock.Mock(), px=lambda n: n,
+        )
+        with (mock.patch.object(launcher, 'FROZEN', True),
+              mock.patch.object(launcher.threading, 'Thread') as thread):
+            update = launcher.Launcher.install_update
+            update(window, '2', 'https://example.invalid/update.zip', '')
+            self.assertTrue(window.updating)
+            window.play_button.configure.assert_called_once_with(state='disabled')
+            # PLAY returns before it needs any of the window's launch methods.
+            launcher.Launcher.play(window)
+            update(window, '2', 'https://example.invalid/update.zip', '')
+            thread.assert_called_once()
+            window.updating = False
+            thread.return_value.start.side_effect = RuntimeError('thread unavailable')
+            update(window, '2', 'https://example.invalid/update.zip', '')
+            self.assertFalse(window.updating)
+            self.assertEqual(window.play_button.configure.call_args.kwargs, {'state': 'normal'})
+            self.assertEqual(window.update_button.configure.call_args.kwargs, {'state': 'normal'})
+            window.messagebox.showerror.assert_called_once()
+
     def test_real_shell_link_round_trips_unicode_paths(self):
         import os
         import shutil
