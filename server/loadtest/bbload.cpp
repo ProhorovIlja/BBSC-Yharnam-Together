@@ -39,6 +39,7 @@
 #include "coop/coop_messages.h"
 #include "coop/coop_stream.h"
 #include "coop/game_link.h"
+#include "coop/team_lobby.h"
 #include "server_link.h"
 
 using namespace BloodborneCoop;
@@ -310,6 +311,8 @@ private:
     const double seconds = (NowUs() - started_us) / 1e6;
     QJsonObject out{
         {"games", static_cast<int>(games.size())},
+        {"teams", settings.teams},
+        {"team_size", settings.team_size},
         {"linked", linked},
         {"playing", playing},
         {"seconds", seconds},
@@ -935,7 +938,8 @@ int main(int argc, char **argv) {
       {"server", "server address", "address", "127.0.0.1"},
       {"port", "link UDP port", "port", "31314"},
       {"teams", "teams", "n", "10"},
-      {"team-size", "players a team (2-4)", "n", "3"},
+      {"team-size", QStringLiteral("players a team (2-%1)")
+                        .arg(static_cast<int>(TeamSize)), "n", "3"},
       {"seconds", "seconds to play after the last game starts", "n", "60"},
       {"ramp-ms", "ms between two games' starts", "n", "50"},
       {"owner-fps", "the enemy owner's frames a second per teammate", "n",
@@ -965,7 +969,14 @@ int main(int argc, char **argv) {
   settings.server = QHostAddress(parser.value("server"));
   settings.port = static_cast<quint16>(parser.value("port").toUInt());
   settings.teams = parser.value("teams").toInt();
-  settings.team_size = std::clamp(parser.value("team-size").toInt(), 2, 4);
+  bool valid_team_size = false;
+  settings.team_size = parser.value("team-size").toInt(&valid_team_size);
+  if (!valid_team_size || settings.team_size < 2 ||
+      settings.team_size > static_cast<int>(TeamSize)) {
+    std::fprintf(stderr, "bbload: --team-size must be an integer from 2 to %d\n",
+                 static_cast<int>(TeamSize));
+    return 2;
+  }
   settings.seconds = parser.value("seconds").toInt();
   settings.ramp_ms = parser.value("ramp-ms").toInt();
   settings.owner_fps = std::max(1, parser.value("owner-fps").toInt());
