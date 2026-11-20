@@ -98,6 +98,7 @@ private:
         QPointer<QTcpSocket> draining; // one graceful close, until replacement or deletion
         BloodborneCoop::RpcReadPause reply_pause;
         bool backend_eof = false;
+        bool backend_failed = false;
         QByteArray pending; // what came before the connection to the TCP port was up
     };
     void OnRpc(const ServerLink::Endpoint& from, const QByteArray& online_id,
