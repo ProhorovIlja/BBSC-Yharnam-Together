@@ -120,7 +120,7 @@ private:
                         DropClient();
                         tunnel.Close(now_ms);
                     }
-                } else {
+                } else if (got == 0 || !RpcLocal::WasInterrupted()) {
                     LOG_INFO(Lib_Net, "Rpc bridge: the game's connection ended");
                     DropClient();
                     tunnel.Close(now_ms);
@@ -132,7 +132,7 @@ private:
                 tunnel.Close(now_ms);
                 Accept(now_ms);
             }
-            Exchange(now_ms, buffer);
+            Exchange(buffer);
         }
     }
 
@@ -141,17 +141,8 @@ private:
         if (client == NoSocket) {
             return;
         }
-#if !defined(_WIN32) && !defined(MSG_NOSIGNAL) && defined(SO_NOSIGPIPE)
-        // Platforms without per-send suppression can set it on the TCP connection.
-        const int enabled = 1;
-        if (setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) != 0) {
-            LOG_ERROR(Lib_Net, "Rpc bridge: could not suppress SIGPIPE on the local connection");
-            DropClient();
-            return;
-        }
-#endif
-        if (!RpcLocal::ConfigureLocalSendTimeout(client)) {
-            LOG_ERROR(Lib_Net, "Rpc bridge: could not bound local TCP send time");
+        if (!RpcLocal::ConfigureLocalSend(client)) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: could not configure safe local TCP sends");
             DropClient();
             return;
         }
@@ -169,19 +160,19 @@ private:
     }
 
     // What came from shadNet to the game's connection, and what the tunnel sends.
-    void Exchange(s64 now_ms, std::array<u8, 16384>& buffer) {
+    void Exchange(std::array<u8, 16384>& buffer) {
         for (int count = 0; count < 256; ++count) {
             const int size = ServerRpcReceive(buffer.data(), static_cast<u32>(buffer.size()));
             if (size < 0) {
                 break;
             }
-            for (auto& event : tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, now_ms)) {
+            for (auto& event : tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, NowMs())) {
                 using Kind = BloodborneCoop::RpcTunnel::Event::Kind;
                 if (event.kind == Kind::Data && client != NoSocket) {
                     if (!RpcLocal::SendAll(client, event.bytes)) {
                         LOG_ERROR(Lib_Net, "Rpc bridge: local TCP reply write failed or timed out");
                         DropClient();
-                        tunnel.Close(now_ms);
+                        tunnel.Close(NowMs());
                     }
                 } else if (event.kind == Kind::Closed && client != NoSocket) {
                     // shadNet's end is over (or shadNet restarted): the game's client sees its
@@ -191,7 +182,7 @@ private:
                 }
             }
         }
-        for (const auto& body : tunnel.Flush(now_ms)) {
+        for (const auto& body : tunnel.Flush(NowMs())) {
             ServerRpcSend(body.data(), static_cast<u32>(body.size()));
         }
     }
