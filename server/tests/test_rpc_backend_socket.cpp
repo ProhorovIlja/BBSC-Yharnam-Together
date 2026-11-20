@@ -225,8 +225,9 @@ int main(int argc, char** argv) {
     QEventLoop loop;
     int failures = 0, disconnects = 0;
     QObject::connect(&refused, &QTcpSocket::disconnected, [&] { ++disconnects; });
-    ShadNetRpc::OnBackendFailure(refused, [&] {
-        ++failures;
+    bool failed = false;
+    ShadNetRpc::OnBackendFailure(refused, [&] { failed = true; }, [&] {
+        failures += failed ? 1 : 100;
         loop.quit();
     });
     refused.connectToHost(QHostAddress::LocalHost, unusedPort);
@@ -235,6 +236,15 @@ int main(int argc, char** argv) {
     loop.exec();
     CHECK(refused.error() == QAbstractSocket::ConnectionRefusedError);
     CHECK(!MayBufferBackendRequest(refused.state()));
-    CHECK(failures == 1 && disconnects == 0);
+    CHECK(failed && failures == 1 && disconnects == 0);
+    PendingSocket transition;
+    int marked = 0, cleaned = 0;
+    ShadNetRpc::OnBackendFailure(transition, [&] { ++marked; }, [&] { ++cleaned; });
+    transition.errorOccurred(QAbstractSocket::RemoteHostClosedError);
+    CHECK(marked == 0);
+    transition.errorOccurred(QAbstractSocket::NetworkError);
+    CHECK(marked == 1 && cleaned == 0);
+    QCoreApplication::processEvents();
+    CHECK(cleaned == 1);
     std::cout << "RPC backend TCP: initial refusal triggers deferred cleanup without disconnect\n";
 }
