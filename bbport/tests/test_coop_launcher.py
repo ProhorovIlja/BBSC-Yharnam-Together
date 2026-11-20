@@ -54,6 +54,26 @@ class PortableUpdateZipTests(unittest.TestCase):
             with self.subTest(names=names):
                 self.stage(['BLauncher.exe', *names])
 
+    def test_download_bounds_and_complete_body(self):
+        import io
+        from bbport_update_zip import download_update
+
+        for declared, body, valid in ((None, b'abc', True), ('3', b'abc', True),
+                                      ('3', b'ab', False), ('2', b'abc', False),
+                                      (None, b'abcd', False), ('4', b'abc', False),
+                                      ('x', b'abc', False), (None, b'', False)):
+            with self.subTest(declared=declared, body=body):
+                response, out, progress = io.BytesIO(body), io.BytesIO(), []
+                response.headers = {} if declared is None else {'Content-Length': declared}
+                with mock.patch('bbport_update_zip.MAX_DOWNLOAD_BYTES', 3):
+                    if valid:
+                        download_update(response, out, progress.append)
+                        self.assertEqual(out.getvalue(), body)
+                        self.assertEqual(progress, [100 if declared else 0])
+                    else:
+                        with self.assertRaises(ValueError):
+                            download_update(response, out, progress.append)
+
     def test_expanded_budget_is_checked_before_staging(self):
         with mock.patch('bbport_update_zip.MAX_EXPANDED_BYTES', 1):
             self.stage(['BLauncher.exe'])
