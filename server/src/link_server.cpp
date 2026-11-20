@@ -886,7 +886,7 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
             const auto size = static_cast<qsizetype>(event.bytes.size());
             const auto* data = reinterpret_cast<const char*>(event.bytes.data());
             const auto state = end.socket->state();
-            if (!ShadNetRpc::BackendCanReceiveRequest(state, end.backend_eof))
+            if (end.backend_failed || !ShadNetRpc::BackendCanReceiveRequest(state, end.backend_eof))
                 break;
             const bool connected = state == QAbstractSocket::ConnectedState;
             const bool accepted = connected
@@ -960,7 +960,10 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
             FlushRpc(*at);
         }
     };
-    ShadNetRpc::OnBackendFailure(*socket, fail);
+    ShadNetRpc::OnBackendFailure(*socket, [mine] {
+        if (RpcEnd* at = mine())
+            at->backend_failed = true;
+    }, fail);
     socket->connectToHost(QHostAddress::LocalHost, m_tcpPort);
     if (ShadNetRpc::MayBufferBackendRequest(socket->state())) {
         ShadNetRpc::OnBackendConnectTimeout(*socket, 5000, fail);
@@ -968,7 +971,7 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
 }
 
 void LinkServer::PumpRpcReply(RpcEnd& end) {
-    if (!end.socket)
+    if (!end.socket || end.backend_failed)
         return;
     const auto now = m_clock.elapsed();
     const auto result = ShadNetRpc::PumpBackendReply(*end.socket, *end.tunnel,
@@ -983,6 +986,7 @@ void LinkServer::CloseRpc(RpcEnd& end, bool abort) {
     end.pending.clear();
     end.reply_pause.Reset();
     end.backend_eof = false;
+    end.backend_failed = false;
     if (abort || end.socket) {
         // A replaced or lost tunnel must not leave an older graceful drain
         // writing to the backend alongside the new tunnel.
