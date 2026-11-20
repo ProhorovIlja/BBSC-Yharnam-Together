@@ -368,7 +368,7 @@ class AnimationTests(unittest.TestCase):
             append=lambda text: events.append(('log', text)),
             coop_watch_line=lambda text: events.append(('line', text)),
             job=None, set_running=mock.Mock(), refresh_status=mock.Mock(),
-            coop_game_ended=mock.Mock(), say_start_crash=lambda code: events.append(('exit', code)),
+            cancel_ready_close=mock.Mock(), coop_game_ended=mock.Mock(), say_start_crash=lambda code: events.append(('exit', code)),
         )
         lines = [f'fixture line {i}\n' for i in range(100)]
         for line in lines:
@@ -407,6 +407,25 @@ class AnimationTests(unittest.TestCase):
         window.coop_game_info.assert_called_once_with()
         self.assertIn('Saves found', window.checks['saves'].set.call_args.args[0])
         self.assertTrue(window.status.configure.call_args.kwargs['text'].startswith('30 FPS'))
+
+    def test_new_launch_resets_readiness_and_fences_stale_close(self):
+        old, current = object(), object()
+        window = types.SimpleNamespace(
+            process=current, root=mock.Mock(), coop_release_server=mock.Mock(),
+            output_ready=True, close_on_ready_job='old',
+        )
+        window.cancel_ready_close = lambda: launcher.Launcher.cancel_ready_close(window)
+        launcher.Launcher.reset_run_output(window, {})
+        window.root.after_cancel.assert_called_once_with('old')
+        self.assertFalse(window.output_ready)
+        self.assertFalse(window.run_up)
+        launcher.Launcher.close_after_ready(window, current)  # canceled callback
+        window.close_on_ready_job = 'current'
+        launcher.Launcher.close_after_ready(window, old)  # from previous game
+        window.root.destroy.assert_not_called()
+        launcher.Launcher.close_after_ready(window, current)
+        window.coop_release_server.assert_called_once_with()
+        window.root.destroy.assert_called_once_with()
 
     def test_game_ready_markers_update_once_per_launch_phase(self):
         window = types.SimpleNamespace(

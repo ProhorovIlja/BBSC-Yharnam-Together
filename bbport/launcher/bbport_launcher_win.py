@@ -3064,7 +3064,8 @@ class Launcher:
         self.process = self.job = None
         self.downloading = self.downloading_fsr4vk = self.fsr4vk_hashing = self.rechecking = False
         self.updating, self.update_release = False, None  # the co-op release's update (coop_check_update)
-        self.close_scheduled = False  # "Close the launcher when the game starts" is armed once per run
+        self.close_on_ready_job = None
+        self.output_ready = False
         self.server_checking = self.server_starting = False  # the server line: a check, a Start server under way
         self.installing, self.install_proc, self.install_cancel = False, None, threading.Event()
         self.install_card = self.install_hide = self.pkg_dialog = None
@@ -5445,6 +5446,7 @@ class Launcher:
             self.status.configure(text=_('Could not start: {}', 'Не удалось запустить: {}').format(error), fg=BAD)
             self.process = None
             return
+        self.reset_run_output(env)
         self.job = GameJob(self.process)
         self.coop_playing = playing
         threading.Thread(target=self.read_output, args=(self.process, self.job, log_path), daemon=True).start()
@@ -6690,11 +6692,6 @@ class Launcher:
         self.set_log('')
         log_path = Path(self.app.get('user_dir') or DATA_DIR / 'user') / 'last_run.log'
         env = game_environment(self.app)
-        # What a game that closes while starting may blame (drain_output): see start_crash_suspects.
-        self.run_started, self.run_up, self.run_stopped = False, False, False
-        self.output_ready = False
-        self.run_layers_disabled = env.get('VK_LOADER_LAYERS_DISABLE', '')
-        self.run_reshade = RESHADE_LAYER in env.get('VK_INSTANCE_LAYERS', '')
         try:
             self.process = start_game(run_command(), env, log_path)
         except OSError as error:
@@ -6702,11 +6699,32 @@ class Launcher:
             self.status.configure(text=_('Could not start: {}', 'Не удалось запустить: {}').format(error), fg=BAD)
             self.process = None
             return
+        self.reset_run_output(env)
         self.job = GameJob(self.process)
         threading.Thread(target=self.read_output, args=(self.process, self.job, log_path), daemon=True).start()
         self.set_running(True, preparing=True)
         self.status.configure(text=_('Preparing the game; it opens in its own window…',
                                      'Подготовка игры; она откроется в своём окне…'), fg=GOLD)
+
+    def reset_run_output(self, env):
+        self.cancel_ready_close()
+        # What a game that closes while starting may blame (drain_output): see start_crash_suspects.
+        self.run_started, self.run_up, self.run_stopped = False, False, False
+        self.output_ready = False
+        self.run_layers_disabled = env.get('VK_LOADER_LAYERS_DISABLE', '')
+        self.run_reshade = RESHADE_LAYER in env.get('VK_INSTANCE_LAYERS', '')
+
+    def cancel_ready_close(self):
+        if self.close_on_ready_job is not None:
+            self.root.after_cancel(self.close_on_ready_job)
+            self.close_on_ready_job = None
+
+    def close_after_ready(self, process):
+        if self.process is not process or self.close_on_ready_job is None:
+            return
+        self.close_on_ready_job = None
+        self.coop_release_server()
+        self.root.destroy()
 
     def read_output(self, process, job, log_path):
         # The game writes last_run.log itself (start_game), so a crash report survives the launcher
@@ -6759,6 +6777,7 @@ class Launcher:
                         self.append(''.join(pending))
                         pending, chars = [], 0
                     self.append(_('\n— the game exited (code {}) —\n', '\n— игра завершилась (код {}) —\n').format(item[0]))
+                    self.cancel_ready_close()
                     self.process = None
                     if self.job:
                         self.job.close()
@@ -6776,10 +6795,11 @@ class Launcher:
                             self.output_ready = True
                             self.set_running(True)
                             self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
-                        if self.app.get('close_on_play') and not self.close_scheduled:  # both GAME_UP_LINES arrive
-                            self.close_scheduled = True
-                            self.coop_release_server()  # the server stays for the game, then stops
-                            self.root.after(CLOSE_AFTER_UP_MS, self.root.destroy)  # the game keeps running
+                        if (self.app.get('close_on_play') and self.close_on_ready_job is None
+                                and self.process is not None):
+                            process = self.process
+                            self.close_on_ready_job = self.root.after(
+                                CLOSE_AFTER_UP_MS, lambda: self.close_after_ready(process))
                     elif 'restarting through run.py' in item:
                         self.output_ready = False
                         self.set_running(True, preparing=True)
@@ -7596,6 +7616,7 @@ class Launcher:
             if isinstance(chrome, WindowChrome):
                 chrome.drag_end()
                 chrome.resize_end()
+            self.cancel_ready_close()
             for name in ('output_poll', 'motion_start', 'server_poll', 'count_poll'):
                 job = getattr(self, name, None)
                 if job is not None:
