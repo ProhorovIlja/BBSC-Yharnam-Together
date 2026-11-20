@@ -1674,12 +1674,12 @@ void GiveBackPhantomKeyItems() {
     const std::filesystem::path file =
         Common::FS::GetUserPath(Common::FS::PathType::UserDir) / SlotFileName("phantom_keys", slot);
     if (phantom_keys_forgotten.exchange(false) || slot != ledger_slot) {
-        const auto text = RewardSafety::ReadLedger(file);
+        const auto text = RewardSafety::ReadLiveLedger(file);
         auto validated = text ? ValidateOwedKeyItems(*text) : std::nullopt;
         if (!validated) {
             // Do not replace an unread ledger or continue using the previous slot's data.
             if (reported_read_failure != slot) {
-                LOG_WARNING(Debug, "Bloodborne party: could not read or validate phantom ledger for slot {}", slot);
+                LOG_WARNING(Debug, "Bloodborne party: phantom ledger unreadable, invalid or staged for slot {}", slot);
                 reported_read_failure = slot;
             }
             ledger_slot = -2;
