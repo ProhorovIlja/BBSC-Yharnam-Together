@@ -455,6 +455,26 @@ std::vector<OwedKeyItem> ParseOwedKeyItems(std::string_view text) {
     return owed;
 }
 
+std::optional<std::vector<OwedKeyItem>> ValidateOwedKeyItems(std::string_view text) {
+    // Accept both line endings, but never silently skip a torn, duplicate,
+    // or invalid record when the result can drive native grants and writes.
+    std::string normalized;
+    normalized.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] != '\r' || i + 1 == text.size() || text[i + 1] != '\n') {
+            normalized.push_back(text[i]);
+        }
+    }
+    auto owed = ParseOwedKeyItems(normalized);
+    if (std::ranges::any_of(owed, [](const auto& item) {
+            return item.goods == 0 || item.goods > 0x0FFFFFFFu;
+        }) ||
+        EncodeOwedKeyItems(owed) != normalized) {
+        return std::nullopt;
+    }
+    return owed;
+}
+
 namespace {
 // Both lists as one: for a goods in both, the one that gained more (the newer one on a tie).
 std::vector<OwedKeyItem> MergeOwed(std::span<const OwedKeyItem> older,
@@ -495,6 +515,14 @@ std::vector<HeldGoods> PhantomKeyItemLedger::LookAtPhantom(u64 list, std::vector
         }
         return OwnKeyItemsForPhantom(want, last_look);
     }
+    ObserveKnownPhantom(list, std::move(held));
+    return {};
+}
+
+void PhantomKeyItemLedger::ObserveKnownPhantom(u64 list, std::vector<HeldGoods> held) {
+    if (list == 0 || list != phantom_list) {
+        return;
+    }
     last_look = std::move(held);
     // What was owed and is in this list now is this list's gain from here on (so one used up
     // or handed over in it is owed no more).
@@ -503,7 +531,6 @@ std::vector<HeldGoods> PhantomKeyItemLedger::LookAtPhantom(u64 list, std::vector
         const auto same = std::ranges::find(gains, item.goods, &OwedKeyItem::goods);
         return same != gains.end() && same->gained >= item.gained;
     });
-    return {};
 }
 
 std::optional<std::vector<HeldGoods>> PhantomKeyItemLedger::LookAtOwn(u64 list,
@@ -521,10 +548,14 @@ std::optional<std::vector<HeldGoods>> PhantomKeyItemLedger::LookAtOwn(u64 list,
     return OwedKeyItemsToGive(carried, own_look);
 }
 
-void PhantomKeyItemLedger::GaveBack() {
-    if (phantom_list == 0) {
-        carried.clear();
+bool PhantomKeyItemLedger::AcknowledgeObservedReturn(
+    const std::function<bool()>& clear_sidecar) {
+    if (phantom_list != 0 || !OwedKeyItemsToGive(carried, own_look).empty() ||
+        !clear_sidecar()) {
+        return false;
     }
+    carried.clear();
+    return true;
 }
 
 std::vector<OwedKeyItem> PhantomKeyItemLedger::Owed() const {

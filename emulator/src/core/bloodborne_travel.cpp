@@ -13,6 +13,7 @@
 #include "core/bloodborne_re_internal.h"
 #include "core/bloodborne_trade.h"
 #include "core/bloodborne_write_watch.h"
+#include "core/bloodborne_reward_safety.h"
 
 #include <algorithm>
 #include <array>
@@ -1654,8 +1655,11 @@ void RecheckShopLinesOnce(u32 map) {
 void GiveBackPhantomKeyItems() {
     constexpr s32 PhantomType = 1;
     static PhantomKeyItemLedger ledger;
+    static RewardSafety::ReturnAttempts return_attempts;
     static std::vector<OwedKeyItem> filed;
     static int ledger_slot = -2;
+    static int reported_read_failure = -2;
+    static bool reported_ledger_write_failure = false;
     static s64 looked_ms = 0;
     const u64 player = GetLocalPlayer();
     const int slot = character_slot.load();
@@ -1670,12 +1674,23 @@ void GiveBackPhantomKeyItems() {
     const std::filesystem::path file =
         Common::FS::GetUserPath(Common::FS::PathType::UserDir) / SlotFileName("phantom_keys", slot);
     if (phantom_keys_forgotten.exchange(false) || slot != ledger_slot) {
+        const auto text = RewardSafety::ReadLiveLedger(file);
+        auto validated = text ? ValidateOwedKeyItems(*text) : std::nullopt;
+        if (!validated) {
+            // Do not replace an unread ledger or continue using the previous slot's data.
+            if (reported_read_failure != slot) {
+                LOG_WARNING(Debug, "Bloodborne party: phantom ledger unreadable, invalid or staged for slot {}", slot);
+                reported_read_failure = slot;
+            }
+            ledger_slot = -2;
+            return;
+        }
+        reported_read_failure = -2;
         ledger_slot = slot;
-        std::ifstream in{file, std::ios::binary};
-        const std::string text{std::istreambuf_iterator<char>{in},
-                               std::istreambuf_iterator<char>{}};
-        filed = ParseOwedKeyItems(text);
+        reported_ledger_write_failure = false;
+        filed = std::move(*validated);
         ledger.Load(filed);
+        return_attempts.Reset();
         if (!filed.empty()) {
             LOG_INFO(Debug,
                      "Bloodborne party: save slot {} is owed {} key items gained as a phantom "
@@ -1689,35 +1704,105 @@ void GiveBackPhantomKeyItems() {
         AddTradeItems(std::span{&item, 1}, ItemPopup::Silent);
     };
     const u64 list = KeyItemList();
-    if (ReadValue<s32>(player, 0x78) == PhantomType) {
-        for (const HeldGoods& held : ledger.LookAtPhantom(list, HeldKeyGoods())) {
-            give(held);
-            LOG_INFO(Debug,
-                     "Bloodborne party: {} x goods {} of the guest's own in the phantom's key "
-                     "items",
-                     held.count, held.goods);
+    const auto still_current = [&] {
+        return list >= 0x10000 && character_slot.load() == slot &&
+               !phantom_keys_forgotten.load() && GetLocalPlayer() == player &&
+               KeyItemList() == list;
+    };
+    if (!still_current()) {
+        return;
+    }
+    const bool phantom = ReadValue<s32>(player, 0x78) == PhantomType;
+    auto held_keys = HeldKeyGoods();
+    if (!still_current() || (ReadValue<s32>(player, 0x78) == PhantomType) != phantom) {
+        return; // A snapshot from a changing inventory is not a receipt or a new baseline.
+    }
+    const auto write_ledger = [&](std::string_view encoded) {
+        if (RewardSafety::WriteLedger(file, encoded)) {
+            reported_ledger_write_failure = false;
+            return true;
         }
-    } else if (const auto owed = ledger.LookAtOwn(list, HeldKeyGoods());
-               owed && !ledger.Owed().empty() && (owed->empty() || TradeItemsCanBeAdded())) {
+        if (!reported_ledger_write_failure) {
+            LOG_WARNING(Debug, "Bloodborne party: could not write phantom ledger for slot {}", slot);
+            reported_ledger_write_failure = true;
+        }
+        return false;
+    };
+    const auto persist = [&](bool before_grant = false) {
+        if (character_slot.load() != slot || phantom_keys_forgotten.load()) {
+            return false;
+        }
+        auto owed = ledger.Owed();
+        if (owed == filed) {
+            // No write means no staging check in WriteLedger. Before a native
+            // return, fail closed even if the committed snapshot is unchanged.
+            return !before_grant || RewardSafety::LedgerStagingClear(file);
+        }
+        if (!write_ledger(EncodeOwedKeyItems(owed))) {
+            return false;
+        }
+        filed = std::move(owed);
+        return true;
+    };
+    if (phantom) {
+        // Preserve any dirty ledger writes even while native grants are temporarily unready.
+        if (TradeItemsReadyToGive()) {
+            for (const HeldGoods& held : ledger.LookAtPhantom(list, std::move(held_keys))) {
+                if (!still_current() || ReadValue<s32>(player, 0x78) != PhantomType) {
+                    return;
+                }
+                give(held);
+                LOG_INFO(Debug,
+                         "Bloodborne party: requested {} x goods {} of the guest's own in the "
+                         "phantom's key items",
+                         held.count, held.goods);
+            }
+        } else {
+            // The item manager can disappear before the readable key list does.
+            // Keep any observed gains without attempting native item delivery.
+            ledger.ObserveKnownPhantom(list, std::move(held_keys));
+        }
+    } else if (const auto owed = ledger.LookAtOwn(list, std::move(held_keys));
+               owed && !ledger.Owed().empty() && (owed->empty() || TradeItemsReadyToGive())) {
+        if (owed->empty()) {
+            // Own-list observation, not a savedata commit. A crash before the
+            // game's save is still an open recovery case.
+            if (!still_current() || ReadValue<s32>(player, 0x78) == PhantomType) {
+                return;
+            }
+            // A failed removal must not clear the in-memory debt or retry
+            // guard. Otherwise a second transition could act on a different
+            // ledger than the one that would be loaded after a restart.
+            if (ledger.AcknowledgeObservedReturn([&] {
+                    // Even a missing committed file can have interrupted staging.
+                    return write_ledger({});
+                })) {
+                filed.clear();
+                return_attempts.Reset();
+            }
+            return;
+        }
+        // Publish any gains captured on this transition before requesting a native grant.
+        if (!persist(true)) {
+            return;
+        }
         for (const HeldGoods& held : *owed) {
+            if (!still_current() || ReadValue<s32>(player, 0x78) == PhantomType) {
+                return;
+            }
+            if (!return_attempts.Begin(held.goods)) {
+                continue;
+            }
             give(held);
             LOG_INFO(Debug,
-                     "Bloodborne party: gave back {} x goods {}: gained as a phantom, dropped by "
+                     "Bloodborne party: requested return of {} x goods {}: gained as a phantom, dropped by "
                      "the game with its key item list",
                      held.count, held.goods);
         }
-        ledger.GaveBack();
+        return;
     }
-    // The slot's file follows what is owed, so a game closed as a phantom still gives it back.
-    if (std::vector<OwedKeyItem> owed = ledger.Owed(); owed != filed) {
-        std::error_code error;
-        if (owed.empty()) {
-            std::filesystem::remove(file, error);
-        } else {
-            std::ofstream{file, std::ios::binary | std::ios::trunc} << EncodeOwedKeyItems(owed);
-        }
-        filed = std::move(owed);
-    }
+    // Replacement is not acknowledgement of the game's savedata transaction.
+    persist();
 }
 
 // See LampsToRelight: the lamps this character has lit (cleared for a new character or another
