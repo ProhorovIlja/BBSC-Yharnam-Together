@@ -388,6 +388,13 @@ int RpcControlMessagesWithTrailingBytesDoNotChangeState() {
 }
 
 int RequestBudgetReservesCloseAndRecoversAfterAck() {
+  BloodborneCoop::RpcReadPause pause;
+  CHECK(!pause.Expired(0));
+  CHECK(!pause.Expired(4999));
+  CHECK(pause.Expired(5000));
+  pause.Reset();
+  CHECK(!pause.Expired(6000));
+  CHECK(pause.Expired(11000));
   RpcTunnel game{"game", 7}, server{"shadnet", 9};
   const auto data = Bytes("abc");
   constexpr size_t budget = 9; // Open (2), Data (5), Close (2).

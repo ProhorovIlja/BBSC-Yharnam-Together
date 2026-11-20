@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -20,6 +21,23 @@
 #include "coop/coop_stream.h"
 
 namespace BloodborneCoop {
+
+// A full request queue may recover after ACKs, but never hold the local
+// connection indefinitely without enough room for another read.
+class RpcReadPause {
+public:
+    static constexpr s64 TimeoutMs = 5000;
+    bool Expired(s64 now_ms) {
+        if (!since) {
+            since = now_ms;
+        }
+        return now_ms - *since >= TimeoutMs;
+    }
+    void Reset() { since.reset(); }
+
+private:
+    std::optional<s64> since;
+};
 
 class RpcTunnel {
 public:

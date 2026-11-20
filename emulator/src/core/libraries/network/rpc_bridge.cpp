@@ -117,10 +117,15 @@ private:
                     Accept(now_ms);
                 }
             } else if (!tunnel.CanWriteRequest(buffer.size(), MaxRequestUnackedBytes)) {
-                // Leave unread request bytes in TCP instead of accepting data
-                // that would overflow the reliable queue. Keep exchanging ACKs.
-                std::this_thread::sleep_for(std::chrono::milliseconds(TickMs));
-            } else if (Readable(client, TickMs)) {
+                // Leave unread request bytes in TCP while exchanging ACKs.
+                if (read_pause.Expired(now_ms)) {
+                    LOG_ERROR(Lib_Net, "Rpc bridge: request queue remained full");
+                    DropClient();
+                    tunnel.Close(now_ms);
+                } else {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(TickMs));
+                }
+            } else if ((read_pause.Reset(), Readable(client, TickMs))) {
                 const int got =
                     recv(client, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
                 if (got > 0) {
@@ -163,6 +168,7 @@ private:
     }
 
     void DropClient() {
+        read_pause.Reset();
         if (client != NoSocket) {
             CloseSocket(client);
             client = NoSocket;
@@ -210,6 +216,7 @@ private:
     u16 port = 0;
     Socket listener = NoSocket;
     Socket client = NoSocket;
+    BloodborneCoop::RpcReadPause read_pause;
     u32 instance = NewRpcInstance();
     BloodborneCoop::RpcTunnel NewTunnel() const {
         return {"game", instance, BloodborneCoop::RpcTunnel::TransportLimits()};
