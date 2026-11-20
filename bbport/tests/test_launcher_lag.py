@@ -165,6 +165,21 @@ class ShortcutTests(unittest.TestCase):
             launcher.Launcher.shortcut(app)
             app.messagebox.showerror.assert_called_once()
 
+    def test_update_handover_observes_real_windows_process_exit(self):
+        import subprocess
+
+        with subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.buffer.read(1)'],
+                              stdin=subprocess.PIPE) as previous:
+            try:
+                with self.assertRaises(TimeoutError):
+                    launcher.wait_for_update_parent(previous.pid, timeout_ms=0)
+                previous.stdin.close()
+                launcher.wait_for_update_parent(previous.pid, timeout_ms=5000)
+                self.assertEqual(previous.wait(timeout=5), 0)
+            finally:
+                if previous.poll() is None:
+                    previous.kill()
+
     def test_update_handover_requires_signalled_or_gone_process(self):
         kernel = mock.Mock()
         kernel.OpenProcess.return_value = 17
