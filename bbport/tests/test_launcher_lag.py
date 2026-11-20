@@ -459,6 +459,19 @@ class AnimationTests(unittest.TestCase):
         window.coop_release_server.assert_called_once_with()
         window.root.destroy.assert_called_once_with()
 
+    def test_coop_key_and_refusal_in_one_log_read_both_reach_the_watcher(self):
+        window = types.SimpleNamespace(
+            ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),
+            drain_output=mock.Mock(), append=mock.Mock(), coop_watch_line=mock.Mock(),
+        )
+        key = launcher.bbport_coop.LEARNED_KEY_LINE + 'a' * 64 + '\n'
+        refusal = launcher.bbport_coop.REFUSED_LINE + 'account: sign in again\n'
+        window.output.put(key + refusal)
+        with mock.patch.object(launcher.time, 'perf_counter', return_value=1):
+            launcher.Launcher.drain_output(window)
+        self.assertEqual(window.coop_watch_line.call_args_list, [mock.call(key), mock.call(refusal)])
+        window.append.assert_called_once_with(key + refusal)
+
     def test_game_ready_markers_update_once_per_launch_phase(self):
         window = types.SimpleNamespace(
             ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(), drain_output=mock.Mock(),

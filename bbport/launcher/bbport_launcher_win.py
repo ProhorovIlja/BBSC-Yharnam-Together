@@ -6796,12 +6796,18 @@ class Launcher:
                         self.say_start_crash(item[0])
                     self.coop_game_ended()
                 else:
-                    self.coop_watch_line(item)
-                    # The file follower batches complete lines. Preserve lifecycle
-                    # order even if both sides of a restart arrive in one read.
-                    if ('restarting through run.py' in item or game_is_up(item)
-                            or bbport_support.GAME_STARTING_LINE in item):
-                        for line in item.splitlines():
+                    # The file follower batches complete lines. A key learned
+                    # on one line must not swallow a refusal on the next.
+                    ordered = ('restarting through run.py' in item or game_is_up(item)
+                               or bbport_support.GAME_STARTING_LINE in item
+                               or bbport_coop.LEARNED_KEY_LINE in item
+                               or bbport_coop.OTHER_KEY_LINE in item
+                               or bbport_coop.REFUSED_LINE in item)
+                    if not ordered:
+                        self.coop_watch_line(item)
+                    else:
+                        for line in item.splitlines(keepends=True):
+                            self.coop_watch_line(line)
                             if bbport_support.GAME_STARTING_LINE in line:
                                 self.run_started = True
                             if game_is_up(line):  # mods, patches and shaders are prepared; the window exists
