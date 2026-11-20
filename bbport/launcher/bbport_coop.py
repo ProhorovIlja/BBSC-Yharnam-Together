@@ -2155,16 +2155,20 @@ def firewall_commands(install, host):
     return lines
 
 
-def firewall_ready(install, host):
+def firewall_ready(install, host, *, timeout_s=5.0):
     """Whether this install's rules are there (reading rules needs no administrator)."""
     if sys.platform != 'win32':  # Windows Firewall only: elsewhere (ufw, firewalld) the player opens the ports
         return True
     probe = str(Path(install) / 'bin' / 'bb-probe.exe').lower()
     names = [RULE_GAME] + ([RULE_HOST_TCP, RULE_HOST_UDP] if host else [])
+    deadline = time.monotonic() + timeout_s
     for name in names:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
         try:
             out = subprocess.run(['netsh', 'advfirewall', 'firewall', 'show', 'rule', f'name={name}', 'verbose'],
-                                 capture_output=True, timeout=15, creationflags=NO_WINDOW)
+                                 capture_output=True, timeout=remaining, creationflags=NO_WINDOW)
         except (OSError, subprocess.TimeoutExpired):
             return False
         if out.returncode != 0:
@@ -2178,6 +2182,18 @@ def firewall_ready(install, host):
                        for line in output.splitlines()):
                 return False
     return True
+
+
+def wait_for_firewall(install, host, *, timeout_s=10.0):
+    """Bound the entire post-UAC polling phase, not each netsh command separately."""
+    deadline = time.monotonic() + timeout_s
+    while (remaining := deadline - time.monotonic()) > 0:
+        if firewall_ready(install, host, timeout_s=min(2.0, remaining)):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.5, remaining))
+    return False
 
 
 def allow_through_firewall(install, host):
