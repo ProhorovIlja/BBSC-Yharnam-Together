@@ -165,6 +165,28 @@ class ShortcutTests(unittest.TestCase):
             launcher.Launcher.shortcut(app)
             app.messagebox.showerror.assert_called_once()
 
+    def test_startup_settings_recover_from_wrong_json_shapes_and_types(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as scratch:
+            config = Path(scratch) / 'settings.json'
+            with mock.patch.object(launcher, 'CONFIG_FILE', config):
+                for invalid in ([], None, 42, '', True):
+                    config.write_text(json.dumps(invalid), encoding='utf-8')
+                    self.assertEqual(launcher.load_app_settings(), launcher.APP_DEFAULTS)
+                saved = {'game_dir': ['wrong'], 'user_dir': 'bad\0path', 'hdr': 'false',
+                         'language': 2, 'ui_language': 'ru', 'extension_field': 17}
+                config.write_text(json.dumps(saved), encoding='utf-8')
+                actual = launcher.load_app_settings()
+                self.assertEqual(actual['game_dir'], launcher.APP_DEFAULTS['game_dir'])
+                self.assertEqual(actual['user_dir'], '')
+                self.assertFalse(actual['hdr'])
+                self.assertEqual(actual['language'], '2')
+                self.assertEqual(actual['ui_language'], 'ru')
+                self.assertEqual(actual['extension_field'], 17)
+                self.assertEqual(json.loads(config.read_text(encoding='utf-8')), saved)
+
     def test_unattended_coop_launch_keeps_optional_report_worker_nonfatal(self):
         with (mock.patch.object(launcher.bbport_coop, 'load_settings', return_value={}),
               mock.patch.object(launcher.bbport_coop, 'played_settings', return_value={}),
