@@ -4,6 +4,7 @@ on:
     paths:
       - 'emulator/src/core/bloodborne_*'
       - 'emulator/tests/bloodborne/test_guest_reward_safety.cpp'
+      - 'tools/re/tests/emit_phantom_ledger_fixture.py'
       - '.github/workflows/guest-reward-safety.yml'
   workflow_dispatch:
 permissions:
@@ -29,3 +30,6 @@ jobs:
           "$cxx" -std=c++20 -Wall -Wextra -Werror -Iemulator/src \
             emulator/tests/bloodborne/test_guest_reward_safety.cpp -o "$dir/reward-tests.exe"
           "$dir/reward-tests.exe" "$dir"
+          python tools/re/tests/emit_phantom_ledger_fixture.py "$dir/ledger.cpp"
+          "$cxx" -std=c++20 -Wall -Wextra -Werror "$dir/ledger.cpp" -o "$dir/ledger-tests.exe"
+          "$dir/ledger-tests.exe"
