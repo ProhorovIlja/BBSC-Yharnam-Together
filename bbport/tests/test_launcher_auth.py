@@ -323,6 +323,35 @@ class SystemCertificateTests(unittest.TestCase):
 
 
 class OfflineTests(unittest.TestCase):
+    def test_invalid_account_server_urls_never_open_a_connection(self):
+        opener = mock.Mock()
+        for url in ('https:///route', 'https://user@example.com', 'https://example.com:0',
+                    'https://example.com:', 'https://example.com:70000',
+                    'https://[::1', 'https://example.com?other', 'https://example.com#other',
+                    'https://exa\tmple.com', r'https://example.com\path'):
+            with self.subTest(url=url), self.assertRaises(auth.AuthError):
+                auth.sign_in(url, 'Hunter', PASSWORD, opener=opener)
+        opener.open.assert_not_called()
+        self.assertEqual(auth.https_base(' HTTPS://[::1]:20443/proxy/ '),
+                         'HTTPS://[::1]:20443/proxy')
+
+    def test_http_error_closes_body_even_when_truncated(self):
+        import http.client
+        import urllib.error
+        for truncated in (False, True):
+            with self.subTest(truncated=truncated):
+                response = mock.Mock()
+                response.read.return_value = b'{"error": "wrong"}'
+                if truncated:
+                    response.read.side_effect = http.client.IncompleteRead(b'{', 20)
+                opener = mock.Mock()
+                opener.open.side_effect = urllib.error.HTTPError(
+                    'https://example.com/bb/auth/sign-in', 401, 'Unauthorized', {}, response)
+                with self.assertRaises(auth.AuthError) as err:
+                    auth.sign_in('https://example.com', 'Hunter', PASSWORD, opener=opener)
+                self.assertEqual(err.exception.text(), auth.WRONG_TEXT)
+                response.close.assert_called_once()
+
     def test_non_object_and_large_success_reply_refused(self):
         for body in (b'null', b'[]', b'{' * 5000, b' ' * 65537):
             with self.subTest(size=len(body)):
