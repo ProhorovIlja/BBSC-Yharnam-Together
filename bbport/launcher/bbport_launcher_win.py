@@ -3118,6 +3118,7 @@ class Launcher:
             self.coop_offer_public()
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.bind('<Destroy>', self.cancel_window_polls, add='+')
+        self.unwatched_game_poll = None
         self.output_poll = root.after(100, self.drain_output)
         self.motion_start = root.after(30, self.start_motion)
         if COOP_INSTALL:
@@ -6831,15 +6832,17 @@ class Launcher:
                                        'Не удалось отслеживать журнал игры: {}').format(error) + '\n')
             if job is not None:
                 job.say = self.output.put
-            self.root.after(200, self.poll_unwatched_game, process, job)
+            self.unwatched_game_poll = self.root.after(
+                200, self.poll_unwatched_game, process, job)
 
     def poll_unwatched_game(self, process, job):
         if self.process is not process or self.job is not job:
             return
+        self.unwatched_game_poll = None
         if game_over(process, job) and (code := process.poll()) is not None:
             self.output.put((code,))
             return
-        self.root.after(200, self.poll_unwatched_game, process, job)
+        self.unwatched_game_poll = self.root.after(200, self.poll_unwatched_game, process, job)
 
     def read_output(self, process, job, log_path):
         # The game writes last_run.log itself (start_game), so a crash report survives the launcher
@@ -7756,7 +7759,7 @@ class Launcher:
                 chrome.drag_end()
                 chrome.resize_end()
             self.cancel_ready_close()
-            for name in ('output_poll', 'motion_start', 'server_poll', 'count_poll'):
+            for name in ('output_poll', 'motion_start', 'server_poll', 'count_poll', 'unwatched_game_poll'):
                 job = getattr(self, name, None)
                 if job is not None:
                     self.root.after_cancel(job)

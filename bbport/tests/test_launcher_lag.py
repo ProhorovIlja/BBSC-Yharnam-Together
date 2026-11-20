@@ -517,6 +517,15 @@ class AnimationTests(unittest.TestCase):
         self.assertFalse(window.server_checking)
         window.coop_server_line.configure.assert_not_called()
 
+    def test_destroy_cancels_pending_fallback_game_poll(self):
+        window = types.SimpleNamespace(
+            root=mock.Mock(), cancel_ready_close=mock.Mock(), unwatched_game_poll='fallback',
+        )
+        launcher.Launcher.cancel_window_polls(window, types.SimpleNamespace(widget=object()))
+        window.root.after_cancel.assert_not_called()
+        launcher.Launcher.cancel_window_polls(window, types.SimpleNamespace(widget=window.root))
+        window.root.after_cancel.assert_called_once_with('fallback')
+
     def test_watcher_start_failure_polls_game_exit_without_blocking_tk(self):
         methods = launcher.Launcher
         process, job = mock.Mock(), mock.Mock()
