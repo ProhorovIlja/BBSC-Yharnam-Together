@@ -695,15 +695,32 @@ def load_settings(install):
     return settings
 
 
+COOP_SWITCHES = frozenset({
+    'hide_glow', 'confirmed', 'discord_status', 'discord_show_area', 'discord_show_level',
+    'discord_show_build', 'discord_show_boss', 'discord_reference_layout', 'public_asked',
+})
+
+
 def read_settings(install):
     path = settings_path(install)
     try:
         saved = json.loads(path.read_text(encoding='utf-8'))
-        settings = {key: str(saved.get(key, default)) for key, default in DEFAULTS.items()}
+        if not isinstance(saved, dict):
+            raise ValueError('coop.json must contain an object')
+        settings = dict(DEFAULTS)
+        for key, default in DEFAULTS.items():
+            value = saved.get(key, default)
+            if isinstance(value, str) and '\0' not in value:
+                settings[key] = value
+            elif key == 'p2p_port' and type(value) is int and 1 <= value <= 65535:
+                settings[key] = str(value)
+            elif key in COOP_SWITCHES and (type(value) is bool or type(value) is int and value in (0, 1)):
+                settings[key] = '1' if value else ''
         settings['server_ids'] = server_ids_of(saved)
         settings['server_keys'] = server_keys_of(saved)
-        if not settings['global_name'] and isinstance(saved.get('discord_name'), str):
-            settings['global_name'] = saved['discord_name']  # 1.3.2's first builds
+        legacy_name = saved.get('discord_name')
+        if not settings['global_name'] and isinstance(legacy_name, str) and '\0' not in legacy_name:
+            settings['global_name'] = legacy_name  # 1.3.2's first builds
         return settings
     except (OSError, ValueError, AttributeError):
         pass
