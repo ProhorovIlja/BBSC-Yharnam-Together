@@ -6819,7 +6819,8 @@ class Launcher:
                     else:
                         for line in item.splitlines(keepends=True):
                             self.coop_watch_line(line)
-                            if getattr(self, 'coop_new_id', None):
+                            if (getattr(self, 'coop_new_id', None)
+                                    or getattr(self, 'run_stopped', False)):
                                 continue  # queued markers from a game we are stopping
                             if bbport_support.GAME_STARTING_LINE in line:
                                 self.run_started = True
@@ -6859,6 +6860,7 @@ class Launcher:
                 self.install_proc.kill()
         elif self.job:
             self.run_stopped = True
+            self.cancel_ready_close()
             self.job.terminate()
 
     def say_start_crash(self, code):

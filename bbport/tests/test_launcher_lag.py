@@ -421,6 +421,26 @@ class AnimationTests(unittest.TestCase):
         window.set_running.assert_not_called()
         window.status.configure.assert_not_called()
 
+    def test_manual_stop_cancels_close_and_late_ready_cannot_rearm(self):
+        window = types.SimpleNamespace(
+            ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),
+            drain_output=mock.Mock(), append=mock.Mock(), status=mock.Mock(),
+            app={'close_on_play': True}, process=object(), close_on_ready_job='timer',
+            output_ready=False, set_running=mock.Mock(), installing=False,
+            job=mock.Mock(), coop_watch_line=mock.Mock(), schedule_ready_close=mock.Mock(),
+        )
+        window.cancel_ready_close = lambda: launcher.Launcher.cancel_ready_close(window)
+        launcher.Launcher.stop(window)
+        window.root.after_cancel.assert_called_once_with('timer')
+        window.job.terminate.assert_called_once_with()
+        ready = next(iter(launcher.GAME_UP_LINES)) + '\n'
+        window.output.put(ready)
+        with mock.patch.object(launcher.time, 'perf_counter', return_value=1):
+            launcher.Launcher.drain_output(window)
+        window.append.assert_called_once_with(ready)
+        window.schedule_ready_close.assert_not_called()
+        window.status.configure.assert_not_called()
+
     def test_server_key_mismatch_cancels_close_and_survives_ready_marker(self):
         for before_ready in (True, False):
             with self.subTest(before_ready=before_ready):
