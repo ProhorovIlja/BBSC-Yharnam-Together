@@ -5,6 +5,7 @@ import re
 import shutil
 import stat
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 MAX_DOWNLOAD_BYTES = 2 << 30
@@ -133,3 +134,29 @@ def copy_portable_update(source, target, ignore):
 
     preflight(source, target)
     shutil.copytree(source, target, dirs_exist_ok=True, ignore=ignore, copy_function=replace_file)
+
+
+def make_portable_stage(parent=None):
+    """An attempt owns its scratch files; other launchers never clear this path."""
+    return Path(tempfile.mkdtemp(prefix='bbport-update-', dir=parent))
+
+
+@contextmanager
+def lock_portable_install(target):
+    """Serialize cooperating portable installers for this directory."""
+    path = Path(target) / '.bbport-update.lock'
+    _check_install_path(path, False)
+    with path.open('a+b') as lock:
+        lock.seek(0)
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            raise ValueError('Another portable update owns the installation, or the lock is unavailable') from error
+        # Leave the lock file in place: removing it would let another process
+        # lock a different file while a handle to the original still exists.
+        yield
