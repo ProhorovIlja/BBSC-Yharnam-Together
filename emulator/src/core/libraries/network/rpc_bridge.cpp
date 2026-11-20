@@ -208,6 +208,11 @@ private:
             if (size < 0) {
                 break;
             }
+            // Defend the span boundary even if a transport adapter reports
+            // the original datagram length rather than the number copied.
+            if (size == 0 || static_cast<size_t>(size) > buffer.size()) {
+                continue;
+            }
             auto events = tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, NowMs());
             if (tunnel.Broken()) {
                 LOG_ERROR(Lib_Net, "Rpc bridge: invalid reply stream; reopening on the next local connection");
