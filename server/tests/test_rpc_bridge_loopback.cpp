@@ -30,6 +30,7 @@ struct Peer {
     std::deque<std::vector<u8>> inbound;
     std::vector<u8> held_reply;
     std::atomic<bool> hold_ack{true};
+    std::atomic<bool> replace_server{false};
     std::atomic<bool> inject_old{false};
     std::atomic<int> invalid_lengths{0};
     std::atomic<bool> stage_reply{false};
@@ -128,6 +129,10 @@ int ServerRpcReceive(void* body, u32 len) {
     if (invalid == 1)
         return 0;
     const auto now = RpcLocal::NowMs();
+    if (p.replace_server.exchange(false)) {
+        p.inbound.clear();
+        p.tunnel = RpcTunnel{"shadnet", 10, RpcTunnel::TransportLimits()};
+    }
     // Keep one addressed reply from the current stream for delayed delivery.
     if (p.stage_reply.exchange(false)) {
         const std::array<u8, 1> stale{0xEE};
@@ -218,7 +223,24 @@ int main() {
     response = {fourth, POLLIN, 0};
     assert(poll(&response, 1, 4000) == 1);
     assert(recv(fourth, &byte, 1, 0) == 1 && byte == 0xAB);
+    // Model the server discarding a tunnel at sign-in loss, while the
+    // bridge still owns a local TCP stream. A fresh server instance must
+    // close that stream; an old addressed reply cannot reach the next one.
+    p.reply_staged = false;
+    p.stage_reply = true;
+    Await([&] { return p.reply_staged.load(); });
+    p.replace_server = true;
+    response = {fourth, POLLIN, 0};
+    assert(poll(&response, 1, 4000) == 1);
+    assert(recv(fourth, &byte, 1, 0) == 0);
     close(fourth);
+    const int fifth = Connect(port);
+    Await([&] { return p.opens == 5; });
+    p.inject_old = true;
+    response = {fifth, POLLIN, 0};
+    assert(poll(&response, 1, 4000) == 1);
+    assert(recv(fifth, &byte, 1, 0) == 1 && byte == 0xAB);
+    close(fifth);
     // Avoid destructors racing the intentionally process-lifetime worker.
     _exit(0);
 }
