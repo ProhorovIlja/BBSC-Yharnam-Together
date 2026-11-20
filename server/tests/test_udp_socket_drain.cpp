@@ -21,6 +21,7 @@ public:
     int yields = 0;
     unsigned oversized = 0;
     int interleaved_at = -1;
+    QByteArray held;
 
     void send(int id) {
         // Include a zero-length datagram in the middle of the burst.
@@ -35,6 +36,9 @@ public:
             CHECK(raw == (seen == 10 ? QByteArray{} : QByteArray::number(seen)));
             ++seen;
             if (seen == 1) {
+                held = raw;
+                run(); // Nested entry must neither overwrite raw nor drain another slice.
+                CHECK(seen == 1 && raw == "0");
                 CHECK(QMetaObject::invokeMethod(this, [this] {
                     interleaved_at = seen;
                 }, Qt::QueuedConnection));
@@ -77,6 +81,6 @@ int main(int argc, char** argv) {
     CHECK(app.exec() == 0);
     CHECK(f.seen == Fixture::Burst + 1 && f.slices >= 3);
     CHECK(f.yields > 0 && f.yields <= f.slices - 2);
-    CHECK(f.oversized == 2);
+    CHECK(f.oversized == 2 && f.held == "0");
     std::cout << "UDP loopback: ordered continuation, event-loop yield and new-burst rearm passed\n";
 }

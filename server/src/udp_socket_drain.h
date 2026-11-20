@@ -4,12 +4,11 @@
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QMetaObject>
+#include <QScopedValueRollback>
 #include <QUdpSocket>
 #include "udp_drain_slice.h"
 
 namespace ShadNetUdp {
-// Run on the socket's event loop. The context must own both this drain and
-// the socket; its destruction cancels any queued continuation.
 struct SliceStats {
     unsigned oversized = 0;
     bool budget_yield = false;
@@ -17,6 +16,9 @@ struct SliceStats {
     bool retry_requested = false;
 };
 
+// Run on the socket's event loop. The context must own both this drain and
+// the socket; its destruction cancels any queued continuation. A handler can
+// keep a QByteArray copy, but must not retain the borrowed reference or data().
 class SocketDrain {
 public:
     template <class Handle, class AccountBusy>
@@ -29,11 +31,11 @@ private:
     template <class Handle, class AccountBusy>
     void RunSlice(QObject& context, QUdpSocket& socket, qint64 max_datagram_bytes,
                   Handle handle, AccountBusy account, bool already_retried) {
-        if (queued_)
+        if (queued_ || running_)
             return;
+        const QScopedValueRollback running(running_, true);
         QElapsedTimer busy;
         busy.start();
-        QByteArray raw;
         SliceStats stats;
         const auto result = DrainSlice(
             [&] { return socket.hasPendingDatagrams(); },
@@ -50,14 +52,14 @@ private:
                     ++stats.oversized;
                     return true;
                 }
-                raw.resize(static_cast<qsizetype>(bytes));
+                raw_.resize(static_cast<qsizetype>(bytes));
                 QHostAddress sender;
                 quint16 port = 0;
-                const qint64 received = socket.readDatagram(raw.data(), bytes, &sender, &port);
+                const qint64 received = socket.readDatagram(raw_.data(), bytes, &sender, &port);
                 if (received < 0)
                     return false;
-                raw.resize(static_cast<qsizetype>(received));
-                handle(raw, sender, port);
+                raw_.resize(static_cast<qsizetype>(received));
+                handle(raw_, sender, port);
                 return true;
             },
             [&] { return busy.nsecsElapsed() >= 2'000'000; });
@@ -76,6 +78,9 @@ private:
                 queued_ = false;
         }
     }
+    // Keep capacity across bursts. QByteArray detaches if a handler kept a copy.
+    QByteArray raw_;
     bool queued_ = false;
+    bool running_ = false;
 };
 } // namespace ShadNetUdp
