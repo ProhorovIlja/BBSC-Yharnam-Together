@@ -43,6 +43,22 @@ public:
     // TCP is a byte stream. A coalesced read must not become a single
     // message above the receiver's per-message reassembly limit.
     static constexpr size_t MaxDataBytes = 16 * 1024;
+    static constexpr size_t ControlBytes = 2; // opcode and one fragment marker
+
+    // Keep room for the eventual Close even if the peer stops acknowledging data.
+    [[nodiscard]] bool TryOpen(s64 now_ms, size_t budget) {
+        if (budget < 2 * ControlBytes || UnackedBytes() > budget - 2 * ControlBytes)
+            return false;
+        Open(now_ms);
+        return true;
+    }
+
+    [[nodiscard]] bool TryWrite(std::span<const u8> bytes, s64 now_ms, size_t budget) {
+        if (!open || budget < ControlBytes || !CanQueueWrite(bytes.size(), budget - ControlBytes))
+            return false;
+        Write(bytes, now_ms);
+        return true;
+    }
     void Write(std::span<const u8> bytes, s64 now_ms) {
         // A delayed local read must not consume reliable queue space after Close.
         if (!open) return;

@@ -315,6 +315,28 @@ int RpcControlMessagesWithTrailingBytesDoNotChangeState() {
   return 0;
 }
 
+int RequestBudgetReservesCloseAndRecoversAfterAck() {
+  RpcTunnel game{"game", 7}, server{"shadnet", 9};
+  const auto data = Bytes("abc");
+  constexpr size_t budget = 9; // Open (2), Data (5), Close (2).
+  CHECK(!game.TryWrite(data, 0, budget));
+  CHECK(!game.TryOpen(0, 3) && game.UnackedBytes() == 0);
+  CHECK(game.TryOpen(0, budget));
+  CHECK(!game.TryWrite(data, 0, budget - 1) && game.UnackedBytes() == 2);
+  CHECK(game.TryWrite(data, 0, budget) && game.UnackedBytes() == 7);
+  CHECK(!game.TryWrite(Bytes("x"), 0, budget) && game.UnackedBytes() == 7);
+  game.Close(0);
+  CHECK(game.UnackedBytes() == budget);
+  for (int retry = 0; retry < 100; ++retry)
+    CHECK(!game.TryOpen(1, budget) && game.UnackedBytes() == budget);
+  const auto events = Carry(game, server, 1);
+  CHECK(events.size() == 3 && events[1] == (Event{Event::Kind::Data, data}));
+  CHECK(events[2].kind == Event::Kind::Closed && game.UnackedBytes() == 0);
+  CHECK(game.TryOpen(2, budget));
+  CHECK(Carry(game, server, 2) == (std::vector<Event>{{Event::Kind::Opened, {}}}));
+  return 0;
+}
+
 int BackendWriteBudgetIsCheckedBeforeBuffering() {
   using ShadNetRpc::FitsWriteBudget;
   constexpr auto limit = 1 << 20;
@@ -365,6 +387,7 @@ int main() {
       UnreliableChannelsAreCapped() != 0 || UnackedBytesAreCounted() != 0 ||
       AnRpcMessagePastTheLimitBreaksTheTunnel() != 0 ||
       CoalescedReplyStaysWithinMessageAndQueueBounds() != 0 ||
+      RequestBudgetReservesCloseAndRecoversAfterAck() != 0 ||
       BackendWriteBudgetIsCheckedBeforeBuffering() != 0 ||
       RpcControlMessagesWithTrailingBytesDoNotChangeState() != 0 ||
       ClosedTunnelDoesNotDeliverData() != 0) {

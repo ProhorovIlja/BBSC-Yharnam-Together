@@ -46,6 +46,7 @@ void CloseSocket(Socket socket) {
 #endif
 
 constexpr int TickMs = 5;
+constexpr size_t MaxRequestUnackedBytes = 1 << 20;
 
 s64 NowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -134,7 +135,12 @@ private:
                 const int got =
                     recv(client, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
                 if (got > 0) {
-                    tunnel.Write({buffer.data(), static_cast<size_t>(got)}, now_ms);
+                    if (!tunnel.TryWrite({buffer.data(), static_cast<size_t>(got)}, now_ms,
+                                         MaxRequestUnackedBytes)) {
+                        LOG_ERROR(Lib_Net, "Rpc bridge: local request exceeded the unacknowledged budget");
+                        DropClient();
+                        tunnel.Close(now_ms);
+                    }
                 } else {
                     LOG_INFO(Lib_Net, "Rpc bridge: the game's connection ended");
                     DropClient();
@@ -165,7 +171,10 @@ private:
             return;
         }
 #endif
-        tunnel.Open(now_ms);
+        if (!tunnel.TryOpen(now_ms, MaxRequestUnackedBytes)) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: previous requests have not drained");
+            DropClient();
+        }
     }
 
     void DropClient() {
