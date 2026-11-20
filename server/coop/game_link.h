@@ -4,6 +4,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <limits>
@@ -296,6 +297,12 @@ private:
             ack_owed = true;
             return {};
         }
+        // A delayed frame from a recently replaced run is not a restart or
+        // evidence of liveness. Instance IDs are opaque, not ordered counters.
+        if (std::find(retired_instances.begin(), retired_instances.end(), frame.instance) !=
+            retired_instances.end()) {
+            return {};
+        }
         if (was_quiet) {
             heard_since_quiet = true;
         }
@@ -303,6 +310,8 @@ private:
         last_heard_ms = now_ms;
         if (!peer_instance || *peer_instance != frame.instance) {
             if (peer_instance) {
+                retired_instances[retired_cursor] = *peer_instance;
+                retired_cursor = (retired_cursor + 1) % retired_instances.size();
                 RestartStreams(heard_before);
             }
             peer_instance = frame.instance;
@@ -469,6 +478,8 @@ private:
     u32 instance;
     Settings settings;
     std::optional<u32> peer_instance;
+    std::array<std::optional<u32>, 8> retired_instances{};
+    size_t retired_cursor = 0;
     std::optional<s64> last_heard_ms;
 
     u32 next_reliable = 0;

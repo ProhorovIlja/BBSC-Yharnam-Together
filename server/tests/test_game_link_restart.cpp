@@ -98,14 +98,42 @@ static bool ARejectedOldTargetStillAdvertisesTheNewLocalRun() {
     return true;
 }
 
+static bool DelayedRetiredRunsCannotResetTheActiveStream() {
+    GameLinkPeer host{"host", 1};
+    host.Receive(GameFrame{"guest", 90, 1, 0, {}}, 100);
+    host.Receive(GameFrame{"guest", 70, 1, 0, {}}, 101);
+    host.Receive(GameFrame{"guest", 3, 1, 0, {}}, 102);
+    host.Send(PacketClass::Reliable, Packet(7, 1), 103);
+    host.Flush(103);
+    CHECK(host.Receive(GameFrame{"guest", 3, 1, 0,
+                                  {{PacketClass::Reliable, 1, Packet(7, 12)}}}, 104).empty());
+    for (u32 retired : {90u, 70u}) {
+        for (u32 target : {0u, 1u}) {
+            const GameFrame stale{"guest", retired, target, 1,
+                                  {{PacketClass::Reliable, 0, Packet(7, 99)}}};
+            CHECK(host.Receive(stale, 200).empty());
+            CHECK(host.Restarts() == 2);
+            CHECK(host.Unacked() == 1);
+            CHECK(host.SilentFor(210) == 106);
+        }
+    }
+    const auto delivered = host.Receive(GameFrame{"guest", 3, 1, 1,
+                                  {{PacketClass::Reliable, 0, Packet(7, 11)}}}, 211);
+    const std::vector<std::vector<u8>> expected{Packet(7, 11), Packet(7, 12)};
+    CHECK(delivered == expected);
+    CHECK(host.Unacked() == 0);
+    return true;
+}
+
 int main() {
     unsigned failed = 0;
     for (auto test : {WrongRecipientCannotResetOrAcknowledgeTheCurrentStream,
                       OldQueuedVisualsCannotPoisonTheNewSequenceSpace,
                       RejectedFrameCannotDiscardAPartialCoopMessage,
-                      ARejectedOldTargetStillAdvertisesTheNewLocalRun}) {
+                      ARejectedOldTargetStillAdvertisesTheNewLocalRun,
+                      DelayedRetiredRunsCannotResetTheActiveStream}) {
         if (!test()) ++failed;
     }
-    std::cout << "Game-link restart scenarios: " << (4 - failed) << "/4 passed\n";
+    std::cout << "Game-link restart scenarios: " << (5 - failed) << "/5 passed\n";
     return failed ? 1 : 0;
 }
