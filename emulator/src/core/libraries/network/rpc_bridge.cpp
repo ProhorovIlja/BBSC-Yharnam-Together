@@ -19,7 +19,7 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <sys/select.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -55,11 +55,17 @@ s64 NowMs() {
 
 // Whether `socket` has something to read (a connection, bytes, its end) within `ms`.
 bool Readable(Socket socket, int ms) {
+#ifdef _WIN32
     fd_set read_set;
     FD_ZERO(&read_set);
     FD_SET(socket, &read_set);
     timeval timeout{0, ms * 1000};
-    return select(static_cast<int>(socket) + 1, &read_set, nullptr, nullptr, &timeout) > 0;
+    return select(0, &read_set, nullptr, nullptr, &timeout) > 0;
+#else
+    // FD_SET is undefined for POSIX descriptors at or above FD_SETSIZE.
+    pollfd watched{socket, POLLIN, 0};
+    return poll(&watched, 1, ms) > 0 && (watched.revents & (POLLIN | POLLHUP | POLLERR));
+#endif
 }
 
 bool SendAll(Socket socket, std::span<const u8> bytes) {
