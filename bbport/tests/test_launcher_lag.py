@@ -101,51 +101,49 @@ class ShortcutTests(unittest.TestCase):
         import base64
         import json
         import os
+        import shutil
         import subprocess
         import tempfile
 
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch) / "Игры O'Brien $HOME"
             root.mkdir()
-            # The install path and the Shell Link destination are independent.
-            # Keep this fixture scoped to Unicode install fields; #242 also
-            # tracks the WScript save failure for a Unicode destination.
-            link = Path(scratch) / 'Bloodborne.lnk'
+            link = root / 'Bloodborne.lnk'
             script_path = root / 'launcher.py'
             target = Path(sys.executable).resolve()
-            result = launcher.write_desktop_shortcut(target, root, target, script_path,
-                                                      destination=link)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            launcher.write_shortcut(target, root, (target, 0), f'"{script_path}"',
+                                    destination=link)
             self.assertTrue(link.is_file())
-            # Read the saved COM properties in another process. Base64 avoids
-            # coupling the result to the runner's Windows console code page.
+            # Read via an independent COM wrapper. Keep that wrapper's file
+            # path ASCII; the native writer already saved to the Unicode path.
+            copy = Path(scratch) / 'readback.lnk'
+            shutil.copyfile(link, copy)
             read = ('$ErrorActionPreference="Stop";'
                     '$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:BBPORT_TEST_LINK);'
                     '$j=@($s.TargetPath,$s.WorkingDirectory,$s.Arguments)|ConvertTo-Json -Compress;'
                     '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($j))')
             output = subprocess.check_output(
                 ['powershell', '-NoProfile', '-NonInteractive', '-Command', read],
-                env={**os.environ, 'BBPORT_TEST_LINK': str(link)}, timeout=15)
+                env={**os.environ, 'BBPORT_TEST_LINK': str(copy)}, timeout=15)
             got_target, got_dir, got_args = json.loads(base64.b64decode(output))
             self.assertEqual(Path(got_target).resolve(), target)
             self.assertEqual(Path(got_dir).resolve(), root.resolve())
             self.assertEqual(got_args, f'"{script_path}"')
 
-    def test_shortcut_passes_paths_as_data_and_handles_start_failure(self):
+    def test_shortcut_passes_install_paths_and_handles_write_failure(self):
         app = types.SimpleNamespace(messagebox=mock.Mock())
         root = Path("C:/Игры/O'Brien $HOME")
         with (mock.patch.object(launcher, 'PORT_DIR', root),
               mock.patch.object(launcher, 'FROZEN', False),
               mock.patch.object(launcher, '__file__', str(root / 'bbport_launcher_win.py')),
-              mock.patch.object(launcher.subprocess, 'run', return_value=mock.Mock(returncode=0)) as run):
+              mock.patch.object(launcher, 'write_shortcut') as write):
             launcher.Launcher.shortcut(app)
-            args, kwargs = run.call_args
-            self.assertNotIn(str(root), args[0][-1])
-            self.assertEqual(kwargs['env']['BBPORT_LNK_WORKDIR'], str(root))
-            self.assertEqual(kwargs['env']['BBPORT_LNK_ARGS'],
-                             f'"{root / "bbport_launcher_win.py"}"')
+            _, workdir, icon, args = write.call_args.args
+            self.assertEqual(workdir, root)
+            self.assertEqual(icon, (root / 'launcher' / 'bloodborne.ico', 0))
+            self.assertEqual(args, f'"{root / "bbport_launcher_win.py"}"')
             app.messagebox.showinfo.assert_called_once()
-            run.side_effect = OSError('PowerShell unavailable')
+            write.side_effect = OSError('Shell Link unavailable')
             launcher.Launcher.shortcut(app)
             app.messagebox.showerror.assert_called_once()
 
