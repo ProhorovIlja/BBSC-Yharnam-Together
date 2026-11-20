@@ -653,10 +653,10 @@ def move_old_rules(install):
     moved = False
     try:
         if line and not rules.exists():
-            rules.write_text(line + '\n', encoding='utf-8')
+            write_json_atomic(rules, line + '\n')
             moved = True
-        path.write_text(json.dumps({key: value for key, value in saved.items() if key not in OLD_RULE_KEYS},
-                                   indent=2) + '\n', encoding='utf-8')
+        write_json_atomic(path, json.dumps({key: value for key, value in saved.items()
+                                            if key not in OLD_RULE_KEYS}, indent=2) + '\n')
     except OSError:
         pass
     return moved
@@ -738,6 +738,14 @@ def read_settings(install):
 def save_settings(install, settings):
     path = settings_path(install)
     saved = {key: settings.get(key, default) for key, default in DEFAULTS.items()}
+    # A failed migration must not lose the source rules during an unrelated
+    # automatic identity save. Successful migration already removed them.
+    try:
+        previous = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        previous = None
+    if isinstance(previous, dict):
+        saved.update({key: previous[key] for key in OLD_RULE_KEYS if key in previous})
     if settings.get('server_ids'):  # only once a server refused the id: older files stay as they were
         saved['server_ids'] = settings['server_ids']
     if settings.get('server_keys'):
