@@ -5304,7 +5304,12 @@ class Launcher:
             finally:
                 # Stop must run after Start and its router work, not alongside them.
                 self.ui_calls.put(complete)
-        threading.Thread(target=work, daemon=True).start()
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except RuntimeError as error:
+            self.server_starting = False
+            self.coop_server_line.configure(
+                text=_('Could not start server: {}', 'Не удалось запустить сервер: {}').format(error), fg=BAD)
 
     def coop_open_router(self):
         """Off the window's thread: asks the router to forward the host's ports (UPnP) and says what came of
@@ -5373,14 +5378,24 @@ class Launcher:
                 self.coop_server_line.configure(text=text, fg=color)
 
             self.ui_calls.put(complete)
-        threading.Thread(target=work, daemon=True).start()
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except RuntimeError as error:
+            self.server_stopping = False
+            self.coop_server_line.configure(
+                text=_('Could not stop server: {}', 'Не удалось остановить сервер: {}').format(error), fg=BAD)
 
     def coop_watch_server(self):
         """Refresh local server status when no explicit Start or Stop is in progress."""
         if not (self.server_checking or self.server_starting or self.server_stopping):
             self.server_checking = True
-            threading.Thread(target=self.coop_check_server,
-                             args=(self.server_status_epoch,), daemon=True).start()
+            try:
+                threading.Thread(target=self.coop_check_server,
+                                 args=(self.server_status_epoch,), daemon=True).start()
+            except RuntimeError:
+                self.server_checking = False
+                self.coop_server_line.configure(
+                    text=_('Status unavailable', 'Состояние недоступно'), fg=CAUTION)
         self.server_poll = self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
 
     def coop_check_server(self, epoch):

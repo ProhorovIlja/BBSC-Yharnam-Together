@@ -517,6 +517,33 @@ class AnimationTests(unittest.TestCase):
         self.assertFalse(window.server_checking)
         window.coop_server_line.configure.assert_not_called()
 
+    def test_server_controls_recover_when_worker_cannot_start(self):
+        methods = launcher.Launcher
+        window = types.SimpleNamespace(
+            coop={'host_ip': '127.0.0.1'}, server_starting=False, server_stopping=False,
+            server_stop_pending=False, server_status_epoch=0, server_checking=False,
+            coop_server_line=mock.Mock(), root=mock.Mock(), coop_watch_server=mock.Mock(),
+            coop_check_server=mock.Mock(),
+        )
+        with mock.patch.object(launcher.threading, 'Thread') as thread, (
+                mock.patch.multiple(launcher.bbport_coop, valid_ip=mock.Mock(return_value=True),
+                                    is_this_pc=mock.Mock(return_value=True))), (
+                mock.patch.object(launcher, '_', side_effect=lambda english, *_: english)):
+            thread.return_value.start.side_effect = RuntimeError('worker unavailable')
+            methods.coop_start_servers(window)
+            self.assertFalse(window.server_starting)
+            window.coop_server_line.configure.assert_called_with(
+                text='Could not start server: worker unavailable', fg=launcher.BAD)
+            methods.coop_stop_servers(window)
+            self.assertFalse(window.server_stopping)
+            window.coop_server_line.configure.assert_called_with(
+                text='Could not stop server: worker unavailable', fg=launcher.BAD)
+            methods.coop_watch_server(window)
+        self.assertFalse(window.server_checking)
+        window.coop_server_line.configure.assert_called_with(
+            text='Status unavailable', fg=launcher.CAUTION)
+        window.root.after.assert_called_once_with(launcher.SERVER_CHECK_MS, window.coop_watch_server)
+
     def test_start_server_probe_error_clears_starting_and_does_not_open_router(self):
         window = types.SimpleNamespace(
             coop={'host_ip': '127.0.0.1'}, server_starting=False, server_stopping=False,
