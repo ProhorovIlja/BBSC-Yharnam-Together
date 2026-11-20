@@ -448,6 +448,7 @@ class AnimationTests(unittest.TestCase):
         def thread(*, target, daemon):
             return types.SimpleNamespace(start=lambda: jobs.append(target))
         with mock.patch.object(launcher.threading, 'Thread', side_effect=thread), \
+                mock.patch.object(launcher.bbport_coop, 'valid_ip', return_value=True), \
                 mock.patch.object(launcher.bbport_coop, 'is_this_pc', return_value=True), \
                 mock.patch.object(launcher.bbport_coop, 'start_servers', return_value=[]), \
                 mock.patch.object(launcher.bbport_coop, 'server_state', side_effect=OSError('probe failed')), \
