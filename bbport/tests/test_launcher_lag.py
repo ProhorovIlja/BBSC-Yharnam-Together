@@ -98,10 +98,9 @@ class CoopCardTypingTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
 class ShortcutTests(unittest.TestCase):
     def test_real_shell_link_round_trips_unicode_paths(self):
-        import base64
-        import json
         import os
         import shutil
+        import struct
         import subprocess
         import tempfile
 
@@ -113,22 +112,41 @@ class ShortcutTests(unittest.TestCase):
             target = Path(sys.executable).resolve()
             launcher.write_shortcut(target, root, (target, 0), f'"{script_path}"',
                                     destination=link)
-            self.assertTrue(link.is_file())
-            # Read via an independent COM wrapper. Keep that wrapper's file
-            # path ASCII; the native writer already saved to the Unicode path.
+            data = link.read_bytes()
+            # Parse the writer's persisted StringData per MS-SHLLINK. The
+            # WScript reader has its own lossy conversion on this runner.
+            header_size, = struct.unpack_from('<I', data, 0)
+            flags, = struct.unpack_from('<I', data, 20)
+            self.assertEqual(header_size, 0x4c)
+            self.assertTrue(flags & 0x80, 'expected Unicode StringData')
+            offset = header_size
+            if flags & 1:
+                offset += 2 + struct.unpack_from('<H', data, offset)[0]
+            if flags & 2:
+                offset += struct.unpack_from('<I', data, offset)[0]
+            fields = {}
+            for flag in (4, 8, 16, 32, 64):
+                if flags & flag:
+                    count, = struct.unpack_from('<H', data, offset)
+                    offset += 2
+                    end = offset + 2 * count
+                    self.assertLessEqual(end, len(data))
+                    fields[flag] = data[offset:end].decode('utf-16-le')
+                    offset = end
+            self.assertEqual(Path(fields[16]).resolve(), root.resolve())
+            self.assertEqual(fields[32], f'"{script_path}"')
+
+            # Separately confirm the ASCII target via COM, without using it
+            # to decide whether the Unicode fields survived on disk.
             copy = Path(scratch) / 'readback.lnk'
             shutil.copyfile(link, copy)
             read = ('$ErrorActionPreference="Stop";'
                     '$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:BBPORT_TEST_LINK);'
-                    '$j=@($s.TargetPath,$s.WorkingDirectory,$s.Arguments)|ConvertTo-Json -Compress;'
-                    '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($j))')
+                    '$s.TargetPath')
             output = subprocess.check_output(
                 ['powershell', '-NoProfile', '-NonInteractive', '-Command', read],
                 env={**os.environ, 'BBPORT_TEST_LINK': str(copy)}, timeout=15)
-            got_target, got_dir, got_args = json.loads(base64.b64decode(output))
-            self.assertEqual(Path(got_target).resolve(), target)
-            self.assertEqual(Path(got_dir).resolve(), root.resolve())
-            self.assertEqual(got_args, f'"{script_path}"')
+            self.assertEqual(Path(os.fsdecode(output.strip())).resolve(), target)
 
     def test_shortcut_passes_install_paths_and_handles_write_failure(self):
         app = types.SimpleNamespace(messagebox=mock.Mock())
