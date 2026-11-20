@@ -5526,6 +5526,8 @@ class Launcher:
         keeps saying why it was stopped."""
         what, self.coop_new_id = getattr(self, 'coop_new_id', None), None
         playing, self.coop_playing = getattr(self, 'coop_playing', None), None
+        if getattr(self, 'run_stopped', False):
+            return  # Stop wins even if recovery was queued before the click
         if what == 'retry' and playing:
             settings, root = playing
             account, secret = bbport_coop.player_id_for(self.coop, settings['server'])

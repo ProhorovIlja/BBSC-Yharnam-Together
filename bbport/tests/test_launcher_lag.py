@@ -421,6 +421,17 @@ class AnimationTests(unittest.TestCase):
         window.set_running.assert_not_called()
         window.status.configure.assert_not_called()
 
+    def test_manual_stop_wins_over_already_scheduled_account_retry(self):
+        window = types.SimpleNamespace(
+            coop_new_id='retry', coop_playing=object(), installing=False, job=mock.Mock(),
+            cancel_ready_close=mock.Mock(), coop_start_game=mock.Mock(),
+        )
+        launcher.Launcher.stop(window)
+        launcher.Launcher.coop_game_ended(window)
+        self.assertIsNone(window.coop_new_id)
+        self.assertIsNone(window.coop_playing)
+        window.coop_start_game.assert_not_called()
+
     def test_manual_stop_cancels_close_and_late_ready_cannot_rearm(self):
         window = types.SimpleNamespace(
             ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),
