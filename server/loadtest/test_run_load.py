@@ -7,7 +7,8 @@ from run_load import validate_worker
 class WorkerResultTests(unittest.TestCase):
     def row(self, **overrides):
         return dict(teams=2, team_size=5, games=10, linked=10, playing=10,
-                    refused=0, packets_sent=100, packets_received=98) | overrides
+                    refused=0, packets_sent=100, packets_received=98,
+                    exchanging_game_traffic=10) | overrides
 
     def test_exact_five_hunter_run(self):
         validate_worker(self.row(), 2, 5, True)
@@ -39,3 +40,7 @@ class WorkerResultTests(unittest.TestCase):
         for row in (self.row(linked=9), self.row(linked=11)):
             with self.assertRaisesRegex(RuntimeError, "participation"):
                 validate_worker(row, 2, 5, True)
+
+    def test_one_silent_hunter_fails_despite_nonzero_worker_totals(self):
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            validate_worker(self.row(exchanging_game_traffic=9), 2, 5, True)

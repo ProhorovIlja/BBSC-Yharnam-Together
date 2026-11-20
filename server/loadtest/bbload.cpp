@@ -143,6 +143,7 @@ public:
   void Tick(s64 now_us);
   bool Playing() const { return state == State::Playing; }
   bool Linked() const { return state != State::Linking; }
+  bool ExchangedGameTraffic() const { return sent_game && received_game; }
   std::string name; // its online id
   std::string
       member; // its board name: the online id in hex, as the games say it
@@ -189,6 +190,8 @@ private:
   u64 epoch = 0;
   std::string team_id;
   bool invited = false;
+  bool sent_game = false;
+  bool received_game = false;
   int team_members = 0; // in its team, as its last lobby state said
   bool readied = false;
   bool started = false;
@@ -304,9 +307,11 @@ private:
     Report(NowUs());
     int linked = 0;
     int playing = 0;
+    int exchanging = 0;
     for (auto &game : games) {
       linked += game->Linked();
       playing += game->Playing();
+      exchanging += game->ExchangedGameTraffic();
     }
     const double seconds = (NowUs() - started_us) / 1e6;
     QJsonObject out{
@@ -315,6 +320,7 @@ private:
         {"team_size", settings.team_size},
         {"linked", linked},
         {"playing", playing},
+        {"exchanging_game_traffic", exchanging},
         {"seconds", seconds},
         {"packets_sent", static_cast<double>(totals.packets_sent)},
         {"packets_received", static_cast<double>(totals.packets_received)},
@@ -645,6 +651,7 @@ void Game::SendGamePackets(s64 now_us) {
     } else {
       add(0x06, 96);
     }
+    sent_game = true;
     load.totals.packets_sent += frame.entries.size();
     const std::vector<u8> payload = EncodeGameFrame(frame);
     QByteArray body = QByteArray::fromHex("0e4a0e4a") + "SHAD";
@@ -675,6 +682,7 @@ void Game::TakeData(const QByteArray &frame, s64 now_us) {
     u32 seq = 0;
     GameLinkDetail::Get(std::span<const u8>{entry.packet}, at, sent);
     GameLinkDetail::Get(std::span<const u8>{entry.packet}, at, seq);
+    received_game = true;
     ++load.totals.packets_received;
     load.totals.relay_us.Add(now_us - static_cast<s64>(sent));
     load.window_relay.Add(now_us - static_cast<s64>(sent));

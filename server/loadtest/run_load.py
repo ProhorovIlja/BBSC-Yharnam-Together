@@ -82,13 +82,16 @@ def validate_worker(row, teams, team_size, require_all_playing):
     if any(type(row.get(key)) is not int or row[key] != value
            for key, value in expected.items()):
         raise RuntimeError("bbload reported a different party shape than scheduled")
-    counters = ("linked", "playing", "refused", "packets_sent", "packets_received")
+    counters = ("linked", "playing", "refused", "packets_sent", "packets_received",
+                "exchanging_game_traffic")
     if any(type(row.get(key)) is not int or row[key] < 0 for key in counters):
         raise RuntimeError("bbload reported invalid or missing smoke counters")
-    if not 0 <= row["playing"] <= row["linked"] <= row["games"]:
+    if not (0 <= row["playing"] <= row["linked"] <= row["games"]
+            and row["exchanging_game_traffic"] <= row["games"]):
         raise RuntimeError("bbload reported inconsistent participation counts")
     if require_all_playing and (
             row["playing"] != row["games"] or row["refused"]
+            or row["exchanging_game_traffic"] != row["games"]
             or not row["packets_sent"] or not row["packets_received"]):
         raise RuntimeError("incomplete loopback smoke: a worker did not reach play and exchange traffic")
 
@@ -307,6 +310,7 @@ def run(args, home, cleanup):
         "teams": teams,
         "team_size": args.team_size,
         "playing": sum(r["playing"] for r in results),
+        "exchanging_game_traffic": sum(r["exchanging_game_traffic"] for r in results),
         "refused": sum(r["refused"] for r in results),
         "packets_sent": sum(r["packets_sent"] for r in results),
         "packets_received": sum(r["packets_received"] for r in results),
