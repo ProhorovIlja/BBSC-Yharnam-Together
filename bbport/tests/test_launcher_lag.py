@@ -486,17 +486,36 @@ class AnimationTests(unittest.TestCase):
         )
         with mock.patch.object(launcher, '_', side_effect=lambda english, *_: english):
             with mock.patch.object(launcher.bbport_coop, 'server_state', return_value='running'):
-                launcher.Launcher.coop_check_server(window)
+                launcher.Launcher.coop_check_server(window, window.server_status_epoch)
             window.server_status_epoch += 1
             window.ui_calls.get_nowait()()
             window.coop_server_line.configure.assert_not_called()
             window.server_checking = True
             with mock.patch.object(launcher.bbport_coop, 'server_state', side_effect=OSError('probe')):
-                launcher.Launcher.coop_check_server(window)
+                launcher.Launcher.coop_check_server(window, window.server_status_epoch)
             window.ui_calls.get_nowait()()
         self.assertFalse(window.server_checking)
         window.coop_server_line.configure.assert_called_once_with(
             text='Status unavailable', fg=launcher.CAUTION)
+
+    def test_server_watch_captures_epoch_when_worker_is_scheduled(self):
+        methods = launcher.Launcher
+        window = types.SimpleNamespace(
+            coop={}, server_starting=False, server_stopping=False, server_checking=False,
+            server_status_epoch=1, coop_server_line=mock.Mock(), ui_calls=queue.Queue(),
+            root=mock.Mock(), coop_watch_server=mock.Mock(),
+        )
+        window.coop_check_server = lambda *args: methods.coop_check_server(window, *args)
+        with mock.patch.object(launcher.threading, 'Thread') as thread:
+            methods.coop_watch_server(window)
+        # A newer operation can finish before the original thread even starts.
+        window.server_status_epoch = 3
+        scheduled = thread.call_args.kwargs
+        with mock.patch.object(launcher.bbport_coop, 'server_state', return_value='running'):
+            scheduled['target'](*scheduled.get('args', ()))
+        window.ui_calls.get_nowait()()
+        self.assertFalse(window.server_checking)
+        window.coop_server_line.configure.assert_not_called()
 
     def test_start_server_probe_error_clears_starting_and_does_not_open_router(self):
         window = types.SimpleNamespace(

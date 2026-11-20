@@ -5379,11 +5379,11 @@ class Launcher:
         """Refresh local server status when no explicit Start or Stop is in progress."""
         if not (self.server_checking or self.server_starting or self.server_stopping):
             self.server_checking = True
-            threading.Thread(target=self.coop_check_server, daemon=True).start()
+            threading.Thread(target=self.coop_check_server,
+                             args=(self.server_status_epoch,), daemon=True).start()
         self.server_poll = self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
 
-    def coop_check_server(self):
-        epoch = self.server_status_epoch
+    def coop_check_server(self, epoch):
         try:
             state = bbport_coop.server_state()
             if state == 'running':
