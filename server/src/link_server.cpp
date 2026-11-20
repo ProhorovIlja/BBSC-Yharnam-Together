@@ -19,6 +19,7 @@
 #include "config.h"
 #include "coop/build_fingerprint.h"
 #include "link_server.h"
+#include "rpc_write_budget.h"
 #include "signed_accounts.h"
 
 namespace {
@@ -881,16 +882,20 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
             OpenRpc(online_id, end);
             break;
         case Kind::Data: {
-            const QByteArray data(reinterpret_cast<const char*>(event.bytes.data()),
-                                  static_cast<qsizetype>(event.bytes.size()));
-            if (end.socket && end.socket->state() == QAbstractSocket::ConnectedState) {
-                end.socket->write(data);
-            } else if (end.pending.size() + data.size() <= MaxRpcPendingBytes) {
-                end.pending.append(data);
-            } else {
-                // The connection to the TCP port is not up and the game keeps sending: over.
-                CloseRpc(end);
+            if (!end.socket || event.bytes.empty())
+                break;
+            const auto size = static_cast<qsizetype>(event.bytes.size());
+            const auto* data = reinterpret_cast<const char*>(event.bytes.data());
+            const bool connected = end.socket->state() == QAbstractSocket::ConnectedState;
+            const auto queued = connected ? end.socket->bytesToWrite() : end.pending.size();
+            if (!ShadNetRpc::FitsWriteBudget(queued, size, MaxRpcPendingBytes) ||
+                (connected && end.socket->write(data, size) != size)) {
+                // This local backend isn't consuming the request. Abort the
+                // socket rather than waiting for its queued writes to drain.
+                CloseRpc(end, true);
                 end.tunnel->Close(m_clock.elapsed());
+            } else if (!connected) {
+                end.pending.append(data, size);
             }
             break;
         }
@@ -913,9 +918,17 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
         return found != m_rpc.end() && found->second->socket == socket ? found->second.get()
                                                                        : nullptr;
     };
-    connect(socket, &QTcpSocket::connected, this, [socket, mine] {
-        if (RpcEnd* at = mine(); at && !at->pending.isEmpty())
-            socket->write(std::exchange(at->pending, {}));
+    connect(socket, &QTcpSocket::connected, this, [this, socket, mine] {
+        if (RpcEnd* at = mine(); at && !at->pending.isEmpty()) {
+            const QByteArray pending = std::exchange(at->pending, {});
+            if (!ShadNetRpc::FitsWriteBudget(socket->bytesToWrite(), pending.size(),
+                                            MaxRpcPendingBytes) ||
+                socket->write(pending) != pending.size()) {
+                CloseRpc(*at, true);
+                at->tunnel->Close(m_clock.elapsed());
+                FlushRpc(*at);
+            }
+        }
     });
     connect(socket, &QTcpSocket::readyRead, this, [this, socket, mine] {
         RpcEnd* at = mine();
@@ -949,11 +962,14 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
     socket->connectToHost(QHostAddress::LocalHost, m_tcpPort);
 }
 
-void LinkServer::CloseRpc(RpcEnd& end) {
+void LinkServer::CloseRpc(RpcEnd& end, bool abort) {
     end.pending.clear();
     if (QTcpSocket* socket = std::exchange(end.socket, nullptr)) {
         // Its disconnected signal finds it no longer the game's connection, and deletes it.
-        socket->disconnectFromHost();
+        if (abort)
+            socket->abort();
+        else
+            socket->disconnectFromHost();
         if (socket->state() == QAbstractSocket::UnconnectedState)
             socket->deleteLater();
     }

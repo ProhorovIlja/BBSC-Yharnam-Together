@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "coop/rpc_tunnel.h"
+#include "src/rpc_write_budget.h"
 
 namespace {
 
@@ -266,6 +267,20 @@ int AnRpcMessagePastTheLimitBreaksTheTunnel() {
   return 0;
 }
 
+int BackendWriteBudgetIsCheckedBeforeBuffering() {
+  using ShadNetRpc::FitsWriteBudget;
+  constexpr auto limit = 1 << 20;
+  CHECK(FitsWriteBudget(0, limit, limit));
+  CHECK(FitsWriteBudget(limit - 1, 1, limit));
+  CHECK(!FitsWriteBudget(limit - 1, 2, limit));
+  CHECK(!FitsWriteBudget(limit + 1, 0, limit));
+  CHECK(!FitsWriteBudget(-1, 1, limit));
+  CHECK(!FitsWriteBudget(0, -1, limit));
+  CHECK(!FitsWriteBudget(INT64_MAX, INT64_MAX, INT64_MAX));
+  std::cout << "rpc tunnel: local backend write budget boundaries passed\n";
+  return 0;
+}
+
 int CoalescedReplyStaysWithinMessageAndQueueBounds() {
   RpcTunnel server{"shadnet", 9};
   RpcTunnel game{"game", 7, {.message_bytes = 64 * 1024}};
@@ -301,7 +316,8 @@ int main() {
       OutOfOrderChunksAreHeldUpToTheLimit() != 0 ||
       UnreliableChannelsAreCapped() != 0 || UnackedBytesAreCounted() != 0 ||
       AnRpcMessagePastTheLimitBreaksTheTunnel() != 0 ||
-      CoalescedReplyStaysWithinMessageAndQueueBounds() != 0) {
+      CoalescedReplyStaysWithinMessageAndQueueBounds() != 0 ||
+      BackendWriteBudgetIsCheckedBeforeBuffering() != 0) {
     return 1;
   }
   return 0;

@@ -101,7 +101,7 @@ private:
     void OnRpc(const ServerLink::Endpoint& from, const QByteArray& online_id,
                const QByteArray& body);
     void OpenRpc(const QByteArray& online_id, RpcEnd& end);
-    void CloseRpc(RpcEnd& end);
+    void CloseRpc(RpcEnd& end, bool abort = false);
     void FlushRpc(RpcEnd& end);
 
     QUdpSocket* m_socket;
