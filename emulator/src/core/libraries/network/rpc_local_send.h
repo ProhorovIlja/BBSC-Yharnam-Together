@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stop_token>
 #ifdef _WIN32
 #include <winsock2.h>
 #else
@@ -51,7 +52,8 @@ inline std::int64_t NowMs() {
                std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-inline bool SendAll(Socket socket, std::span<const std::uint8_t> bytes) {
+inline bool SendAll(Socket socket, std::span<const std::uint8_t> bytes,
+                    std::stop_token stop = {}) {
 #if !defined(_WIN32) && defined(MSG_NOSIGNAL)
     constexpr int flags = MSG_NOSIGNAL;
 #else
@@ -60,7 +62,7 @@ inline bool SendAll(Socket socket, std::span<const std::uint8_t> bytes) {
     const auto deadline = NowMs() + LocalReplyBudgetMs;
     size_t sent = 0;
     while (sent < bytes.size()) {
-        if (NowMs() >= deadline)
+        if (stop.stop_requested() || NowMs() >= deadline)
             return false;
         const int rc = send(socket, reinterpret_cast<const char*>(bytes.data() + sent),
                             static_cast<int>(bytes.size() - sent), flags);
