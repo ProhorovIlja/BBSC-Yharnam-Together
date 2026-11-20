@@ -525,10 +525,12 @@ class AnimationTests(unittest.TestCase):
             coop_prepare_and_play=mock.Mock(), status=mock.Mock(), messagebox=mock.Mock(),
         )
         window.coop_start_game = lambda *args: methods.coop_start_game(window, *args)
-        with mock.patch.multiple(launcher.bbport_coop, missing=mock.Mock(return_value=False),
-                                 played_settings=mock.Mock(return_value={})), (
-                mock.patch.object(launcher.threading, 'Thread') as thread), (
-                mock.patch.object(launcher, '_', side_effect=lambda english, *_: english)):
+        with (
+            mock.patch.multiple(launcher.bbport_coop, missing=mock.Mock(return_value=False),
+                                played_settings=mock.Mock(return_value={})),
+            mock.patch.object(launcher.threading, 'Thread') as thread,
+            mock.patch.object(launcher, '_', side_effect=lambda english, *_: english),
+        ):
             thread.return_value.start.side_effect = RuntimeError('worker unavailable')
             methods.play_coop(window)
         self.assertFalse(window.coop_busy)
