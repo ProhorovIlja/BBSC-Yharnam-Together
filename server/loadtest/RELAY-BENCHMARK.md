@@ -40,3 +40,11 @@ after a full five-hunter loopback run. Timing maxima include startup.
 Strict smoke also requires a usable packet from each directed teammate route
 in the final two seconds. Startup traffic alone cannot hide a route that
 goes silent later. This is a liveness check, not a latency target.
+
+The isolated relay comparison workflow builds the PR base and head with the
+same Docker build recipe and separate compile caches, then runs both with one
+simulator in a container without external networking. It records Git revisions,
+binary hashes, raw trials and paired deltas in the Actions artifact. Its two
+repetitions are a CI comparison, not a release threshold. The baseline has no
+private timing instrumentation, so this workflow does not compare admin tick
+counters; use two instrumented binaries for that comparison.

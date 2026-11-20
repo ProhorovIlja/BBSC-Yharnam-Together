@@ -95,7 +95,8 @@ RUN test -f externals/protobuf/CMakeLists.txt \
         || (echo "externals/protobuf is empty: run git submodule update --init" && exit 1)
 # The build folder is a BuildKit cache: a rebuild after a source change compiles only that.
 ARG RUN_WORLD_TESTS=0
-RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
+ARG BUILD_CACHE_ID=shadnet-build
+RUN --mount=type=cache,id=${BUILD_CACHE_ID},target=/src/server/build \
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/qt \
     && cmake --build build --target shadnet $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
     && if [ "$RUN_WORLD_TESTS" = 1 ]; then \
@@ -126,7 +127,8 @@ RUN sh /usr/local/bin/collect-runtime.sh /bin-out/shadnet /opt/qt /out
 #   docker build --target loadtest -t yharnam-bbload:local -f server/hosting/Dockerfile .
 FROM build AS loadtest-build
 ARG BUILD_JOBS=0
-RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
+ARG BUILD_CACHE_ID=shadnet-build
+RUN --mount=type=cache,id=${BUILD_CACHE_ID},target=/src/server/build \
     cmake --build build --target bbload $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
     && strip -o /bin-out/bbload build/bbload \
     && sh /usr/local/bin/collect-runtime.sh /bin-out/bbload /opt/qt /out-bbload

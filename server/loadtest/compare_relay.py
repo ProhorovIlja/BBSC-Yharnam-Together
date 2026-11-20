@@ -58,13 +58,18 @@ def timing_summary(runs, repeats):
     } for size in (2, 5)}
 
 
-def summarize(runs, repeats):
+def paired_deltas(runs, repeats):
     by_key = {(r["trial"], r["team_size"], r["side"]): r["metrics"] for r in runs}
     return {str(size): {
-        key: statistics.median(by_key[trial, size, "candidate"][key] -
-                               by_key[trial, size, "base"][key] for trial in range(repeats))
+        key: [by_key[trial, size, "candidate"][key] - by_key[trial, size, "base"][key]
+              for trial in range(repeats)]
         for key in METRICS
     } for size in (2, 5)}
+
+
+def summarize(runs, repeats):
+    return {size: {key: statistics.median(values) for key, values in metrics.items()}
+            for size, metrics in paired_deltas(runs, repeats).items()}
 
 
 def main():
@@ -107,7 +112,8 @@ def main():
             raise ValueError("a benchmark binary changed during the comparison")
         report = {"sha256": hashes, "trials": args.trials, "teams": args.teams,
                   "seconds": args.seconds, "hosted_timing": args.hosted_timing, "runs": runs,
-                  "candidate_minus_base_median": summarize(runs, args.trials)}
+                  "candidate_minus_base_median": summarize(runs, args.trials),
+                  "candidate_minus_base_trials": paired_deltas(runs, args.trials)}
         if args.hosted_timing:
             report["timing_candidate_minus_base_median"] = timing_summary(runs, args.trials)
         print(json.dumps(report, allow_nan=False))

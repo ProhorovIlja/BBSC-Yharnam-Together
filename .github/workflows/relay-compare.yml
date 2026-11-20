@@ -1,0 +1,70 @@
+name: Isolated ShadNet relay comparison
+on:
+  pull_request:
+    paths: ['.github/workflows/relay-compare.yml']
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Full baseline commit SHA from this repository
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.baseline }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare exact baseline and candidate sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$BASE_SHA" != "$HEAD_SHA"
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          git submodule update --init --depth 1 server/externals/protobuf
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          git -C "$RUNNER_TEMP/base" submodule update --init --depth 1 server/externals/protobuf
+          # Hold the toolchain and build recipe constant; baseline application sources stay pinned.
+          cp server/hosting/Dockerfile server/hosting/Dockerfile.dockerignore "$RUNNER_TEMP/base/server/hosting/"
+      - name: Build both binaries with separate compile caches
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --target build --build-arg BUILD_JOBS=2 --build-arg BUILD_CACHE_ID=relay-base \
+            -f "$RUNNER_TEMP/base/server/hosting/Dockerfile" -t relay-base "$RUNNER_TEMP/base"
+          docker build --target loadtest-build --build-arg BUILD_JOBS=2 --build-arg BUILD_CACHE_ID=relay-candidate \
+            -f server/hosting/Dockerfile -t relay-candidate .
+          mkdir -p "$RUNNER_TEMP/relay-input" "$RUNNER_TEMP/relay-output"
+          id=$(docker create relay-base)
+          trap 'docker rm "$id" >/dev/null' EXIT
+          docker cp "$id:/bin-out/shadnet" "$RUNNER_TEMP/relay-input/shadnet"
+          chmod a+rx "$RUNNER_TEMP/relay-input/shadnet"
+      - name: Run strict two- and five-hunter paired trials on loopback only
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" \
+            --mount "type=bind,src=$RUNNER_TEMP/relay-input,dst=/bench,readonly" \
+            -e LD_LIBRARY_PATH=/opt/qt/lib -e QT_PLUGIN_PATH=/opt/qt/plugins relay-candidate \
+            python3 /src/server/loadtest/compare_relay.py --base /bench/shadnet \
+              --candidate /bin-out/shadnet --bbload /bin-out/bbload --trials 2 --seconds 15 \
+            > "$RUNNER_TEMP/relay-output/relay-ab.json"
+          printf 'baseline=%s\ncandidate=%s\n' "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/relay-output/revisions.txt"
+          python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["candidate_minus_base_median"], indent=2))' \
+            "$RUNNER_TEMP/relay-output/relay-ab.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadnet-relay-ab
+          path: ${{ runner.temp }}/relay-output/
+          if-no-files-found: error
+          retention-days: 14

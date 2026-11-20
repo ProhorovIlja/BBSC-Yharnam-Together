@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import json
 
-from compare_relay import METRICS, schedule, summarize, timing_summary, validate
+from compare_relay import METRICS, paired_deltas, schedule, summarize, timing_summary, validate
 from run_load import TIMING_KEYS, admin_timing
 
 
@@ -38,6 +38,7 @@ class ComparisonTests(unittest.TestCase):
                              for key in METRICS}} for trial, size, side in schedule(4)]
         self.assertEqual(summarize(runs, 4)["2"]["relay_ms_p99"], 3.5)
         self.assertEqual(summarize(runs, 4)["5"]["relay_ms_p99"], 6.5)
+        self.assertEqual(paired_deltas(runs, 4)["5"]["relay_ms_p99"], [5, 6, 7, 8])
 
     @patch("run_load.subprocess.run")
     def test_only_known_timing_fields_returned(self, run):
