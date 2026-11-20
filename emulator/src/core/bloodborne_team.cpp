@@ -548,8 +548,10 @@ std::optional<std::vector<HeldGoods>> PhantomKeyItemLedger::LookAtOwn(u64 list,
     return OwedKeyItemsToGive(carried, own_look);
 }
 
-bool PhantomKeyItemLedger::AcknowledgeObservedReturn() {
-    if (phantom_list != 0 || !OwedKeyItemsToGive(carried, own_look).empty()) {
+bool PhantomKeyItemLedger::AcknowledgeObservedReturn(
+    const std::function<bool()>& clear_sidecar) {
+    if (phantom_list != 0 || !OwedKeyItemsToGive(carried, own_look).empty() ||
+        !clear_sidecar()) {
         return false;
     }
     carried.clear();
