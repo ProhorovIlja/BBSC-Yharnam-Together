@@ -107,7 +107,10 @@ class ShortcutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch) / "Игры O'Brien $HOME"
             root.mkdir()
-            link = root / 'Bloodborne.lnk'
+            # The install path and the Shell Link destination are independent.
+            # Keep this fixture scoped to Unicode install fields; #242 also
+            # tracks the WScript save failure for a Unicode destination.
+            link = Path(scratch) / 'Bloodborne.lnk'
             script_path = root / 'launcher.py'
             target = Path(sys.executable).resolve()
             result = launcher.write_desktop_shortcut(target, root, target, script_path,
