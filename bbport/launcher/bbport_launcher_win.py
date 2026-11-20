@@ -2493,6 +2493,7 @@ class WindowChrome:
         self.enabled = sys.platform == 'win32' and not self.native_frame
         self.applied, self.restore, self.sizing, self.grab = False, None, None, None
         self.native_grab = self.drag_job = self.drag_point = self.drag_target = None
+        self.resize_job = self.resize_point = self.resize_target = None
 
     def hwnd(self):
         return int(self.root.wm_frame(), 16)
@@ -2588,19 +2589,48 @@ class WindowChrome:
         widget.bind('<ButtonRelease-1>', self.drag_end, add='+')
 
     def resize_start(self, event):
-        self.sizing = (event.x_root, event.y_root, self.root.winfo_width(), self.root.winfo_height())
+        self.resize_end()
+        if not self.native_frame and not self.restore:
+            w, h = self.root.winfo_width(), self.root.winfo_height()
+            self.sizing = (event.x_root, event.y_root, w, h)
+            self.resize_target = (w, h)
 
     def resize_move(self, event):
-        if self.sizing and not self.restore:
-            x, y, w, h = self.sizing
-            minw, minh = self.root.minsize()
-            self.root.geometry(f'{max(minw, w + event.x_root - x)}x{max(minh, h + event.y_root - y)}')
+        if self.sizing is not None and not self.restore:
+            self.resize_point = event.x_root, event.y_root
+            if self.resize_job is None:
+                self.resize_job = self.root.after(8, self.flush_resize)
+
+    def flush_resize(self):
+        self.resize_job = None
+        if self.sizing is None or self.resize_point is None or self.restore:
+            return
+        x, y, w, h = self.sizing
+        px, py = self.resize_point
+        self.resize_point = None
+        minw, minh = self.root.minsize()
+        target = max(minw, w + px - x), max(minh, h + py - y)
+        if target != self.resize_target:
+            self.root.geometry(f'{target[0]}x{target[1]}')
+            self.resize_target = target
+
+    def resize_end(self, event=None):
+        if self.resize_job is not None:
+            self.root.after_cancel(self.resize_job)
+            self.resize_job = None
+        try:
+            if event is not None and self.sizing is not None:
+                self.resize_point = event.x_root, event.y_root
+                self.flush_resize()
+        finally:
+            self.sizing = self.resize_point = self.resize_target = None
 
     def zoomed(self):
         return self.restore is not None
 
     def toggle_zoom(self, _event=None):
         """Maximize: the work area of the screen the window is on; again: back to where it was."""
+        self.resize_end()
         if self.restore:
             self.root.geometry(self.restore)
             self.restore = None
@@ -3677,6 +3707,7 @@ class Launcher:
         if not self.chrome.native_frame:
             self.grip.bind('<ButtonPress-1>', self.chrome.resize_start)
             self.grip.bind('<B1-Motion>', self.chrome.resize_move)
+            self.grip.bind('<ButtonRelease-1>', self.chrome.resize_end)
         self.side.flush()
         if self.motion.enabled:
             self.side.set_reveal(0.0)
@@ -7536,6 +7567,7 @@ class Launcher:
             chrome = getattr(self, 'chrome', None)
             if isinstance(chrome, WindowChrome):
                 chrome.drag_end()
+                chrome.resize_end()
             for name in ('output_poll', 'motion_start', 'server_poll', 'count_poll'):
                 job = getattr(self, name, None)
                 if job is not None:

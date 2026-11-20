@@ -162,6 +162,45 @@ class AnimationTests(unittest.TestCase):
         launcher.Launcher.drain_output(window)
         callback.assert_called_once_with()
 
+    def test_custom_resize_coalesces_motion_and_flushes_release(self):
+        root = mock.Mock()
+        root.winfo_width.return_value = 800
+        root.winfo_height.return_value = 600
+        root.minsize.return_value = (640, 480)
+        root.after.return_value = 'resize'
+        with mock.patch.dict(launcher.os.environ, {'BB_LAUNCHER_CUSTOM_CHROME': '1'}):
+            chrome = launcher.WindowChrome(types.SimpleNamespace(root=root))
+        point = lambda x, y: types.SimpleNamespace(x_root=x, y_root=y)
+        chrome.resize_start(point(400, 300))
+        for x in range(410, 510):
+            chrome.resize_move(point(x, 330))
+        root.after.assert_called_once()
+        root.geometry.assert_not_called()
+        root.after.call_args.args[1]()
+        root.geometry.assert_called_once_with('909x630')
+        chrome.resize_move(point(600, 340))
+        chrome.resize_end(point(0, 0))
+        root.after_cancel.assert_called_once_with('resize')
+        self.assertEqual(root.geometry.call_args_list, [mock.call('909x630'), mock.call('640x480')])
+        chrome.resize_move(point(700, 400))
+        self.assertEqual(root.after.call_count, 2)
+
+    def test_custom_resize_cancel_leaves_geometry_untouched(self):
+        root = mock.Mock()
+        root.winfo_width.return_value = 800
+        root.winfo_height.return_value = 600
+        root.after.return_value = 'resize'
+        with mock.patch.dict(launcher.os.environ, {'BB_LAUNCHER_CUSTOM_CHROME': '1'}):
+            chrome = launcher.WindowChrome(types.SimpleNamespace(root=root))
+        point = types.SimpleNamespace(x_root=0, y_root=0)
+        chrome.resize_start(point)
+        chrome.resize_move(types.SimpleNamespace(x_root=50, y_root=50))
+        pending = root.after.call_args.args[1]
+        chrome.resize_end()
+        pending()  # An obsolete scheduled callback cannot write geometry.
+        root.after_cancel.assert_called_once_with('resize')
+        root.geometry.assert_not_called()
+
     def test_banner_uses_latest_width_and_cancels_pending_paint_on_destroy(self):
         header = mock.Mock(painted_width=0)
         header.after.return_value = 'paint'
