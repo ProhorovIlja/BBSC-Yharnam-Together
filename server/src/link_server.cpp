@@ -229,9 +229,11 @@ LinkServer::LinkServer(SharedState* shared, const QString& db_path, quint16 tcp_
         m_shardConfig = shared->config->GetShard();
     if (m_shardConfig.Enabled())
         SetupRegion();
+    m_linkTiming.Start(m_clock.elapsed());
     m_linkTimer->start(500);
     // The worlds' clock is the wall clock: their journals keep it across restarts.
     Apply(m_world.Load(QDateTime::currentMSecsSinceEpoch()));
+    m_worldTiming.Start(m_clock.elapsed());
     m_worldTimer->start(50);
     // The worlds' writes are on their own thread: on disk before anything else goes down.
     if (QCoreApplication::instance())
@@ -275,6 +277,16 @@ void LinkServer::RunAdmin(QLocalSocket* socket, const QString& line) {
     context.wall_ms = QDateTime::currentMSecsSinceEpoch();
     context.retire_ms = qint64{std::max(0, m_hosted.retireDays)} * 24 * 3600 * 1000;
     context.link_load = m_linkLoad;
+    context.udp_timing = {
+        {"rx_yields", m_udpYields},
+        {"rx_slice_max_us", m_udpSliceMaxUs},
+        {"link_ticks", static_cast<qint64>(m_linkTiming.ticks)},
+        {"link_gap_max_ms", static_cast<qint64>(m_linkTiming.max_gap_ms)},
+        {"link_gaps_over_2x", static_cast<qint64>(m_linkTiming.gaps_over_2x)},
+        {"world_ticks", static_cast<qint64>(m_worldTiming.ticks)},
+        {"world_gap_max_ms", static_cast<qint64>(m_worldTiming.max_gap_ms)},
+        {"world_gaps_over_2x", static_cast<qint64>(m_worldTiming.gaps_over_2x)},
+    };
     const Admin::Answer answer = Admin::Run(line, context);
     qInfo().noquote() << "Admin:" << line << (answer.json["ok"].toBool() ? "done" : "refused");
     Apply(answer.link);
@@ -361,7 +373,11 @@ void LinkServer::OnReadyRead() {
             if (!raw.isEmpty() && ServerLink::KindOf(raw))
                 HandleLink(raw, sender, port);
         },
-        [this](const QElapsedTimer& busy) { Busy(busy); });
+        [this](const QElapsedTimer& busy, bool yielded) {
+            m_udpYields += yielded;
+            m_udpSliceMaxUs = std::max(m_udpSliceMaxUs, busy.nsecsElapsed() / 1000);
+            Busy(busy);
+        });
 }
 
 void LinkServer::HandleLink(const QByteArray& datagram, const QHostAddress& sender,
@@ -435,6 +451,7 @@ void LinkServer::LogFloods() {
 }
 
 void LinkServer::OnLinkTick() {
+    m_linkTiming.Observe(m_clock.elapsed());
     if (m_hosted.enabled)
         m_link.SetSignupWork(m_signupWork.Bits(m_clock.elapsed()));
     QElapsedTimer busy;
@@ -446,6 +463,7 @@ void LinkServer::OnLinkTick() {
 }
 
 void LinkServer::OnWorldTick() {
+    m_worldTiming.Observe(m_clock.elapsed());
     QElapsedTimer busy;
     busy.start();
     Apply(m_world.Tick(QDateTime::currentMSecsSinceEpoch()));

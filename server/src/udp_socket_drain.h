@@ -36,7 +36,7 @@ public:
                 return true;
             },
             [&] { return busy.nsecsElapsed() >= 2'000'000; });
-        account(busy);
+        account(busy, more);
         if (more) {
             // Qt need not signal again for the remainder of the same burst.
             queued_ = true;
