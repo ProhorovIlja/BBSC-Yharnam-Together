@@ -905,6 +905,7 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
 void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
     CloseRpc(end);
     QTcpSocket* socket = new QTcpSocket(this);
+    socket->setReadBufferSize(MaxRpcUnackedBytes + 1);
     end.socket = socket;
     // The game's end, while this socket is still its connection (it may be gone by then).
     const auto mine = [this, online_id, socket]() -> RpcEnd* {
@@ -917,18 +918,22 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
             socket->write(std::exchange(at->pending, {}));
     });
     connect(socket, &QTcpSocket::readyRead, this, [this, socket, mine] {
-        const QByteArray data = socket->readAll();
         RpcEnd* at = mine();
         if (!at)
             return;
-        at->tunnel->Write(std::span{reinterpret_cast<const u8*>(data.constData()),
-                                    static_cast<size_t>(data.size())},
-                          m_clock.elapsed());
-        // A game that does not ack what shadNet answers: its connection ends, not the server's
-        // memory.
-        if (at->tunnel->UnackedBytes() > MaxRpcUnackedBytes) {
+        const auto bytes = socket->bytesAvailable();
+        if (bytes <= 0)
+            return;
+        const auto now = m_clock.elapsed();
+        // Fail before copying/fragmenting an over-budget reply. Leave two
+        // bytes for the close opcode and its fragment marker.
+        if (!at->tunnel->CanQueueWrite(static_cast<size_t>(bytes), MaxRpcUnackedBytes - 2)) {
             CloseRpc(*at);
-            at->tunnel->Close(m_clock.elapsed());
+            at->tunnel->Close(now);
+        } else {
+            const QByteArray data = socket->read(bytes);
+            at->tunnel->Write(std::span{reinterpret_cast<const u8*>(data.constData()),
+                                        static_cast<size_t>(data.size())}, now);
         }
         FlushRpc(*at);
     });

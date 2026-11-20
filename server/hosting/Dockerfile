@@ -100,8 +100,8 @@ RUN --mount=type=cache,id=${BUILD_CACHE_ID},target=/src/server/build \
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/qt \
     && cmake --build build --target shadnet $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
     && if [ "$RUN_WORLD_TESTS" = 1 ]; then \
-           cmake --build build --target test_bloodborne_world test_world_writer test_team_lobby $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
-           && ctest --test-dir build --output-on-failure --no-tests=error -R '^(bloodborne_world|world_writer|team_lobby)$' \
+           cmake --build build --target test_bloodborne_world test_world_writer test_team_lobby test_rpc_tunnel $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
+           && ctest --test-dir build --output-on-failure --no-tests=error -R '^(bloodborne_world|world_writer|team_lobby|rpc_tunnel)$' \
            && cmake --build build --target bbload $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
            && ( export LD_LIBRARY_PATH=/opt/qt/lib QT_PLUGIN_PATH=/opt/qt/plugins; \
                 for size in 2 5; do \

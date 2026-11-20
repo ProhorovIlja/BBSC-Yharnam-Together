@@ -266,6 +266,31 @@ int AnRpcMessagePastTheLimitBreaksTheTunnel() {
   return 0;
 }
 
+int CoalescedReplyStaysWithinMessageAndQueueBounds() {
+  RpcTunnel server{"shadnet", 9};
+  RpcTunnel game{"game", 7, {.message_bytes = 64 * 1024}};
+  game.Open(0);
+  Carry(game, server, 0);
+  const std::vector<u8> bytes(RpcTunnel::MaxDataBytes * 4 + 1000, 'r');
+  const auto exact = bytes.size() + 4 * 18 + 3;
+  CHECK(!server.CanQueueWrite(bytes.size(), exact - 1));
+  CHECK(server.CanQueueWrite(bytes.size(), exact));
+  CHECK(!server.CanQueueWrite(SIZE_MAX, SIZE_MAX));
+  CHECK(server.UnackedBytes() == 0);
+  server.Write(bytes, 1);
+  CHECK(server.UnackedBytes() == exact && !server.CanQueueWrite(1, exact));
+  std::vector<u8> got;
+  const auto events = Carry(server, game, 1);
+  CHECK(events.size() == 5 && !game.Broken());
+  for (const auto& event : events) {
+    CHECK(event.kind == Event::Kind::Data && event.bytes.size() <= RpcTunnel::MaxDataBytes);
+    got.insert(got.end(), event.bytes.begin(), event.bytes.end());
+  }
+  CHECK(got == bytes && server.UnackedBytes() == 0);
+  std::cout << "rpc tunnel: coalesced TCP reply, exact queue budget and byte order passed\n";
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -275,7 +300,8 @@ int main() {
       AChunkLargerThanASendsBreaksTheStream() != 0 ||
       OutOfOrderChunksAreHeldUpToTheLimit() != 0 ||
       UnreliableChannelsAreCapped() != 0 || UnackedBytesAreCounted() != 0 ||
-      AnRpcMessagePastTheLimitBreaksTheTunnel() != 0) {
+      AnRpcMessagePastTheLimitBreaksTheTunnel() != 0 ||
+      CoalescedReplyStaysWithinMessageAndQueueBounds() != 0) {
     return 1;
   }
   return 0;

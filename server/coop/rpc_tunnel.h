@@ -11,6 +11,7 @@
 // Close (it is over). A side whose peer restarted lost the connection: Receive says Closed then.
 #pragma once
 
+#include <algorithm>
 #include <span>
 #include <string>
 #include <utility>
@@ -39,10 +40,28 @@ public:
         Put(Message::Open, {}, now_ms);
         open = true;
     }
+    // TCP is a byte stream. A coalesced read must not become a single
+    // message above the receiver's per-message reassembly limit.
+    static constexpr size_t MaxDataBytes = 16 * 1024;
     void Write(std::span<const u8> bytes, s64 now_ms) {
-        if (!bytes.empty()) {
-            Put(Message::Data, bytes, now_ms);
+        while (!bytes.empty()) {
+            const auto n = (std::min)(bytes.size(), MaxDataBytes);
+            Put(Message::Data, bytes.first(n), now_ms);
+            bytes = bytes.subspan(n);
         }
+    }
+
+    // Reserve one close message (opcode and fragment header) when desired by
+    // the caller by passing a smaller data budget. Count before copying data.
+    [[nodiscard]] bool CanQueueWrite(size_t bytes, size_t budget) const {
+        const auto used = UnackedBytes();
+        if (used > budget || bytes > budget - used) return false;
+        const auto remaining = budget - used - bytes;
+        const auto full = bytes / MaxDataBytes;
+        const auto tail = bytes % MaxDataBytes;
+        constexpr auto full_overhead = 2 + MaxDataBytes / CoopStream::ChunkBytes;
+        const auto tail_overhead = tail ? 2 + tail / CoopStream::ChunkBytes : 0;
+        return tail_overhead <= remaining && full <= (remaining - tail_overhead) / full_overhead;
     }
     void Close(s64 now_ms) {
         if (open) {
