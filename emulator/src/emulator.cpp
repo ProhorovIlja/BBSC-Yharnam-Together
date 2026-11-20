@@ -36,6 +36,7 @@
 #include "core/file_format/psf.h"
 #include "core/file_format/trp.h"
 #include "core/file_sys/fs.h"
+#include "core/libraries/network/rpc_bridge.h"
 #include "core/libraries/kernel/kernel.h"
 #include "core/libraries/libs.h"
 #include "core/libraries/np/np_trophy.h"
@@ -85,6 +86,7 @@ void Emulator::Shutdown() {
     if (exit_done) {
         return;
     }
+    Libraries::Net::StopRpcBridge();
     Common::Log::Flush();
     if (controllers) {
         controllers->ResetLightbarColors();
