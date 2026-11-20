@@ -158,8 +158,8 @@ public:
     }
 
     // The Rpc datagram bodies to send now (messages, resends and acks).
-    std::vector<std::vector<u8>> Flush(s64 now_ms) {
-        return stream.Flush(now_ms);
+    std::vector<std::vector<u8>> Flush(s64 now_ms, size_t max_fresh = SIZE_MAX) {
+        return stream.Flush(now_ms, max_fresh);
     }
 
     // Whether a connection is open through the tunnel, as this end knows it.
