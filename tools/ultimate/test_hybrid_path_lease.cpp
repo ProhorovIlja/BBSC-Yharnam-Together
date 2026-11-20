@@ -109,5 +109,115 @@ int main() {
     CHECK(reconnect.challenge(b, 2, nonce, 15));
     CHECK(reconnect.acknowledge(b, 2, nonce, 16));
     CHECK(reconnect.route(Traffic::PoseSnapshot, true, true, 17) == Route::Direct);
+    HybridPathLease failover;
+    CHECK(failover.bind(a, 1));
+    failover.allow_direct(true);
+    CHECK(failover.challenge(a, 1, nonce, 2));
+    CHECK(failover.bind(a, 3)); // A duplicate notification does not cancel the pending ACK.
+    CHECK(failover.acknowledge(a, 1, nonce, 4));
+    CHECK(failover.bind(a, 5));
+    CHECK(failover.route(Traffic::PoseSnapshot, true, true, 6) == Route::Direct);
+    CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 10, Route::Direct, true, 7));
+    const auto first_ticket = failover.direct_ticket(8);
+    CHECK(first_ticket && *first_ticket == 1);
+    CHECK(failover.challenge(a, 2, other, 8));
+    b = a; ++b.endpoint[0];
+    CHECK(!failover.direct_failed(b, *first_ticket, 9));
+    CHECK(failover.route(Traffic::PoseSnapshot, true, true, 10) == Route::Direct);
+    CHECK(failover.direct_failed(a, *first_ticket, 11));
+    CHECK(failover.route(Traffic::PoseSnapshot, true, true, 11) == Route::Relay);
+    CHECK(failover.route(Traffic::PoseSnapshot, true, false, 11) == Route::Unavailable);
+    CHECK(failover.route(Traffic::Reward, true, true, 11) == Route::Authority);
+    CHECK(!failover.acknowledge(a, 2, other, 12));
+    CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 11, Route::Direct, true, 13));
+    CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 10, Route::Relay, true, 14));
+    CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 11, Route::Relay, true, 15));
+    CHECK(failover.challenge(a, 3, nonce, 16));
+    CHECK(failover.acknowledge(a, 3, nonce, 17));
+    CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 11, Route::Direct, true, 18));
+    CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 12, Route::Direct, true, 19));
+
+    CHECK(!failover.direct_failed(a, *first_ticket, 20)); // Same endpoint, obsolete proof.
+    CHECK(failover.route(Traffic::PoseSnapshot, true, true, 20) == Route::Direct);
+    const auto current_ticket = failover.direct_ticket(21);
+    CHECK(current_ticket && *current_ticket == 3);
+    CHECK(failover.direct_failed(a, *current_ticket, 22));
+    CHECK(!failover.direct_ticket(22));
+    CHECK(!failover.direct_failed(a, *current_ticket, 22));
+    CHECK(failover.accept_visual(a, Traffic::PoseSnapshot, 13, Route::Relay, true, 23));
+    CHECK(!failover.accept_visual(a, Traffic::PoseSnapshot, 12, Route::Relay, true, 24));
+
+    HybridPathLease probing;
+    CHECK(probing.bind(a, 1));
+    probing.allow_direct(true);
+    CHECK(probing.challenge(a, 1, nonce, 2));
+    CHECK(!probing.challenge(a, 2, other, 999));
+    CHECK(probing.acknowledge(a, 1, nonce, 1001));
+    CHECK(probing.challenge(a, 2, other, 1002));
+    CHECK(!probing.challenge(a, 3, nonce, 2001));
+    CHECK(probing.challenge(a, 3, nonce, 2002)); // Exact timeout permits retry.
+    CHECK(!probing.acknowledge(a, 2, other, 2002));
+    CHECK(probing.acknowledge(a, 3, nonce, 2003));
+    CHECK(probing.route(Traffic::PoseSnapshot, true, true, 2004) == Route::Direct);
+
+    HybridPathLease send_failure;
+    CHECK(send_failure.bind(a, 1));
+    send_failure.allow_direct(true);
+    CHECK(send_failure.challenge(a, 1, nonce, 2));
+    CHECK(send_failure.acknowledge(a, 1, nonce, 3));
+    CHECK(send_failure.challenge(a, 2, other, 4));
+    CHECK(!send_failure.probe_send_failed(b, 2, 5));
+    CHECK(send_failure.probe_send_failed(a, 2, 6));
+    CHECK(!send_failure.acknowledge(a, 2, other, 7));
+    CHECK(!send_failure.challenge(a, 2, other, 8));
+    CHECK(send_failure.route(Traffic::PoseSnapshot, true, true, 9) == Route::Direct);
+    CHECK(send_failure.challenge(a, 3, nonce, 10));
+    CHECK(!send_failure.probe_send_failed(a, 2, 11));
+    CHECK(send_failure.acknowledge(a, 3, nonce, 12));
+    CHECK(!send_failure.probe_send_failed(a, 3, 13));
+
+    HybridPathLease queued;
+    CHECK(queued.bind(a, 1));
+    queued.allow_direct(true);
+    CHECK(queued.challenge(a, 1, nonce, 2));
+    CHECK(queued.acknowledge(a, 1, nonce, 3));
+    const auto send_ticket = queued.direct_ticket(4);
+    CHECK(send_ticket && queued.direct_send_current(a, Traffic::PoseSnapshot, *send_ticket, 4));
+    CHECK(!queued.direct_send_current(b, Traffic::PoseSnapshot, *send_ticket, 4));
+    CHECK(!queued.direct_send_current(a, Traffic::WorldCommit, *send_ticket, 4));
+    CHECK(queued.challenge(a, 2, other, 5));
+    CHECK(queued.acknowledge(a, 2, other, 6));
+    CHECK(!queued.direct_send_current(a, Traffic::PoseSnapshot, *send_ticket, 7));
+    CHECK(queued.direct_send_current(a, Traffic::VisualEmote, 2, 2005));
+    CHECK(!queued.direct_send_current(a, Traffic::VisualEmote, 2, 2006));
+    CHECK(queued.route(Traffic::PoseSnapshot, true, true, 2006) == Route::Relay);
+    CHECK(queued.route(Traffic::WorldCommit, true, true, 2006) == Route::Authority);
+    CHECK(queued.challenge(a, 3, nonce, 2007));
+    CHECK(queued.acknowledge(a, 3, nonce, 2008));
+    queued.allow_direct(false);
+    CHECK(!queued.direct_send_current(a, Traffic::PoseSnapshot, 3, 2009));
+
+    HybridPathLease dispatch;
+    CHECK(dispatch.bind(a, 1));
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, {}, true, 2) == Route::Relay);
+    dispatch.allow_direct(true);
+    CHECK(dispatch.challenge(a, 1, nonce, 3));
+    CHECK(dispatch.acknowledge(a, 1, nonce, 4));
+    const auto captured = dispatch.direct_ticket(5);
+    CHECK(captured);
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, captured, true, 6) == Route::Direct);
+    CHECK(dispatch.queued_visual_route(a, Traffic::WorldCommit, captured, true, 6) == Route::Unavailable);
+    CHECK(dispatch.queued_visual_route(a, Traffic::VisualEmote, {}, true, 6) == Route::Relay);
+    CHECK(dispatch.challenge(a, 2, other, 7));
+    CHECK(dispatch.acknowledge(a, 2, other, 8));
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, captured, true, 9) == Route::Relay);
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, captured, false, 9) == Route::Unavailable);
+    b = a; ++b.endpoint[0];
+    CHECK(dispatch.bind(b, 10));
+    CHECK(dispatch.queued_visual_route(a, Traffic::PoseSnapshot, captured, true, 11) == Route::Unavailable);
+    CHECK(dispatch.queued_visual_route(b, Traffic::PoseSnapshot, {}, true, 11) == Route::Relay);
+    dispatch.disconnect();
+    CHECK(dispatch.queued_visual_route(b, Traffic::PoseSnapshot, {}, true, 12) == Route::Unavailable);
+
     std::cout << checks << " hybrid path checks passed\n";
 }
