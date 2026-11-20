@@ -73,9 +73,9 @@ public:
     }
 
     // The frames to send now (each one datagram's body): chunks, resends and acks.
-    std::vector<std::vector<u8>> Flush(s64 now_ms) {
+    std::vector<std::vector<u8>> Flush(s64 now_ms, size_t max_fresh = SIZE_MAX) {
         std::vector<std::vector<u8>> bodies;
-        const auto frames = peer.Flush(now_ms);
+        const auto frames = peer.Flush(now_ms, max_fresh);
         bodies.reserve(frames.size());
         for (const GameFrame& frame : frames) {
             bodies.push_back(EncodeGameFrame(frame));
