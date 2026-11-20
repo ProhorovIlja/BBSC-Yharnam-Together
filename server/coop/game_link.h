@@ -169,6 +169,7 @@ public:
         // they go at once).
         s64 max_resend_ms = 2000;
         size_t max_resends = 64;
+        size_t max_reliable_in_flight = SIZE_MAX;
         s64 quiet_ms = 10'000;
         // What a member may make this side hold (shadNet's streams set them; none by default): the
         // bytes of the out-of-order packets held (past it they are dropped, and come again as
@@ -225,6 +226,8 @@ public:
         for (; max_fresh != 0 && !fresh.empty(); --max_fresh) {
             Outgoing& out = fresh.front();
             if (out.packet_class == PacketClass::Reliable) {
+                if (unacked.size() >= settings.max_reliable_in_flight)
+                    break;
                 // Keep the original payload until ACKed; the wire frame needs its own copy.
                 append(out.packet_class, out.seq, out.packet);
                 // Queued sequence numbers have not necessarily been sent yet.
