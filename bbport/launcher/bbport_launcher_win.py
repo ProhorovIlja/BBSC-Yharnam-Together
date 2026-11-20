@@ -39,7 +39,8 @@ import zipfile
 import zlib
 
 from bbport_shortcut_win import write_shortcut
-from bbport_update_zip import copy_portable_update, download_update, extract_update
+from bbport_update_zip import (copy_portable_update, download_update, extract_update,
+                              lock_portable_install, make_portable_stage)
 
 FROZEN = getattr(sys, 'frozen', False)
 EXE = '.exe' if sys.platform == 'win32' else ''  # the port's own programs; Linux: no suffix
@@ -134,10 +135,9 @@ def fetch_update_release(beta=False):
         if found or len(releases) < RELEASES_PER_PAGE:
             return found
     return None
-UPDATE_DIR = Path(tempfile.gettempdir()) / 'bbport-update'
 # Never copied over an installation by an update (the package does not hold them either). fsr4vk is the
 # experimental FSR 4.1.1 download (fsr4vk_dir()).
-USER_FILES = ('user', 'out', 'mods', 'bbport.ini', 'mods.json', 'patches.json', 'last_run.log', 'fsr4vk')
+USER_FILES = ('user', 'out', 'mods', 'bbport.ini', 'mods.json', 'patches.json', 'last_run.log', 'fsr4vk', '.bbport-update.lock')
 # ReShade (packaging/windows/package.sh): turned on per game run through the Vulkan loader's layer
 # variables, see game_environment().
 RESHADE_DIR = PORT_DIR / 'bin' / 'reshade'
@@ -7658,23 +7658,28 @@ class Launcher:
             self.messagebox.showerror('Bloodborne', _('Update failed: {}', 'Не удалось обновить: {}').format(error))
 
         def work():
+            stage = None
+            handed_off = False
             try:
-                shutil.rmtree(UPDATE_DIR, ignore_errors=True)
-                UPDATE_DIR.mkdir(parents=True, exist_ok=True)
-                archive = UPDATE_DIR / 'update.zip'
+                stage = make_portable_stage()
+                archive = stage / 'update.zip'
                 request = urllib.request.Request(url, headers={'User-Agent': 'bbport-launcher'})
                 with urllib.request.urlopen(request, timeout=60) as response, open(archive, 'wb') as out:
                     download_update(response, out, lambda percent:
                                     self.ui_calls.put(lambda p=percent: progress(p)))
                 with zipfile.ZipFile(archive) as package:
-                    new = extract_update(package, UPDATE_DIR / 'new')
+                    new = extract_update(package, stage / 'new')
                 archive.unlink()
                 # The new launcher copies itself over this installation once this one has closed.
                 subprocess.Popen([str(new), '--install-update', str(PORT_DIR), str(os.getpid())],
                                  cwd=str(new.parent), stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                handed_off = True
                 self.ui_calls.put(self.root.destroy)
             except (OSError, ValueError, RuntimeError, http.client.HTTPException, zipfile.BadZipFile, zlib.error) as error:
                 self.ui_calls.put(lambda error=error: failed(error))
+            finally:
+                if stage is not None and not handed_off:
+                    shutil.rmtree(stage, ignore_errors=True)
         try:
             threading.Thread(target=work, daemon=True).start()
         except (OSError, RuntimeError) as error:
@@ -8112,6 +8117,15 @@ def install_update(target, wait_pid):
     except (OSError, ValueError) as error:
         show_error_box(str(error))
         return 1
+    try:
+        with lock_portable_install(target):
+            return apply_portable_update(target)
+    except (OSError, ValueError) as error:
+        show_error_box(str(error))
+        return 1
+
+
+def apply_portable_update(target):
     ignore = update_ignore(target)
     for attempt in range(30):
         try:
@@ -8243,8 +8257,6 @@ def start_launcher():
     LANG = settings.get('ui_language') or windows_language()
     if args[:1] == ['--install-update'] and len(args) == 3:
         sys.exit(install_update(args[1], args[2]))
-    if FROZEN and UPDATE_DIR not in PORT_DIR.parents:
-        shutil.rmtree(UPDATE_DIR, ignore_errors=True)  # what a finished update left behind
     # Without a usable game folder there is nothing to play yet: open the launcher instead. The co-op
     # release plays co-op from Bloodborne.exe and Steam too (LeWhiske 2026-11-05: it started the plain
     # game, which could not reach the server); unfinished co-op settings open the launcher.
