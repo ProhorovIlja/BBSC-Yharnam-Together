@@ -99,7 +99,7 @@ def main():
                        "--team-size", str(size), "--seconds", str(args.seconds),
                        "--port", str(args.port), "--require-all-playing", "--match-local-build"]
             if args.hosted_timing:
-                command += ["--collect-admin-timing", "--cfg", "Hosted=true",
+                command += ["--collect-admin-timing", "--cfg", "Hosted=true", "--cfg", "SignIn=open",
                             "--cfg", "HostedSignupWorkBits=0", "--cfg", "HostedSignupWorkMaxBits=0"]
             proc = subprocess.run(command, stdout=subprocess.PIPE, text=True)
             if proc.returncode:

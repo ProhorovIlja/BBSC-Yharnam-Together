@@ -48,3 +48,7 @@ binary hashes, raw trials and paired deltas in the Actions artifact. Its two
 repetitions are a CI comparison, not a release threshold. The baseline has no
 private timing instrumentation, so this workflow does not compare admin tick
 counters; use two instrumented binaries for that comparison.
+
+The disposable hosted test explicitly uses `SignIn=open`: the simulator uses
+synthetic local accounts, not credentials from the launcher. Leave deployed
+servers' sign-in policies unchanged.

@@ -113,7 +113,7 @@ RUN --mount=type=cache,id=${BUILD_CACHE_ID},target=/src/server/build \
                 python3 loadtest/run_load.py --shadnet build/shadnet --bbload build/bbload \
                   --players 5 --team-size 5 --seconds 10 --port 32034 \
                   --match-local-build --require-all-playing --collect-admin-timing \
-                  --cfg Hosted=true --cfg HostedSignupWorkBits=0 --cfg HostedSignupWorkMaxBits=0 \
+                  --cfg Hosted=true --cfg SignIn=open --cfg HostedSignupWorkBits=0 --cfg HostedSignupWorkMaxBits=0 \
                   || exit $?; \
                 for size in 1 6 invalid; do \
                     if build/bbload --team-size "$size"; then exit 1; else test "$?" -eq 2 || exit 1; fi; \
