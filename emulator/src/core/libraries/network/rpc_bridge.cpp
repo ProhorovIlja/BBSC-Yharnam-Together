@@ -46,6 +46,18 @@ void CloseSocket(Socket socket) {
 #endif
 
 constexpr int TickMs = 5;
+constexpr int LocalSendTimeoutMs = 100;
+constexpr int LocalReplyBudgetMs = 250;
+
+bool ConfigureLocalSendTimeout(Socket socket) {
+#ifdef _WIN32
+    const DWORD timeout = LocalSendTimeoutMs;
+#else
+    const timeval timeout{0, LocalSendTimeoutMs * 1000};
+#endif
+    return setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO,
+                      reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == 0;
+}
 constexpr size_t MaxRequestUnackedBytes = 1 << 20;
 
 s64 NowMs() {
@@ -75,8 +87,11 @@ bool SendAll(Socket socket, std::span<const u8> bytes) {
 #else
     constexpr int flags = 0;
 #endif
+    const auto deadline = NowMs() + LocalReplyBudgetMs;
     size_t sent = 0;
     while (sent < bytes.size()) {
+        if (NowMs() >= deadline)
+            return false;
         const int rc = send(socket, reinterpret_cast<const char*>(bytes.data() + sent),
                             static_cast<int>(bytes.size() - sent), flags);
 #ifndef _WIN32
@@ -171,6 +186,11 @@ private:
             return;
         }
 #endif
+        if (!ConfigureLocalSendTimeout(client)) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: could not bound local TCP send time");
+            DropClient();
+            return;
+        }
         if (!tunnel.TryOpen(now_ms, MaxRequestUnackedBytes)) {
             LOG_ERROR(Lib_Net, "Rpc bridge: previous requests have not drained");
             DropClient();
@@ -195,6 +215,7 @@ private:
                 using Kind = BloodborneCoop::RpcTunnel::Event::Kind;
                 if (event.kind == Kind::Data && client != NoSocket) {
                     if (!SendAll(client, event.bytes)) {
+                        LOG_ERROR(Lib_Net, "Rpc bridge: local TCP reply write failed or timed out");
                         DropClient();
                         tunnel.Close(now_ms);
                     }
