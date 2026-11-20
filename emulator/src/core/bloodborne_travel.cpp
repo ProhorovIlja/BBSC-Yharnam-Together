@@ -1659,6 +1659,7 @@ void GiveBackPhantomKeyItems() {
     static std::vector<OwedKeyItem> filed;
     static int ledger_slot = -2;
     static int reported_read_failure = -2;
+    static bool reported_ledger_write_failure = false;
     static s64 looked_ms = 0;
     const u64 player = GetLocalPlayer();
     const int slot = character_slot.load();
@@ -1686,6 +1687,7 @@ void GiveBackPhantomKeyItems() {
         }
         reported_read_failure = -2;
         ledger_slot = slot;
+        reported_ledger_write_failure = false;
         filed = std::move(*validated);
         ledger.Load(filed);
         return_attempts.Reset();
@@ -1715,6 +1717,17 @@ void GiveBackPhantomKeyItems() {
     if (!still_current() || (ReadValue<s32>(player, 0x78) == PhantomType) != phantom) {
         return; // A snapshot from a changing inventory is not a receipt or a new baseline.
     }
+    const auto write_ledger = [&](std::string_view encoded) {
+        if (RewardSafety::WriteLedger(file, encoded)) {
+            reported_ledger_write_failure = false;
+            return true;
+        }
+        if (!reported_ledger_write_failure) {
+            LOG_WARNING(Debug, "Bloodborne party: could not write phantom ledger for slot {}", slot);
+            reported_ledger_write_failure = true;
+        }
+        return false;
+    };
     const auto persist = [&] {
         if (character_slot.load() != slot || phantom_keys_forgotten.load()) {
             return false;
@@ -1723,8 +1736,7 @@ void GiveBackPhantomKeyItems() {
         if (owed == filed) {
             return true;
         }
-        if (!RewardSafety::WriteLedger(file, EncodeOwedKeyItems(owed))) {
-            LOG_WARNING(Debug, "Bloodborne party: could not update phantom ledger for slot {}", slot);
+        if (!write_ledger(EncodeOwedKeyItems(owed))) {
             return false;
         }
         filed = std::move(owed);
@@ -1760,11 +1772,8 @@ void GiveBackPhantomKeyItems() {
             // guard. Otherwise a second transition could act on a different
             // ledger than the one that would be loaded after a restart.
             if (ledger.AcknowledgeObservedReturn([&] {
-                    if (filed.empty() || RewardSafety::WriteLedger(file, {})) {
-                        return true;
-                    }
-                    LOG_WARNING(Debug, "Bloodborne party: could not clear phantom ledger for slot {}", slot);
-                    return false;
+                    // Even a missing committed file can have interrupted staging.
+                    return write_ledger({});
                 })) {
                 filed.clear();
                 return_attempts.Reset();
