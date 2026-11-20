@@ -7626,6 +7626,8 @@ class Launcher:
             self.status.configure(text=text, fg=GOLD)
 
     def install_update(self, version, url, page):
+        if self.updating or self.installing:
+            return
         if self.process:
             self.messagebox.showinfo('Bloodborne', _('Close the game before updating.', 'Закройте игру перед обновлением.'))
             return
@@ -7637,6 +7639,8 @@ class Launcher:
                 'Установить версию {} сейчас? Лаунчер закроется, установит её и откроется снова. Сохранения и '
                 'настройки останутся.').format(version)):
             return
+        self.updating = True
+        self.play_button.configure(state='disabled')
         self.update_button.configure(state='disabled')
         self.update_bar.pack(side='left', padx=(self.px(12), 0), before=self.update_button.canvas)
 
@@ -7644,6 +7648,14 @@ class Launcher:
             self.update_label.configure(text=_('Downloading version {}… {}%', 'Загрузка версии {}… {}%').format(
                 version, percent))
             self.update_bar.set(percent / 100)
+
+        def failed(error):
+            self.updating = False
+            self.play_button.configure(state='normal')
+            self.update_button.configure(state='normal')
+            self.update_bar.pack_forget()
+            self.update_label.configure(text=_('Version {} is available.', 'Доступна версия {}.').format(version))
+            self.messagebox.showerror('Bloodborne', _('Update failed: {}', 'Не удалось обновить: {}').format(error))
 
         def work():
             try:
@@ -7661,14 +7673,12 @@ class Launcher:
                 subprocess.Popen([str(new), '--install-update', str(PORT_DIR), str(os.getpid())],
                                  cwd=str(new.parent), stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
                 self.ui_calls.put(self.root.destroy)
-            except (OSError, ValueError, RuntimeError, http.client.HTTPException, zipfile.BadZipFile, zlib.error) as failure:
-                def failed(error=failure):
-                    self.update_button.configure(state='normal')
-                    self.update_bar.pack_forget()
-                    self.update_label.configure(text=_('Version {} is available.', 'Доступна версия {}.').format(version))
-                    self.messagebox.showerror('Bloodborne', _('Update failed: {}', 'Не удалось обновить: {}').format(error))
-                self.ui_calls.put(failed)
-        threading.Thread(target=work, daemon=True).start()
+            except (OSError, ValueError, RuntimeError, http.client.HTTPException, zipfile.BadZipFile, zlib.error) as error:
+                self.ui_calls.put(lambda error=error: failed(error))
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except (OSError, RuntimeError) as error:
+            failed(error)
 
     def clear_cache(self):
         """Shader and pipeline caches; they are rebuilt while playing."""
