@@ -6693,6 +6693,7 @@ class Launcher:
         env = game_environment(self.app)
         # What a game that closes while starting may blame (drain_output): see start_crash_suspects.
         self.run_started, self.run_up, self.run_stopped = False, False, False
+        self.output_ready = False
         self.run_layers_disabled = env.get('VK_LOADER_LAYERS_DISABLE', '')
         self.run_reshade = RESHADE_LAYER in env.get('VK_INSTANCE_LAYERS', '')
         try:
@@ -6772,13 +6773,16 @@ class Launcher:
                         self.run_started = True
                     if game_is_up(item):  # mods, patches and shaders are prepared; the window exists
                         self.run_up = True
-                        self.set_running(True)
-                        self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
+                        if not self.output_ready:
+                            self.output_ready = True
+                            self.set_running(True)
+                            self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
                         if self.app.get('close_on_play') and not self.close_scheduled:  # both GAME_UP_LINES arrive
                             self.close_scheduled = True
                             self.coop_release_server()  # the server stays for the game, then stops
                             self.root.after(CLOSE_AFTER_UP_MS, self.root.destroy)  # the game keeps running
                     elif 'restarting through run.py' in item:
+                        self.output_ready = False
                         self.set_running(True, preparing=True)
                         self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)
                     pending.append(item)

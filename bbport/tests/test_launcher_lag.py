@@ -386,6 +386,25 @@ class AnimationTests(unittest.TestCase):
         ])
         window.root.after.assert_called_once_with(100, window.drain_output)
 
+    def test_game_ready_markers_update_once_per_launch_phase(self):
+        window = types.SimpleNamespace(
+            ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(), drain_output=mock.Mock(),
+            append=mock.Mock(), coop_watch_line=mock.Mock(), set_running=mock.Mock(),
+            status=mock.Mock(), app={}, output_ready=False, run_up=False,
+        )
+        lines = [*launcher.GAME_UP_LINES, 'restarting through run.py', *launcher.GAME_UP_LINES]
+        for line in lines:
+            window.output.put(line + '\n')
+        with mock.patch.object(launcher.time, 'perf_counter', return_value=1):
+            launcher.Launcher.drain_output(window)
+        self.assertEqual(window.set_running.call_args_list, [
+            mock.call(True), mock.call(True, preparing=True), mock.call(True),
+        ])
+        self.assertEqual(window.status.configure.call_count, 3)
+        self.assertTrue(window.run_up)
+        self.assertTrue(window.output_ready)
+        window.append.assert_called_once_with(''.join(line + '\n' for line in lines))
+
     def test_failed_worker_callback_does_not_stop_output_polling(self):
         for error in (ValueError('invalid result'), queue.Empty()):
             with self.subTest(error=type(error)):
