@@ -7686,7 +7686,7 @@ class Launcher:
         else:
             pythonw = Path(sys.executable).with_name('pythonw.exe')
             target = pythonw if pythonw.exists() else sys.executable
-            arguments = f'"{Path(__file__).resolve()}"'
+            arguments = f'"{Path(__file__).resolve()}" --play'
             icon = PORT_DIR / 'launcher' / 'bloodborne.ico'
         try:
             write_shortcut(target, PORT_DIR, (icon, 0), arguments)
@@ -8029,11 +8029,19 @@ def play_coop_without_window(app):
     except (RuntimeError, OSError, ValueError) as error:
         show_error_box(str(error))
         return 1
-    log_path = bbport_coop.rotate_logs(PORT_DIR)
-    threading.Thread(target=bbport_coop.send_reports, args=(PORT_DIR, dict(settings)), daemon=True).start()
-    settings = dict(settings, unlocked_fps='1' if bbport_coop.unlocked_fps(app.get('fps_mode')) else '')
-    env = bbport_coop.game_environment(game_environment(app), settings, PORT_DIR, root)
-    return start_game(run_command(), env, log_path).wait()
+    try:
+        log_path = bbport_coop.rotate_logs(PORT_DIR)
+        try:
+            threading.Thread(target=bbport_coop.send_reports, args=(PORT_DIR, dict(settings)),
+                             daemon=True).start()
+        except RuntimeError as error:
+            print(f'Could not start the co-op report worker: {error}', file=sys.stderr)
+        settings = dict(settings, unlocked_fps='1' if bbport_coop.unlocked_fps(app.get('fps_mode')) else '')
+        env = bbport_coop.game_environment(game_environment(app), settings, PORT_DIR, root)
+        return start_game(run_command(), env, log_path).wait()
+    except (RuntimeError, OSError, ValueError) as error:
+        show_error_box(str(error))
+        return 1
 
 
 def update_ignore(target):
