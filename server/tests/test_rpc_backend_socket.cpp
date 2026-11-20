@@ -51,7 +51,7 @@ int BufferedReplyAcrossAckAndEof() {
 
     local->disconnectFromHost();
     CHECK(forward.state() == QAbstractSocket::UnconnectedState || forward.waitForDisconnected(2000));
-    CHECK(forward.bytesAvailable() == reply.size());
+    CHECK(forward.bytesAvailable() == remaining);
     QByteArray received;
     int messages = 0;
     for (const auto& wire : out.Flush(5002)) {
