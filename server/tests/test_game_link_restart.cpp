@@ -151,6 +151,30 @@ static bool StaleChunksCannotBreakTheCurrentCoopStream() {
     return true;
 }
 
+static bool MalformedChunksCannotAdvanceOrPolluteReassembly() {
+    CoopStream sender{"game", 10}, receiver{"server", 1};
+    const std::vector<u8> message(1500, 0x42);
+    sender.Send(message, 0);
+    const auto chunks = sender.Flush(0);
+    CHECK(chunks.size() == 2);
+    CHECK(receiver.Receive(chunks[0], 0).empty());
+    CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+    const std::vector<GameFrameEntry> invalid{
+        {PacketClass::Unreliable, 1, {CoopStream::LastChunk, 99}},
+        {PacketClass::Reliable, 1, {}},
+        {PacketClass::Reliable, 1, {3, 99}},
+        {PacketClass::Reliable, 1, {0}},
+    };
+    for (const auto& entry : invalid) {
+        CHECK(receiver.Receive(EncodeGameFrame(GameFrame{"game", 10, 1, 0, {entry}}), 1).empty());
+        CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+        CHECK(receiver.SilentFor(2) == 2);
+        CHECK(!receiver.Broken() && !receiver.TakeRestarted());
+    }
+    CHECK(receiver.Receive(chunks[1], 3) == std::vector<std::vector<u8>>{message});
+    return true;
+}
+
 int main() {
     unsigned failed = 0;
     for (auto test : {WrongRecipientCannotResetOrAcknowledgeTheCurrentStream,
@@ -158,9 +182,10 @@ int main() {
                       RejectedFrameCannotDiscardAPartialCoopMessage,
                       ARejectedOldTargetStillAdvertisesTheNewLocalRun,
                       DelayedRetiredRunsCannotResetTheActiveStream,
-                      StaleChunksCannotBreakTheCurrentCoopStream}) {
+                      StaleChunksCannotBreakTheCurrentCoopStream,
+                      MalformedChunksCannotAdvanceOrPolluteReassembly}) {
         if (!test()) ++failed;
     }
-    std::cout << "Game-link restart scenarios: " << (6 - failed) << "/6 passed\n";
+    std::cout << "Game-link restart scenarios: " << (7 - failed) << "/7 passed\n";
     return failed ? 1 : 0;
 }

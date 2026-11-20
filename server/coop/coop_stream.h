@@ -93,12 +93,22 @@ public:
         if (!frame) {
             return messages;
         }
-        if (peer.CanAffectReceiveState(*frame) &&
-            std::ranges::any_of(frame->entries, [&](const GameFrameEntry& entry) {
-                return entry.packet.size() > limits.chunk_bytes;
-            })) {
-            Break();
-            return messages;
+        if (peer.CanAffectReceiveState(*frame)) {
+            if (std::ranges::any_of(frame->entries, [&](const GameFrameEntry& entry) {
+                    return entry.packet.size() > limits.chunk_bytes;
+                })) {
+                Break();
+                return messages;
+            }
+            // This channel carries only Send's reliable fragments. Don't let
+            // invalid framing contribute bytes, advance ACKs, or change runs.
+            if (std::ranges::any_of(frame->entries, [](const GameFrameEntry& entry) {
+                    return entry.packet_class != PacketClass::Reliable || entry.packet.empty() ||
+                           (entry.packet[0] != 0 && entry.packet[0] != LastChunk) ||
+                           (entry.packet[0] == 0 && entry.packet.size() == 1);
+                })) {
+                return messages;
+            }
         }
         const u64 restarts = peer.Restarts();
         std::vector<std::vector<u8>> chunks = peer.Receive(std::move(*frame), now_ms);
