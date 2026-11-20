@@ -159,11 +159,34 @@ class ShortcutTests(unittest.TestCase):
             _, workdir, icon, args = write.call_args.args
             self.assertEqual(workdir, root)
             self.assertEqual(icon, (root / 'launcher' / 'bloodborne.ico', 0))
-            self.assertEqual(args, f'"{root / "bbport_launcher_win.py"}"')
+            self.assertEqual(args, f'"{root / "bbport_launcher_win.py"}" --play')
             app.messagebox.showinfo.assert_called_once()
             write.side_effect = OSError('Shell Link unavailable')
             launcher.Launcher.shortcut(app)
             app.messagebox.showerror.assert_called_once()
+
+    def test_unattended_coop_launch_keeps_optional_report_worker_nonfatal(self):
+        with (mock.patch.object(launcher.bbport_coop, 'load_settings', return_value={}),
+              mock.patch.object(launcher.bbport_coop, 'played_settings', return_value={}),
+              mock.patch.object(launcher.bbport_coop, 'launch_settings', return_value=({}, None, '')),
+              mock.patch.object(launcher.bbport_coop, 'back_up_saves'),
+              mock.patch.object(launcher.bbport_coop, 'rotate_logs', return_value=Path('fake.log')) as logs,
+              mock.patch.object(launcher.bbport_coop, 'game_environment', return_value={'BB_TEST': '1'}),
+              mock.patch.object(launcher, 'game_environment', return_value={}),
+              mock.patch.object(launcher, 'run_command', return_value=['fake.exe']),
+              mock.patch.object(launcher, 'start_game') as start,
+              mock.patch.object(launcher.threading, 'Thread', side_effect=RuntimeError('no thread')),
+              mock.patch.object(launcher, 'show_error_box') as error):
+            start.return_value.wait.return_value = 7
+            self.assertEqual(launcher.play_coop_without_window({}), 7)
+            start.assert_called_once_with(['fake.exe'], {'BB_TEST': '1'}, Path('fake.log'))
+            error.assert_not_called()
+            start.reset_mock()
+            logs.side_effect = OSError('log path unavailable')
+            self.assertEqual(launcher.play_coop_without_window({}), 1)
+            error.assert_called_once_with('log path unavailable')
+            start.assert_not_called()
+
 
 
 class FakeRoot:
