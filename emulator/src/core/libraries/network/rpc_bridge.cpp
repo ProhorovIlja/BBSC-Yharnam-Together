@@ -250,8 +250,11 @@ private:
 };
 
 Bridge& Instance() {
-    static Bridge bridge;
-    return bridge;
+    // Run has no stop/join path and may still use the bridge during process exit.
+    // Keep its storage alive until the OS reclaims it, rather than destroying
+    // the tunnel and mutex under the detached worker.
+    static Bridge* const bridge = new Bridge;
+    return *bridge;
 }
 
 } // namespace
