@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Validate portable update archives before staging them for the Windows launcher."""
 import re
+import shutil
 import stat
 from pathlib import Path
 
@@ -68,5 +69,11 @@ def extract_update(package, destination):
         raise ValueError('Update archive must contain exactly one BLauncher.exe')
     destination = Path(destination)
     destination.mkdir()  # never extract into a left-over or pre-created directory
-    package.extractall(destination, entries)
+    try:
+        package.extractall(destination, entries)
+    except Exception:
+        # Only remove the directory this call created. Keep the original
+        # exception for the launcher's error dialog if cleanup is also blocked.
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
     return destination.joinpath(*launchers[0])
