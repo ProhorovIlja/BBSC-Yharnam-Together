@@ -434,8 +434,8 @@ class AnimationTests(unittest.TestCase):
             status=mock.Mock(), app={}, output_ready=False, run_up=False,
         )
         lines = [*launcher.GAME_UP_LINES, 'restarting through run.py', *launcher.GAME_UP_LINES]
-        for line in lines:
-            window.output.put(line + '\n')
+        # FollowLog may deliver the entire ready/restart/ready sequence at once.
+        window.output.put(''.join(line + '\n' for line in lines))
         with mock.patch.object(launcher.time, 'perf_counter', return_value=1):
             launcher.Launcher.drain_output(window)
         self.assertEqual(window.set_running.call_args_list, [

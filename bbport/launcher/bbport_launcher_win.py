@@ -6787,23 +6787,28 @@ class Launcher:
                     self.say_start_crash(item[0])
                 else:
                     self.coop_watch_line(item)
-                    if bbport_support.GAME_STARTING_LINE in item:
-                        self.run_started = True
-                    if game_is_up(item):  # mods, patches and shaders are prepared; the window exists
-                        self.run_up = True
-                        if not self.output_ready:
-                            self.output_ready = True
-                            self.set_running(True)
-                            self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
-                        if (self.app.get('close_on_play') and self.close_on_ready_job is None
-                                and self.process is not None):
-                            process = self.process
-                            self.close_on_ready_job = self.root.after(
-                                CLOSE_AFTER_UP_MS, lambda: self.close_after_ready(process))
-                    elif 'restarting through run.py' in item:
-                        self.output_ready = False
-                        self.set_running(True, preparing=True)
-                        self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)
+                    # The file follower batches complete lines. Preserve lifecycle
+                    # order even if both sides of a restart arrive in one read.
+                    if ('restarting through run.py' in item or game_is_up(item)
+                            or bbport_support.GAME_STARTING_LINE in item):
+                        for line in item.splitlines():
+                            if bbport_support.GAME_STARTING_LINE in line:
+                                self.run_started = True
+                            if game_is_up(line):  # mods, patches and shaders are prepared; the window exists
+                                self.run_up = True
+                                if not self.output_ready:
+                                    self.output_ready = True
+                                    self.set_running(True)
+                                    self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
+                                if (self.app.get('close_on_play') and self.close_on_ready_job is None
+                                        and self.process is not None):
+                                    process = self.process
+                                    self.close_on_ready_job = self.root.after(
+                                        CLOSE_AFTER_UP_MS, lambda: self.close_after_ready(process))
+                            elif 'restarting through run.py' in line:
+                                self.output_ready = False
+                                self.set_running(True, preparing=True)
+                                self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)
                     pending.append(item)
                     chars += len(item)
                     if chars >= 16384:
