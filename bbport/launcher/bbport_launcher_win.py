@@ -39,7 +39,7 @@ import zipfile
 import zlib
 
 from bbport_shortcut_win import write_shortcut
-from bbport_update_zip import download_update, extract_update
+from bbport_update_zip import copy_portable_update, download_update, extract_update
 
 FROZEN = getattr(sys, 'frozen', False)
 EXE = '.exe' if sys.platform == 'win32' else ''  # the port's own programs; Linux: no suffix
@@ -8105,8 +8105,11 @@ def install_update(target, wait_pid):
     ignore = update_ignore(target)
     for attempt in range(30):
         try:
-            shutil.copytree(PORT_DIR, target, dirs_exist_ok=True, ignore=ignore)
+            copy_portable_update(PORT_DIR, target, ignore)
             break
+        except ValueError as error:
+            show_error_box(str(error))
+            return 1
         except OSError:  # a file still in use: the old launcher is closing
             time.sleep(1)
     else:
