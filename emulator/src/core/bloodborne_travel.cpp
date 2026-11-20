@@ -1728,13 +1728,15 @@ void GiveBackPhantomKeyItems() {
         }
         return false;
     };
-    const auto persist = [&] {
+    const auto persist = [&](bool before_grant = false) {
         if (character_slot.load() != slot || phantom_keys_forgotten.load()) {
             return false;
         }
         auto owed = ledger.Owed();
         if (owed == filed) {
-            return true;
+            // No write means no staging check in WriteLedger. Before a native
+            // return, fail closed even if the committed snapshot is unchanged.
+            return !before_grant || RewardSafety::LedgerStagingClear(file);
         }
         if (!write_ledger(EncodeOwedKeyItems(owed))) {
             return false;
@@ -1781,7 +1783,7 @@ void GiveBackPhantomKeyItems() {
             return;
         }
         // Publish any gains captured on this transition before requesting a native grant.
-        if (!persist()) {
+        if (!persist(true)) {
             return;
         }
         for (const HeldGoods& held : *owed) {
