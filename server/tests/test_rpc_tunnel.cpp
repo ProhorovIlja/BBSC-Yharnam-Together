@@ -129,6 +129,26 @@ int ARestartedServerEndsTheConnection() {
   return 0;
 }
 
+int RestartAfterCloseRetiresBackendBeforeNextOpen() {
+  RpcTunnel game{"game", 7};
+  RpcTunnel server{"shadnet", 9};
+  game.Open(0);
+  CHECK(Carry(game, server, 0).size() == 1);
+  game.Close(10);
+  CHECK(Carry(game, server, 10) == (std::vector<Event>{{Event::Kind::Closed, {}}}));
+  CHECK(!server.IsOpen());
+  RpcTunnel restarted{"game", 8};
+  // New process heartbeat can reach the server before its TCP connection.
+  CHECK(Carry(restarted, server, 1100) ==
+        (std::vector<Event>{{Event::Kind::PeerRestarted, {}}}));
+  CHECK(!server.IsOpen());
+  CHECK(Carry(restarted, server, 2200).empty());
+  restarted.Open(2300);
+  CHECK(Carry(restarted, server, 2300) ==
+        (std::vector<Event>{{Event::Kind::Opened, {}}}));
+  return 0;
+}
+
 int RestartedGameRetiresOldBackendBeforeOpeningNewOne() {
   RpcTunnel game{"game", 7};
   RpcTunnel server{"shadnet", 9};
@@ -470,6 +490,7 @@ int main() {
   if (AConnectionGoesThrough() != 0 || ALostDatagramIsSentAgain() != 0 ||
       ARestartedServerEndsTheConnection() != 0 ||
       RestartedGameRetiresOldBackendBeforeOpeningNewOne() != 0 ||
+      RestartAfterCloseRetiresBackendBeforeNextOpen() != 0 ||
       AMessagePastTheLimitBreaksTheStream() != 0 ||
       AChunkLargerThanASendsBreaksTheStream() != 0 ||
       OutOfOrderChunksAreHeldUpToTheLimit() != 0 ||
