@@ -5442,11 +5442,7 @@ class Launcher:
         self.coop_say(_('Windows asks to let co-op through its firewall…', 'Windows спрашивает разрешение брандмауэра…'))
         if not bbport_coop.allow_through_firewall(PORT_DIR, host):
             return False
-        for _i in range(20):
-            time.sleep(0.5)
-            if bbport_coop.firewall_ready(PORT_DIR, host):
-                return True
-        return False
+        return bbport_coop.wait_for_firewall(PORT_DIR, host)
 
     def play_coop(self):
         if self.coop_busy:
