@@ -3,6 +3,7 @@
 #include "server_link.h"
 
 #include <algorithm>
+#include <cstring>
 #include <QFile>
 #include <QRandomGenerator>
 #include <QtEndian>
@@ -14,12 +15,14 @@ namespace ServerLink {
 
 namespace {
 
-constexpr int HeaderSize = 9; // ffff ffff, "SHLK", the kind
+constexpr char LinkMagic[] = "\xff\xff\xff\xff" "SHLK";
+constexpr int MagicSize = sizeof(LinkMagic) - 1;
+constexpr int HeaderSize = MagicSize + 1; // magic plus the kind byte
 constexpr int DataHeaderSize = HeaderSize + 6;
 constexpr quint64 DropsLogged = 50;
 
 QByteArray Start(Kind kind) {
-    QByteArray out = QByteArray::fromHex("ffffffff") + "SHLK";
+    QByteArray out(LinkMagic, MagicSize);
     out.append(static_cast<char>(kind));
     return out;
 }
@@ -96,7 +99,7 @@ private:
 std::optional<Reader> Body(const QByteArray& datagram, Kind kind) {
     if (datagram.size() < HeaderSize ||
         static_cast<quint8>(datagram[8]) != static_cast<quint8>(kind) ||
-        !datagram.startsWith(QByteArray::fromHex("ffffffff") + "SHLK")) {
+        std::memcmp(datagram.constData(), LinkMagic, MagicSize) != 0) {
         return std::nullopt;
     }
     return Reader{datagram, HeaderSize};
