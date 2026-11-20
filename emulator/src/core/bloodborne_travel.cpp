@@ -1759,11 +1759,13 @@ void GiveBackPhantomKeyItems() {
             // A failed removal must not clear the in-memory debt or retry
             // guard. Otherwise a second transition could act on a different
             // ledger than the one that would be loaded after a restart.
-            if (!filed.empty() && !RewardSafety::WriteLedger(file, {})) {
-                LOG_WARNING(Debug, "Bloodborne party: could not clear phantom ledger for slot {}", slot);
-                return;
-            }
-            if (ledger.AcknowledgeObservedReturn()) {
+            if (ledger.AcknowledgeObservedReturn([&] {
+                    if (filed.empty() || RewardSafety::WriteLedger(file, {})) {
+                        return true;
+                    }
+                    LOG_WARNING(Debug, "Bloodborne party: could not clear phantom ledger for slot {}", slot);
+                    return false;
+                })) {
                 filed.clear();
                 return_attempts.Reset();
             }
