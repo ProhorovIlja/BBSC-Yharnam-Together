@@ -36,9 +36,10 @@ import urllib.parse
 import urllib.request
 import webbrowser
 import zipfile
+import zlib
 
 from bbport_shortcut_win import write_shortcut
-from bbport_update_zip import extract_update
+from bbport_update_zip import download_update, extract_update
 
 FROZEN = getattr(sys, 'frozen', False)
 EXE = '.exe' if sys.platform == 'win32' else ''  # the port's own programs; Linux: no suffix
@@ -7642,14 +7643,8 @@ class Launcher:
                 archive = UPDATE_DIR / 'update.zip'
                 request = urllib.request.Request(url, headers={'User-Agent': 'bbport-launcher'})
                 with urllib.request.urlopen(request, timeout=60) as response, open(archive, 'wb') as out:
-                    total, done, shown = int(response.headers.get('Content-Length') or 0), 0, -1
-                    while chunk := response.read(1 << 20):
-                        out.write(chunk)
-                        done += len(chunk)
-                        percent = done * 100 // total if total else 0
-                        if percent != shown:
-                            shown = percent
-                            self.ui_calls.put(lambda p=percent: progress(p))
+                    download_update(response, out, lambda percent:
+                                    self.ui_calls.put(lambda p=percent: progress(p)))
                 with zipfile.ZipFile(archive) as package:
                     new = extract_update(package, UPDATE_DIR / 'new')
                 archive.unlink()
@@ -7657,7 +7652,7 @@ class Launcher:
                 subprocess.Popen([str(new), '--install-update', str(PORT_DIR), str(os.getpid())],
                                  cwd=str(new.parent), stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
                 self.ui_calls.put(self.root.destroy)
-            except (OSError, ValueError, RuntimeError, http.client.HTTPException, zipfile.BadZipFile) as failure:
+            except (OSError, ValueError, RuntimeError, http.client.HTTPException, zipfile.BadZipFile, zlib.error) as failure:
                 def failed(error=failure):
                     self.update_button.configure(state='normal')
                     self.update_bar.pack_forget()
