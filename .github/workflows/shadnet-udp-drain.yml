@@ -4,7 +4,9 @@ on:
     paths:
       - 'server/src/link_server.*'
       - 'server/src/udp_drain_slice.h'
+      - 'server/src/udp_socket_drain.h'
       - 'server/tests/test_udp_drain_slice.cpp'
+      - 'server/tests/test_udp_socket_drain.cpp'
       - '.github/workflows/shadnet-udp-drain.yml'
   workflow_dispatch:
 permissions:
@@ -19,3 +21,11 @@ jobs:
         run: |
           c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic server/tests/test_udp_drain_slice.cpp -o "$RUNNER_TEMP/udp-drain"
           "$RUNNER_TEMP/udp-drain"
+      - name: Install Qt Network development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qt6-base-dev
+      - name: Exercise the production drain on real loopback UDP sockets
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic server/tests/test_udp_socket_drain.cpp $(pkg-config --cflags --libs Qt6Network) -o "$RUNNER_TEMP/udp-socket-drain"
+          "$RUNNER_TEMP/udp-socket-drain"

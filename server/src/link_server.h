@@ -22,6 +22,7 @@
 #include "lobby_friends_db.h"
 #include "region.h"
 #include "server_link.h"
+#include "udp_socket_drain.h"
 
 // shadNet's UDP port: the games' link (server_link.h), which relays their frames and carries
 // their messages with the parties' worlds (bloodborne_world.h). Phase 11: its hello signs the
@@ -102,7 +103,7 @@ private:
     void FlushRpc(RpcEnd& end);
 
     QUdpSocket* m_socket;
-    bool m_udpDrainQueued = false;
+    ShadNetUdp::SocketDrain m_udpDrain;
     SharedState* m_shared;
     ServerLink::Hub m_link;
     QTimer* m_linkTimer;

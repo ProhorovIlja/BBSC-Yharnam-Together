@@ -19,7 +19,6 @@
 #include "config.h"
 #include "coop/build_fingerprint.h"
 #include "link_server.h"
-#include "udp_drain_slice.h"
 #include "signed_accounts.h"
 
 namespace {
@@ -355,40 +354,14 @@ bool LinkServer::Start(const QHostAddress& addr, uint16_t port) {
 }
 
 void LinkServer::OnReadyRead() {
-    if (m_udpDrainQueued)
-        return;
-
-    QElapsedTimer busy;
-    busy.start();
-    QByteArray raw;
-    const bool more = ShadNetUdp::DrainSlice(
-        [&] { return m_socket->hasPendingDatagrams(); },
-        [&] {
-            const qint64 bytes = m_socket->pendingDatagramSize();
-            if (bytes < 0)
-                return false;
-            raw.resize(static_cast<qsizetype>(bytes));
-            QHostAddress sender;
-            uint16_t senderPort = 0;
-            const qint64 received = m_socket->readDatagram(raw.data(), bytes, &sender, &senderPort);
-            if (received < 0)
-                return false;
-            raw.resize(static_cast<qsizetype>(received));
+    m_udpDrain.Run(
+        *this, *m_socket,
+        [this](const QByteArray& raw, const QHostAddress& sender, quint16 port) {
             // The games' link only (phase 9: no STUN, nothing else on this port).
             if (!raw.isEmpty() && ServerLink::KindOf(raw))
-                HandleLink(raw, sender, senderPort);
-            return true;
+                HandleLink(raw, sender, port);
         },
-        [&] { return busy.nsecsElapsed() >= 2'000'000; });
-    Busy(busy);
-    if (more) {
-        // Qt need not emit another readyRead for data already pending.
-        m_udpDrainQueued = true;
-        QTimer::singleShot(0, this, [this] {
-            m_udpDrainQueued = false;
-            OnReadyRead();
-        });
-    }
+        [this](const QElapsedTimer& busy) { Busy(busy); });
 }
 
 void LinkServer::HandleLink(const QByteArray& datagram, const QHostAddress& sender,
