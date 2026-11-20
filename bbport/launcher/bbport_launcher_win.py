@@ -3803,6 +3803,31 @@ class Launcher:
         self.patch_notes = cached_patch_notes()
         self.render_news(cached_news())
 
+    def bind_street_resize(self, header):
+        """Coalesce width bursts before resampling the full-resolution banner on Tk's thread."""
+        job = None
+        width = 0
+
+        def paint():
+            nonlocal job
+            job = None
+            self.paint_street(header, width)
+
+        def resize(event):
+            nonlocal job, width
+            width = event.width
+            if job is None and width >= 50 and width != getattr(header, 'painted_width', 0):
+                job = header.after(16, paint)
+
+        def destroy(event):
+            nonlocal job
+            if event.widget is header and job is not None:
+                header.after_cancel(job)
+                job = None
+
+        header.bind('<Configure>', resize)
+        header.bind('<Destroy>', destroy, add='+')
+
     def paint_street(self, header, width):
         """The street picture covering the header at its width (kept to the right, where the moon is), fading
         into the card at its foot."""
@@ -3880,7 +3905,7 @@ class Launcher:
                 if text:
                     header.create_text(px(36) + 2, y + 2, text=text, font=self.fonts[font], fill='#000000', anchor='nw')
                     header.create_text(px(36), y, text=text, font=self.fonts[font], fill=color, anchor='nw')
-            header.bind('<Configure>', lambda e, h=header: self.paint_street(h, e.width))
+            self.bind_street_resize(header)
             banner.pack_configure(pady=(0, px(30)))
             for corner in banner.frame.corners[2:]:  # the lower ones: the picture is the top's frame
                 corner.tk.call('raise', corner._w)  # (Canvas.lift raises canvas items)
