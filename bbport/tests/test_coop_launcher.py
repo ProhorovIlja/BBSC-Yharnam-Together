@@ -165,6 +165,27 @@ class PortableUpdateZipTests(unittest.TestCase):
             self.assertEqual(old.read_bytes(), b'old')
             self.assertFalse((external / 'new.dll').exists())
 
+    def test_distinct_attempt_staging_and_install_lock(self):
+        import subprocess
+        from bbport_update_zip import lock_portable_install, make_portable_stage
+
+        with tempfile.TemporaryDirectory() as scratch:
+            first = make_portable_stage(scratch)
+            second = make_portable_stage(scratch)
+            self.assertNotEqual(first, second)
+            install = Path(scratch) / 'install'
+            install.mkdir()
+            script = ("import sys; sys.path.insert(0, sys.argv[1]); "
+                      "from bbport_update_zip import lock_portable_install\n"
+                      "try:\n with lock_portable_install(sys.argv[2]): pass\n"
+                      "except ValueError:\n sys.exit(23)")
+            command = [sys.executable, '-c', script, sys.path[0], str(install)]
+            with lock_portable_install(install):
+                self.assertEqual(subprocess.run(command, timeout=10).returncode, 23)
+                with lock_portable_install(second):
+                    self.assertTrue(second.is_dir())
+            self.assertEqual(subprocess.run(command, timeout=10).returncode, 0)
+
     def test_expanded_budget_is_checked_before_staging(self):
         with mock.patch('bbport_update_zip.MAX_EXPANDED_BYTES', 1):
             self.stage(['BLauncher.exe'])
