@@ -6814,13 +6814,14 @@ class Launcher:
                                or bbport_coop.LEARNED_KEY_LINE in item
                                or bbport_coop.OTHER_KEY_LINE in item
                                or bbport_coop.REFUSED_LINE in item)
-                    if not ordered:
+                    if getattr(self, 'run_stopped', False):
+                        pass  # keep raw logs; do not let late auth events restart a stopped game
+                    elif not ordered:
                         self.coop_watch_line(item)
                     else:
                         for line in item.splitlines(keepends=True):
                             self.coop_watch_line(line)
-                            if (getattr(self, 'coop_new_id', None)
-                                    or getattr(self, 'run_stopped', False)):
+                            if getattr(self, 'coop_new_id', None):
                                 continue  # queued markers from a game we are stopping
                             if bbport_support.GAME_STARTING_LINE in line:
                                 self.run_started = True

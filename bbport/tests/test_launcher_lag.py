@@ -434,10 +434,13 @@ class AnimationTests(unittest.TestCase):
         window.root.after_cancel.assert_called_once_with('timer')
         window.job.terminate.assert_called_once_with()
         ready = next(iter(launcher.GAME_UP_LINES)) + '\n'
-        window.output.put(ready)
+        refusal = launcher.bbport_coop.REFUSED_LINE + 'fixture late refusal\n'
+        window.output.put('late log\n')
+        window.output.put(ready + refusal)
         with mock.patch.object(launcher.time, 'perf_counter', return_value=1):
             launcher.Launcher.drain_output(window)
-        window.append.assert_called_once_with(ready)
+        window.append.assert_called_once_with('late log\n' + ready + refusal)
+        window.coop_watch_line.assert_not_called()
         window.schedule_ready_close.assert_not_called()
         window.status.configure.assert_not_called()
 
