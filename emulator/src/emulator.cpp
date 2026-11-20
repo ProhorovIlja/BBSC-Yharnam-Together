@@ -812,8 +812,11 @@ void Emulator::Restart(std::filesystem::path eboot_path,
     if (pid == 0) {
         // Child process - execute the new instance
         execvp(executableName, argv.data());
-        std::cerr << "Failed to restart game: execvp failed" << std::endl;
-        std::quick_exit(1);
+        // This forked child has no RPC worker to join. Do not run parent
+        // shutdown handlers or use iostream locks after a failed exec.
+        constexpr char message[] = "Failed to restart game: execvp failed\n";
+        (void)write(STDERR_FILENO, message, sizeof(message) - 1);
+        _exit(1);
     } else if (pid < 0) {
         std::cerr << "Failed to restart game: fork failed" << std::endl;
         std::quick_exit(1);
