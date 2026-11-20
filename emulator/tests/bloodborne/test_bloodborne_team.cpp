@@ -770,10 +770,16 @@ TEST(PhantomKeyItems, WhatWasGainedComesBackAfterTheGameStartsAgain) {
     next_run.Load(ParseOwedKeyItems(file));
     EXPECT_EQ(next_run.LookAtOwn(0x3000, {{4103, 1}}),
               (std::vector<HeldGoods>{{4114, 1}, {4000, 1}, {4110, 1}}));
-    next_run.GaveBack();
-    EXPECT_TRUE(next_run.Owed().empty()) << "given once: the file goes";
+    EXPECT_FALSE(next_run.AcknowledgeObservedReturn());
+    EXPECT_EQ(EncodeOwedKeyItems(next_run.Owed()), file);
+    EXPECT_EQ(next_run.LookAtOwn(0x3000, {{4103, 1}, {4114, 1}}),
+              (std::vector<HeldGoods>{{4000, 1}, {4110, 1}}));
+    EXPECT_FALSE(next_run.AcknowledgeObservedReturn());
+    EXPECT_EQ(EncodeOwedKeyItems(next_run.Owed()), file);
     EXPECT_EQ(next_run.LookAtOwn(0x3000, {{4103, 1}, {4114, 1}, {4000, 1}, {4110, 1}}),
               std::vector<HeldGoods>{});
+    EXPECT_TRUE(next_run.AcknowledgeObservedReturn());
+    EXPECT_TRUE(next_run.Owed().empty());
 }
 
 // The game started again straight into the team's session: the new phantom's list gets what the
@@ -786,7 +792,9 @@ TEST(PhantomKeyItems, WhatIsOwedGoesInTheNextPhantomsListToo) {
     EXPECT_TRUE(ledger.LookAtPhantom(0x2000, {{4114, 1}}).empty());
     EXPECT_EQ(ledger.Owed(), (std::vector<OwedKeyItem>{{4114, 1, 1}}));
     EXPECT_EQ(ledger.LookAtOwn(0x3000, {}), (std::vector<HeldGoods>{{4114, 1}}));
-    ledger.GaveBack();
+    EXPECT_FALSE(ledger.AcknowledgeObservedReturn());
+    EXPECT_EQ(ledger.LookAtOwn(0x3000, {{4114, 1}}), std::vector<HeldGoods>{});
+    EXPECT_TRUE(ledger.AcknowledgeObservedReturn());
     EXPECT_TRUE(ledger.Owed().empty());
 }
 
@@ -813,6 +821,7 @@ TEST(PhantomKeyItems, NothingIsGivenIntoThePhantomsList) {
     EXPECT_TRUE(ledger.LookAtPhantom(0x2000, {}).empty());
     EXPECT_TRUE(ledger.LookAtPhantom(0x2000, {{4114, 1}}).empty());
     EXPECT_EQ(ledger.LookAtOwn(0x2000, {{4114, 1}}), std::nullopt);
+    EXPECT_FALSE(ledger.AcknowledgeObservedReturn());
     EXPECT_EQ(ledger.Owed(), (std::vector<OwedKeyItem>{{4114, 1, 1}}));
     EXPECT_EQ(ledger.LookAtOwn(0x3000, {}), (std::vector<HeldGoods>{{4114, 1}}));
 }

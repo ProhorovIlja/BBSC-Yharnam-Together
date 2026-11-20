@@ -456,7 +456,8 @@ public:
     // nothing; else what to give it back, none when it holds all it is owed (GaveBack once
     // given).
     std::optional<std::vector<HeldGoods>> LookAtOwn(u64 list, std::vector<HeldGoods> held);
-    void GaveBack();
+    // Retire only when the last observed own inventory covers the debt; not a disk save ACK.
+    [[nodiscard]] bool AcknowledgeObservedReturn();
     // What the slot's file must hold now.
     std::vector<OwedKeyItem> Owed() const;
 

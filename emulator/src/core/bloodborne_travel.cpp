@@ -1658,6 +1658,7 @@ void GiveBackPhantomKeyItems() {
     static RewardSafety::ReturnAttempts return_attempts;
     static std::vector<OwedKeyItem> filed;
     static int ledger_slot = -2;
+    static int reported_read_failure = -2;
     static s64 looked_ms = 0;
     const u64 player = GetLocalPlayer();
     const int slot = character_slot.load();
@@ -1675,12 +1676,14 @@ void GiveBackPhantomKeyItems() {
         const auto text = RewardSafety::ReadLedger(file);
         if (!text) {
             // Do not replace an unread ledger or continue using the previous slot's data.
-            if (ledger_slot != -2) {
+            if (reported_read_failure != slot) {
                 LOG_WARNING(Debug, "Bloodborne party: could not read phantom ledger for slot {}", slot);
+                reported_read_failure = slot;
             }
             ledger_slot = -2;
             return;
         }
+        reported_read_failure = -2;
         ledger_slot = slot;
         filed = ParseOwedKeyItems(*text);
         ledger.Load(filed);
@@ -1732,9 +1735,10 @@ void GiveBackPhantomKeyItems() {
         if (owed->empty()) {
             // Own-list observation, not a savedata commit. A crash before the
             // game's save is still an open recovery case.
-            ledger.GaveBack();
-            return_attempts.Reset();
-            persist();
+            if (ledger.AcknowledgeObservedReturn()) {
+                return_attempts.Reset();
+                persist();
+            }
             return;
         }
         // Publish any gains captured on this transition before requesting a native grant.
