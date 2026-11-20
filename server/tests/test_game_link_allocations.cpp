@@ -76,8 +76,33 @@ static bool ReliableRetainsItsPayloadForRetransmission() {
     return true;
 }
 
+static bool FreshAndRetriedPacketsKeepWireOrderAcrossFrames() {
+    GameLinkPeer::Settings settings;
+    settings.frame_bytes = 32;
+    GameLinkPeer peer{"host", 1, settings};
+    const std::vector<u8> reliable(48, 0x29), visual(48, 4), next(48, 0x29);
+    peer.Send(PacketClass::Reliable, reliable, 0);
+    CHECK(peer.Flush(0).size() == 1);
+    peer.Send(PacketClass::Unreliable, visual, 150);
+    peer.Send(PacketClass::Reliable, next, 150);
+    const auto frames = peer.Flush(150);
+    CHECK(frames.size() == 3);
+    for (const auto& frame : frames) {
+        CHECK(frame.entries.size() == 1);
+        const auto decoded = DecodeGameFrame(EncodeGameFrame(frame));
+        CHECK(decoded && *decoded == frame);
+    }
+    CHECK(frames[0].entries[0].packet_class == PacketClass::Unreliable);
+    CHECK(frames[1].entries[0].packet_class == PacketClass::Reliable);
+    CHECK(frames[2].entries[0].packet_class == PacketClass::Reliable);
+    CHECK(frames[1].entries[0].seq == frames[2].entries[0].seq + 1);
+    CHECK(peer.Resends() == 1);
+    return true;
+}
+
 int main() {
-    if (!UnreliableTransfersItsOwnedPayload() || !ReliableRetainsItsPayloadForRetransmission())
+    if (!UnreliableTransfersItsOwnedPayload() || !ReliableRetainsItsPayloadForRetransmission() ||
+        !FreshAndRetriedPacketsKeepWireOrderAcrossFrames())
         return 1;
     std::cout << "Shared stream: unreliable Flush payload allocations 1 -> 0; reliable resend preserved\n";
 }
