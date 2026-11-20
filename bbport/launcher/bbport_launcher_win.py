@@ -6858,12 +6858,15 @@ class Launcher:
         self.root.after_idle(lambda: self.messagebox.showwarning('Bloodborne', text))
 
     def append(self, text):
+        # Follow live output only when the reader is already at the bottom.
+        follow = self.log.yview()[1] >= 1.0
         self.log.configure(state='normal')
         self.log.insert('end', text)
         lines = int(self.log.index('end-1c').split('.')[0])
         if lines > MAX_LOG_LINES:
             self.log.delete('1.0', f'{lines - MAX_LOG_LINES}.0')
-        self.log.see('end')
+        if follow:
+            self.log.see('end')
         self.log.configure(state='disabled')
 
     def set_log(self, text):

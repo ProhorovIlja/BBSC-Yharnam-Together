@@ -361,6 +361,20 @@ class AnimationTests(unittest.TestCase):
         self.assertEqual(card.configure.call_count, 2)
         self.assertEqual(corner.itemconfigure.call_count, 2)
 
+    def test_live_log_respects_scroll_position_and_keeps_the_line_cap(self):
+        for position, follow in [((0.2, 0.5), False), ((0.8, 1.0), True)]:
+            with self.subTest(position=position):
+                log = mock.Mock()
+                log.yview.return_value = position
+                log.index.return_value = f'{launcher.MAX_LOG_LINES + 4}.7'
+                launcher.Launcher.append(types.SimpleNamespace(log=log), 'new output\n')
+                log.insert.assert_called_once_with('end', 'new output\n')
+                log.delete.assert_called_once_with('1.0', '4.0')
+                self.assertEqual(log.see.call_args_list, [mock.call('end')] if follow else [])
+                self.assertEqual(log.configure.call_args_list, [
+                    mock.call(state='normal'), mock.call(state='disabled'),
+                ])
+
     def test_log_burst_is_batched_without_reordering_lines_or_exit(self):
         events = []
         window = types.SimpleNamespace(
