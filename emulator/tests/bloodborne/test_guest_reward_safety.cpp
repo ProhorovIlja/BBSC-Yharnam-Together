@@ -11,6 +11,13 @@ using namespace std::chrono_literals;
 int main(int argc, char** argv) {
     assert(argc == 2);
     const Owner original{2, 1}, other_slot{3, 1}, other_character{2, 2}, unknown{-1, 1};
+    ReturnAttempts attempts;
+    assert(attempts.Begin(101));
+    assert(!attempts.Begin(101));
+    assert(attempts.Begin(201)); // another good can be earned while the first is ambiguous
+    assert(!attempts.Begin(101));
+    attempts.Reset();
+    assert(attempts.Begin(101));
     const Time now{};
     std::vector<Pending<int>> lots{{101, now, original}, {102, now + 2s, original},
                                    {201, now, other_slot}, {301, now, other_character}};

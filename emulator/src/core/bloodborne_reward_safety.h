@@ -20,6 +20,23 @@ struct Owner {
     bool operator==(const Owner&) const = default;
 };
 
+// Native AddTradeItems is void. While delivery is ambiguous, do not issue the
+// same goods request on every tick (or on a rapid rejoin).
+class ReturnAttempts {
+public:
+    bool Begin(std::int32_t goods) {
+        if (std::ranges::find(requested, goods) != requested.end()) {
+            return false;
+        }
+        requested.push_back(goods);
+        return true;
+    }
+    void Reset() { requested.clear(); }
+
+private:
+    std::vector<std::int32_t> requested;
+};
+
 using Time = std::chrono::steady_clock::time_point;
 
 template <typename T>

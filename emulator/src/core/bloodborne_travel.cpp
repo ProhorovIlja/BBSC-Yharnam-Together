@@ -1655,6 +1655,7 @@ void RecheckShopLinesOnce(u32 map) {
 void GiveBackPhantomKeyItems() {
     constexpr s32 PhantomType = 1;
     static PhantomKeyItemLedger ledger;
+    static RewardSafety::ReturnAttempts return_attempts;
     static std::vector<OwedKeyItem> filed;
     static int ledger_slot = -2;
     static s64 looked_ms = 0;
@@ -1683,6 +1684,7 @@ void GiveBackPhantomKeyItems() {
         ledger_slot = slot;
         filed = ParseOwedKeyItems(*text);
         ledger.Load(filed);
+        return_attempts.Reset();
         if (!filed.empty()) {
             LOG_INFO(Debug,
                      "Bloodborne party: save slot {} is owed {} key items gained as a phantom "
@@ -1727,13 +1729,24 @@ void GiveBackPhantomKeyItems() {
         }
     } else if (const auto owed = ledger.LookAtOwn(list, HeldKeyGoods());
                owed && !ledger.Owed().empty() && (owed->empty() || TradeItemsReadyToGive())) {
+        if (owed->empty()) {
+            // Own-list observation, not a savedata commit. A crash before the
+            // game's save is still an open recovery case.
+            ledger.GaveBack();
+            return_attempts.Reset();
+            persist();
+            return;
+        }
         // Publish any gains captured on this transition before requesting a native grant.
-        if (!owed->empty() && !persist()) {
+        if (!persist()) {
             return;
         }
         for (const HeldGoods& held : *owed) {
             if (character_slot.load() != slot || phantom_keys_forgotten.load()) {
                 return;
+            }
+            if (!return_attempts.Begin(held.goods)) {
+                continue;
             }
             give(held);
             LOG_INFO(Debug,
@@ -1741,7 +1754,7 @@ void GiveBackPhantomKeyItems() {
                      "the game with its key item list",
                      held.count, held.goods);
         }
-        ledger.GaveBack();
+        return;
     }
     // Replacement is not acknowledgement of the game's savedata transaction.
     persist();
