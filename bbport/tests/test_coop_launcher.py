@@ -27,7 +27,10 @@ class PortableUpdateZipTests(unittest.TestCase):
         with warnings.catch_warnings(), zipfile.ZipFile(blob, 'w') as archive:
             warnings.simplefilter('ignore', UserWarning)  # deliberate duplicate
             for name in names:
-                archive.writestr(name, b'fixture')
+                # zipfile's writer normalizes backslashes on Windows. Patch
+                # equal-length names in the local and central headers instead.
+                archive.writestr(name.replace('\\', '~'), b'fixture')
+        blob = io.BytesIO(blob.getvalue().replace(b'bin~escape', br'bin\escape'))
         with tempfile.TemporaryDirectory() as scratch, zipfile.ZipFile(blob) as archive:
             out = Path(scratch) / 'fresh'
             if valid:
