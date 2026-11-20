@@ -5473,6 +5473,9 @@ class Launcher:
                 pass
             return
         if bbport_coop.other_key(line):
+            # Local game readiness does not establish the server's identity.
+            self.coop_key_mismatch = True
+            self.cancel_ready_close()
             self.status.configure(text=_(bbport_coop.OTHER_KEY_TEXT), fg=BAD)
             return
         # Global: no new id without a sign-in, and no other id to try.
@@ -6718,6 +6721,7 @@ class Launcher:
         # What a game that closes while starting may blame (drain_output): see start_crash_suspects.
         self.run_started, self.run_up, self.run_stopped = False, False, False
         self.output_ready = False
+        self.coop_key_mismatch = False
         self.run_layers_disabled = env.get('VK_LOADER_LAYERS_DISABLE', '')
         self.run_reshade = RESHADE_LAYER in env.get('VK_INSTANCE_LAYERS', '')
 
@@ -6821,18 +6825,21 @@ class Launcher:
                                 self.run_started = True
                             if game_is_up(line):  # mods, patches and shaders are prepared; the window exists
                                 self.run_up = True
+                                key_mismatch = getattr(self, 'coop_key_mismatch', False)
                                 if not self.output_ready:
                                     self.output_ready = True
                                     self.set_running(True)
-                                    self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
-                                if (self.app.get('close_on_play') and self.close_on_ready_job is None
+                                    if not key_mismatch:
+                                        self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
+                                if (not key_mismatch and self.app.get('close_on_play') and self.close_on_ready_job is None
                                         and self.process is not None):
                                     self.schedule_ready_close()
                             elif 'restarting through run.py' in line:
                                 self.cancel_ready_close()
                                 self.output_ready = False
                                 self.set_running(True, preparing=True)
-                                self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)
+                                if not getattr(self, 'coop_key_mismatch', False):
+                                    self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)
                     pending.append(item)
                     chars += len(item)
                     if chars >= 16384:

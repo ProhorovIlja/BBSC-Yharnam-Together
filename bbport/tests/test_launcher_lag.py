@@ -421,6 +421,33 @@ class AnimationTests(unittest.TestCase):
         window.set_running.assert_not_called()
         window.status.configure.assert_not_called()
 
+    def test_server_key_mismatch_cancels_close_and_survives_ready_marker(self):
+        for before_ready in (True, False):
+            with self.subTest(before_ready=before_ready):
+                window = types.SimpleNamespace(
+                    ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),
+                    drain_output=mock.Mock(), append=mock.Mock(), status=mock.Mock(),
+                    app={'close_on_play': True}, process=object(), close_on_ready_job=None,
+                    output_ready=False, set_running=mock.Mock(), coop_playing=object(),
+                )
+                window.cancel_ready_close = lambda: launcher.Launcher.cancel_ready_close(window)
+                window.schedule_ready_close = lambda: setattr(window, 'close_on_ready_job', 'timer')
+                window.coop_watch_line = lambda line: launcher.Launcher.coop_watch_line(window, line)
+                mismatch = launcher.bbport_coop.OTHER_KEY_LINE + '\n'
+                ready = next(iter(launcher.GAME_UP_LINES)) + '\n'
+                window.output.put(mismatch + ready if before_ready else ready + mismatch + ready)
+                with mock.patch.object(launcher.time, 'perf_counter', return_value=1), \
+                        mock.patch.object(launcher.bbport_coop, 'other_key', side_effect=lambda line: line == mismatch), \
+                        mock.patch.object(launcher, '_', side_effect=lambda english, *_: english):
+                    launcher.Launcher.drain_output(window)
+                self.assertTrue(window.run_up)
+                self.assertTrue(window.coop_key_mismatch)
+                self.assertIsNone(window.close_on_ready_job)
+                self.assertEqual(window.status.configure.call_args.kwargs['fg'], launcher.BAD)
+                self.assertEqual(window.root.after_cancel.call_count, 0 if before_ready else 1)
+                launcher.Launcher.reset_run_output(window, {})
+                self.assertFalse(window.coop_key_mismatch)
+
     def test_sign_in_refusal_survives_post_exit_status_refresh(self):
         window = types.SimpleNamespace(
             ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),
