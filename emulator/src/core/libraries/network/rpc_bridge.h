@@ -15,4 +15,7 @@ namespace Libraries::Net {
 // not listen. One connection at a time; a new one ends the one before.
 u16 StartRpcBridge();
 
+// Terminal shutdown: join the worker before emulator services are torn down.
+void StopRpcBridge();
+
 } // namespace Libraries::Net
