@@ -80,10 +80,12 @@ int main(int argc, char** argv) {
     std::ofstream(path, std::ios::binary) << "committed";
     assert(!ReadLiveLedger(path));
     assert(ReadLedger(path) == "committed");
+    assert(!LedgerStagingClear(path));
     assert(std::filesystem::remove(path));
     assert(!std::filesystem::exists(path));
     assert(std::filesystem::remove(temp / "ledger") && std::filesystem::remove(temp));
     assert(WriteLedger(path, {}));
+    assert(LedgerStagingClear(path));
     assert(ReadLiveLedger(path) == std::string{});
     const std::string limit(MaxLedgerBytes, 'x');
     assert(WriteLedger(path, limit) && ReadLedger(path) == limit);
