@@ -4,10 +4,12 @@ password, sent to that server only, over HTTPS only, with its certificate checke
 never written anywhere and never logged: it goes in one request's body and the launcher keeps only
 the signed 30-day secret the server answers (bbport_coop.signed_in_global)."""
 import hashlib
+import http.client
 import json
 import ssl
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 
 NAME_MIN, NAME_MAX = 3, 20
@@ -51,10 +53,22 @@ class AuthError(RuntimeError):
 
 def https_base(url):
     """The server's address without the slash at its end; AuthError unless it is https."""
-    url = (url or '').strip().rstrip('/')
-    if not url.lower().startswith('https://') or len(url) <= len('https://'):
+    if not isinstance(url, str):
         raise AuthError(PLAIN_HTTP_TEXT)
-    return url
+    url = url.strip()
+    # urlsplit silently strips some control characters; never send credentials
+    # to an authority different from the one the player entered.
+    if not url or any(ord(ch) <= 32 or ord(ch) == 127 for ch in url) or any(
+            ch in url for ch in ('\\', '?', '#')):
+        raise AuthError(PLAIN_HTTP_TEXT)
+    try:
+        parts = urllib.parse.urlsplit(url)
+        if (parts.scheme != 'https' or not parts.hostname or parts.username is not None
+                or parts.netloc.endswith(':') or parts.port == 0):
+            raise ValueError('invalid account server URL')
+    except ValueError:
+        raise AuthError(PLAIN_HTTP_TEXT) from None
+    return url.rstrip('/')
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -122,17 +136,18 @@ def _call(url, path, body=None, context=None, opener=None):
             except (ValueError, RecursionError):
                 raise AuthError(REFUSED_TEXT) from None
     except urllib.error.HTTPError as error:
-        try:
-            return error.code, _read_object(error)
-        except (OSError, ValueError, RecursionError):
-            return error.code, {}
+        with error:
+            try:
+                return error.code, _read_object(error)
+            except (OSError, http.client.HTTPException, ValueError, RecursionError):
+                return error.code, {}
     except urllib.error.URLError as error:
         if isinstance(error.reason, ssl.SSLError):
             raise _tls_error(error.reason) from None
         raise AuthError(NO_SERVER_TEXT) from None
     except ssl.SSLError as error:
         raise _tls_error(error) from None
-    except (OSError, ValueError):
+    except (OSError, http.client.HTTPException, ValueError):
         raise AuthError(NO_SERVER_TEXT) from None
 
 
