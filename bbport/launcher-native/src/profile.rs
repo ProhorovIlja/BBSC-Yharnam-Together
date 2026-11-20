@@ -1,6 +1,8 @@
 use serde_json::{Map, Value};
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read, Write};
+use std::os::windows::fs::MetadataExt;
+use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -45,9 +47,36 @@ fn valid_address(address: &str) -> bool {
     }
 }
 
+const PROFILE_LIMIT: u64 = 1024 * 1024;
+
+fn check_path(path: &Path, directory: bool) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
+            && if directory { meta.is_dir() } else { meta.is_file() } => Ok(()),
+        Ok(_) => Err(invalid("Co-op settings must use ordinary files and directories.")),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+fn profile_bytes(path: &Path) -> io::Result<Vec<u8>> {
+    check_path(path, false)?;
+    let file = File::open(path)?;
+    if file.metadata()?.len() > PROFILE_LIMIT {
+        return Err(invalid("Co-op settings exceed the 1 MiB limit."));
+    }
+    let mut bytes = Vec::new();
+    file.take(PROFILE_LIMIT + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > PROFILE_LIMIT {
+        return Err(invalid("Co-op settings exceed the 1 MiB limit."));
+    }
+    Ok(bytes)
+}
+
 fn read(install: &Path) -> io::Result<(Option<Vec<u8>>, Map<String, Value>)> {
-    let path = install.join("user/coop.json");
-    match fs::read(&path) {
+    let user = install.join("user");
+    check_path(&user, true)?;
+    match profile_bytes(&user.join("coop.json")) {
         Ok(bytes) => {
             let profile: Value = serde_json::from_slice(&bytes)
                 .map_err(|_| invalid("Existing co-op settings are unreadable. Open the legacy launcher to recover them."))?;
@@ -97,8 +126,12 @@ pub fn save(install: &Path, game: Option<&Path>, host: &str) -> io::Result<()> {
     profile.insert("host_ip".into(), Value::String(host.into()));
     let mut bytes = serde_json::to_vec_pretty(&profile)?;
     bytes.push(b'\n');
+    if bytes.len() as u64 > PROFILE_LIMIT {
+        return Err(invalid("Co-op settings exceed the 1 MiB limit."));
+    }
     let user = install.join("user");
     fs::create_dir_all(&user)?;
+    check_path(&user, true)?;
     let (pending, mut file) = loop {
         let name = format!(".coop-native-{}-{}.tmp", std::process::id(), NEXT_STAGE.fetch_add(1, Ordering::Relaxed));
         let pending = user.join(name);
@@ -161,6 +194,14 @@ mod tests {
         fs::write(&path, broken).unwrap();
         assert!(save(&root, None, "play.example.com").is_err());
         assert_eq!(fs::read(&path).unwrap(), broken);
+        let oversized = vec![b' '; PROFILE_LIMIT as usize + 1];
+        fs::write(&path, &oversized).unwrap();
+        assert_eq!(save(&root, None, "").unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read(&path).unwrap(), oversized);
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert_eq!(save(&root, None, "").unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(path.is_dir());
         fs::remove_dir_all(root).unwrap();
     }
 }
