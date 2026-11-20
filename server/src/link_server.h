@@ -102,6 +102,7 @@ private:
     void FlushRpc(RpcEnd& end);
 
     QUdpSocket* m_socket;
+    bool m_udpDrainQueued = false;
     SharedState* m_shared;
     ServerLink::Hub m_link;
     QTimer* m_linkTimer;

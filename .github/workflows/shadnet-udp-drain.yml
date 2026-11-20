@@ -1,0 +1,21 @@
+name: ShadNet UDP receive budget
+on:
+  pull_request:
+    paths:
+      - 'server/src/link_server.*'
+      - 'server/src/udp_drain_slice.h'
+      - 'server/tests/test_udp_drain_slice.cpp'
+      - '.github/workflows/shadnet-udp-drain.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  slice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and exercise the receive budget
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic server/tests/test_udp_drain_slice.cpp -o "$RUNNER_TEMP/udp-drain"
+          "$RUNNER_TEMP/udp-drain"
