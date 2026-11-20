@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "../src/rpc_write_budget.h"
+#include "../src/rpc_backend_errors.h"
 
 #include <QCoreApplication>
+#include <QEventLoop>
+#include <QTimer>
 #include <QHostAddress>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -39,4 +42,22 @@ int main(int argc, char** argv) {
     forward.abort();
     CHECK(forward.bytesToWrite() == 0);
     std::cout << "RPC backend TCP: cap, rejection, drain and abort passed\n";
+
+    const auto unusedPort = backend.serverPort();
+    backend.close();
+    QTcpSocket refused;
+    QEventLoop loop;
+    int failures = 0, disconnects = 0;
+    QObject::connect(&refused, &QTcpSocket::disconnected, [&] { ++disconnects; });
+    ShadNetRpc::OnBackendFailure(refused, [&] {
+        ++failures;
+        loop.quit();
+    });
+    refused.connectToHost(QHostAddress::LocalHost, unusedPort);
+    CHECK(failures == 0); // cleanup must not run inside connect/error transitions
+    QTimer::singleShot(2000, &loop, &QEventLoop::quit);
+    loop.exec();
+    CHECK(refused.error() == QAbstractSocket::ConnectionRefusedError);
+    CHECK(failures == 1 && disconnects == 0);
+    std::cout << "RPC backend TCP: initial refusal triggers deferred cleanup without disconnect\n";
 }

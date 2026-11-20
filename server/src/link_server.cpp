@@ -20,6 +20,7 @@
 #include "coop/build_fingerprint.h"
 #include "link_server.h"
 #include "rpc_write_budget.h"
+#include "rpc_backend_errors.h"
 #include "signed_accounts.h"
 
 namespace {
@@ -962,18 +963,12 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
         at->tunnel->Close(m_clock.elapsed());
         FlushRpc(*at);
     });
-    connect(socket, &QTcpSocket::errorOccurred, this,
-            [this, socket, mine](QAbstractSocket::SocketError error) {
-        if (error == QAbstractSocket::RemoteHostClosedError)
-            return; // The normal disconnected path follows, after final reads.
-        // Do not tear down the socket inside Qt's connect/error transition.
-        QMetaObject::invokeMethod(socket, [this, mine] {
-            if (RpcEnd* at = mine()) {
-                CloseRpc(*at, true);
-                at->tunnel->Close(m_clock.elapsed());
-                FlushRpc(*at);
-            }
-        }, Qt::QueuedConnection);
+    ShadNetRpc::OnBackendFailure(*socket, [this, mine] {
+        if (RpcEnd* at = mine()) {
+            CloseRpc(*at, true);
+            at->tunnel->Close(m_clock.elapsed());
+            FlushRpc(*at);
+        }
     });
     socket->connectToHost(QHostAddress::LocalHost, m_tcpPort);
 }

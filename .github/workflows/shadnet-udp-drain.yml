@@ -8,6 +8,7 @@ on:
       - 'server/coop/game_link.h'
       - 'server/tests/test_rpc_tunnel.cpp'
       - 'server/src/rpc_write_budget.h'
+      - 'server/src/rpc_backend_errors.h'
       - 'server/tests/test_rpc_backend_socket.cpp'
       - 'server/src/server_link.*'
       - 'server/tests/test_server_link.cpp'
