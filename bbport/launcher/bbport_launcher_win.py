@@ -8061,7 +8061,7 @@ def update_ignore(target):
     return ignore
 
 
-def wait_for_update_parent(pid, kernel=None):
+def wait_for_update_parent(pid, kernel=None, *, timeout_ms=60000):
     """Only proceed when the old launcher is gone, not on timeout or access denial."""
     from ctypes import wintypes
 
@@ -8083,7 +8083,7 @@ def wait_for_update_parent(pid, kernel=None):
             return
         raise ctypes.WinError(error)
     try:
-        status = kernel.WaitForSingleObject(handle, 60000)
+        status = kernel.WaitForSingleObject(handle, timeout_ms)
         if status == 0x102:
             raise TimeoutError('The previous launcher is still running. No update files were copied.')
         if status != 0:
