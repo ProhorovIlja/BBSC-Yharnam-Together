@@ -39,8 +39,12 @@ int main() {
     assert((guest.LookAtOwn(0x3000, {}) == std::vector<HeldGoods>{{4114, 1}}));
     assert(!guest.AcknowledgeObservedReturn());
     assert(guest.LookAtOwn(0x3000, {{4114, 1}}) == std::vector<HeldGoods>{});
-    assert(guest.AcknowledgeObservedReturn());
-    assert(guest.Owed().empty());
+    int attempts = 0;
+    assert(!guest.AcknowledgeObservedReturn([&] { ++attempts; return false; }));
+    assert(attempts == 1);
+    assert((guest.Owed() == std::vector<OwedKeyItem>{{4114, 1, 1}}));
+    assert(guest.AcknowledgeObservedReturn([&] { ++attempts; return true; }));
+    assert(attempts == 2 && guest.Owed().empty());
 }
 '''
 preamble = """#include <algorithm>
@@ -48,6 +52,7 @@ preamble = """#include <algorithm>
 #include <cassert>
 #include <charconv>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
