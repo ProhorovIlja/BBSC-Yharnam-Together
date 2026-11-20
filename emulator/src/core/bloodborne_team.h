@@ -7,6 +7,7 @@
 // on the title until then (TeamGate): a member's Continue or Load Game is its Ready, the leader's
 // is the team's Start.
 #pragma once
+#include <functional>
 
 #include <array>
 #include <functional>
@@ -460,7 +461,8 @@ public:
     // nothing; else what to give it back, empty when it holds all it is owed.
     std::optional<std::vector<HeldGoods>> LookAtOwn(u64 list, std::vector<HeldGoods> held);
     // Retire only when the last observed own inventory covers the debt; not a disk save ACK.
-    [[nodiscard]] bool AcknowledgeObservedReturn();
+    [[nodiscard]] bool AcknowledgeObservedReturn(
+        const std::function<bool()>& clear_sidecar = [] { return true; });
     // What the slot's file must hold now.
     std::vector<OwedKeyItem> Owed() const;
 
