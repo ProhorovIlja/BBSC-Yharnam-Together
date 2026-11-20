@@ -466,7 +466,9 @@ std::optional<std::vector<OwedKeyItem>> ValidateOwedKeyItems(std::string_view te
         }
     }
     auto owed = ParseOwedKeyItems(normalized);
-    if (std::ranges::any_of(owed, [](const auto& item) { return item.goods <= 0; }) ||
+    if (std::ranges::any_of(owed, [](const auto& item) {
+            return item.goods == 0 || item.goods > 0x0FFFFFFFu;
+        }) ||
         EncodeOwedKeyItems(owed) != normalized) {
         return std::nullopt;
     }

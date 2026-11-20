@@ -26,6 +26,7 @@ int main() {
     assert(!ValidateOwedKeyItems("4114 1 1\n4001 1"));
     assert(!ValidateOwedKeyItems("4114 1 1\n4114 1 2\n"));
     assert(!ValidateOwedKeyItems("4114 1 1"));
+    assert(!ValidateOwedKeyItems("268435456 1 1\n"));
 
     PhantomKeyItemLedger guest;
     assert(guest.LookAtPhantom(0x2000, {}).empty());

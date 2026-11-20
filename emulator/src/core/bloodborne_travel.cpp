@@ -1702,8 +1702,18 @@ void GiveBackPhantomKeyItems() {
         AddTradeItems(std::span{&item, 1}, ItemPopup::Silent);
     };
     const u64 list = KeyItemList();
-    if (list == 0 || character_slot.load() != slot) {
+    const auto still_current = [&] {
+        return list >= 0x10000 && character_slot.load() == slot &&
+               !phantom_keys_forgotten.load() && GetLocalPlayer() == player &&
+               KeyItemList() == list;
+    };
+    if (!still_current()) {
         return;
+    }
+    const bool phantom = ReadValue<s32>(player, 0x78) == PhantomType;
+    auto held_keys = HeldKeyGoods();
+    if (!still_current() || (ReadValue<s32>(player, 0x78) == PhantomType) != phantom) {
+        return; // A snapshot from a changing inventory is not a receipt or a new baseline.
     }
     const auto persist = [&] {
         if (character_slot.load() != slot || phantom_keys_forgotten.load()) {
@@ -1720,10 +1730,13 @@ void GiveBackPhantomKeyItems() {
         filed = std::move(owed);
         return true;
     };
-    if (ReadValue<s32>(player, 0x78) == PhantomType) {
+    if (phantom) {
         // Preserve any dirty ledger writes even while native grants are temporarily unready.
         if (TradeItemsReadyToGive()) {
-            for (const HeldGoods& held : ledger.LookAtPhantom(list, HeldKeyGoods())) {
+            for (const HeldGoods& held : ledger.LookAtPhantom(list, std::move(held_keys))) {
+                if (!still_current() || ReadValue<s32>(player, 0x78) != PhantomType) {
+                    return;
+                }
                 give(held);
                 LOG_INFO(Debug,
                          "Bloodborne party: requested {} x goods {} of the guest's own in the "
@@ -1733,9 +1746,9 @@ void GiveBackPhantomKeyItems() {
         } else {
             // The item manager can disappear before the readable key list does.
             // Keep any observed gains without attempting native item delivery.
-            ledger.ObserveKnownPhantom(list, HeldKeyGoods());
+            ledger.ObserveKnownPhantom(list, std::move(held_keys));
         }
-    } else if (const auto owed = ledger.LookAtOwn(list, HeldKeyGoods());
+    } else if (const auto owed = ledger.LookAtOwn(list, std::move(held_keys));
                owed && !ledger.Owed().empty() && (owed->empty() || TradeItemsReadyToGive())) {
         if (owed->empty()) {
             // Own-list observation, not a savedata commit. A crash before the
@@ -1751,7 +1764,7 @@ void GiveBackPhantomKeyItems() {
             return;
         }
         for (const HeldGoods& held : *owed) {
-            if (character_slot.load() != slot || phantom_keys_forgotten.load()) {
+            if (!still_current() || ReadValue<s32>(player, 0x78) == PhantomType) {
                 return;
             }
             if (!return_attempts.Begin(held.goods)) {
