@@ -16,6 +16,7 @@
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
+#include <cerrno>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/select.h>
@@ -62,10 +63,19 @@ bool Readable(Socket socket, int ms) {
 }
 
 bool SendAll(Socket socket, std::span<const u8> bytes) {
+#if !defined(_WIN32) && defined(MSG_NOSIGNAL)
+    constexpr int flags = MSG_NOSIGNAL;
+#else
+    constexpr int flags = 0;
+#endif
     size_t sent = 0;
     while (sent < bytes.size()) {
         const int rc = send(socket, reinterpret_cast<const char*>(bytes.data() + sent),
-                            static_cast<int>(bytes.size() - sent), 0);
+                            static_cast<int>(bytes.size() - sent), flags);
+#ifndef _WIN32
+        if (rc < 0 && errno == EINTR)
+            continue;
+#endif
         if (rc <= 0) {
             return false;
         }
@@ -140,6 +150,15 @@ private:
         if (client == NoSocket) {
             return;
         }
+#if !defined(_WIN32) && !defined(MSG_NOSIGNAL) && defined(SO_NOSIGPIPE)
+        // Platforms without per-send suppression can set it on the TCP connection.
+        const int enabled = 1;
+        if (setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) != 0) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: could not suppress SIGPIPE on the local connection");
+            DropClient();
+            return;
+        }
+#endif
         tunnel.Open(now_ms);
     }
 
