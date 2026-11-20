@@ -118,14 +118,18 @@ inline bool WriteLedger(const std::filesystem::path& path, std::string_view enco
         return false;
     }
     error.clear();
-    if (encoded.empty()) {
-        std::filesystem::remove(path, error);
-        return !error;
-    }
     auto staging = path;
     staging += ".tmp";
     if (!std::filesystem::create_directory(staging, error) || error) {
         return false;
+    }
+    if (encoded.empty()) {
+        // An acknowledgement may not erase the committed ledger while an
+        // interrupted staging operation is still unresolved.
+        std::filesystem::remove(path, error);
+        const bool removed = !error;
+        std::filesystem::remove(staging, error);
+        return removed;
     }
     const auto temp = staging / "ledger";
     bool replaced = false;
