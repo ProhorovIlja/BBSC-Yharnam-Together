@@ -292,6 +292,29 @@ int ClosedTunnelDoesNotDeliverData() {
   return 0;
 }
 
+int RpcControlMessagesWithTrailingBytesDoNotChangeState() {
+  CoopStream raw{"game", 7};
+  RpcTunnel server{"shadnet", 9};
+  const auto deliver = [&](std::initializer_list<u8> bytes, s64 now) {
+    raw.Send(std::vector<u8>(bytes), now);
+    std::vector<Event> events;
+    for (const auto& body : raw.Flush(now)) {
+      auto batch = server.Receive(body, now);
+      for (auto& event : batch) events.push_back(std::move(event));
+    }
+    for (const auto& body : server.Flush(now)) raw.Receive(body, now);
+    return events;
+  };
+  CHECK(deliver({1, 99}, 0).empty() && !server.IsOpen());
+  CHECK(deliver({1}, 1) == (std::vector<Event>{{Event::Kind::Opened, {}}}));
+  CHECK(deliver({1, 99}, 2).empty() && server.IsOpen());
+  CHECK(deliver({3, 99}, 3).empty() && server.IsOpen());
+  CHECK(deliver({2, 'x'}, 4) == (std::vector<Event>{{Event::Kind::Data, Bytes("x")}}));
+  CHECK(deliver({3}, 5) == (std::vector<Event>{{Event::Kind::Closed, {}}}));
+  CHECK(!server.IsOpen());
+  return 0;
+}
+
 int BackendWriteBudgetIsCheckedBeforeBuffering() {
   using ShadNetRpc::FitsWriteBudget;
   constexpr auto limit = 1 << 20;
@@ -343,6 +366,7 @@ int main() {
       AnRpcMessagePastTheLimitBreaksTheTunnel() != 0 ||
       CoalescedReplyStaysWithinMessageAndQueueBounds() != 0 ||
       BackendWriteBudgetIsCheckedBeforeBuffering() != 0 ||
+      RpcControlMessagesWithTrailingBytesDoNotChangeState() != 0 ||
       ClosedTunnelDoesNotDeliverData() != 0) {
     return 1;
   }

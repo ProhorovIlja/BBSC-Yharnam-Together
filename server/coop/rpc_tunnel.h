@@ -86,6 +86,7 @@ public:
             }
             switch (static_cast<Message>(message[0])) {
             case Message::Open:
+                if (message.size() != 1) break;
                 open = true;
                 events.push_back({Event::Kind::Opened, {}});
                 break;
@@ -98,6 +99,7 @@ public:
                 events.push_back({Event::Kind::Data, std::move(message)});
                 break;
             case Message::Close:
+                if (message.size() != 1) break;
                 open = false;
                 events.push_back({Event::Kind::Closed, {}});
                 break;
