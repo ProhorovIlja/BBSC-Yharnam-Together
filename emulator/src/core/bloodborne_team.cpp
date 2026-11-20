@@ -513,6 +513,14 @@ std::vector<HeldGoods> PhantomKeyItemLedger::LookAtPhantom(u64 list, std::vector
         }
         return OwnKeyItemsForPhantom(want, last_look);
     }
+    ObserveKnownPhantom(list, std::move(held));
+    return {};
+}
+
+void PhantomKeyItemLedger::ObserveKnownPhantom(u64 list, std::vector<HeldGoods> held) {
+    if (list == 0 || list != phantom_list) {
+        return;
+    }
     last_look = std::move(held);
     // What was owed and is in this list now is this list's gain from here on (so one used up
     // or handed over in it is owed no more).
@@ -521,7 +529,6 @@ std::vector<HeldGoods> PhantomKeyItemLedger::LookAtPhantom(u64 list, std::vector
         const auto same = std::ranges::find(gains, item.goods, &OwedKeyItem::goods);
         return same != gains.end() && same->gained >= item.gained;
     });
-    return {};
 }
 
 std::optional<std::vector<HeldGoods>> PhantomKeyItemLedger::LookAtOwn(u64 list,

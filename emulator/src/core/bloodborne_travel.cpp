@@ -1730,6 +1730,10 @@ void GiveBackPhantomKeyItems() {
                          "phantom's key items",
                          held.count, held.goods);
             }
+        } else {
+            // The item manager can disappear before the readable key list does.
+            // Keep any observed gains without attempting native item delivery.
+            ledger.ObserveKnownPhantom(list, HeldKeyGoods());
         }
     } else if (const auto owed = ledger.LookAtOwn(list, HeldKeyGoods());
                owed && !ledger.Owed().empty() && (owed->empty() || TradeItemsReadyToGive())) {

@@ -454,6 +454,8 @@ public:
     // it, the guest's own key items and the ones owed from an earlier phantom's list, each as
     // many as it lacks.
     std::vector<HeldGoods> LookAtPhantom(u64 list, std::vector<HeldGoods> held);
+    // A known readable list can be observed even while native grants are unavailable.
+    void ObserveKnownPhantom(u64 list, std::vector<HeldGoods> held);
     // A look at the list of a guest that is no phantom. While that is still the phantom's list
     // nothing; else what to give it back, empty when it holds all it is owed.
     std::optional<std::vector<HeldGoods>> LookAtOwn(u64 list, std::vector<HeldGoods> held);

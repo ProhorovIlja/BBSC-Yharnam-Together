@@ -826,6 +826,16 @@ TEST(PhantomKeyItems, NothingIsGivenIntoThePhantomsList) {
     EXPECT_EQ(ledger.LookAtOwn(0x3000, {}), (std::vector<HeldGoods>{{4114, 1}}));
 }
 
+TEST(PhantomKeyItems, KnownPhantomGainsAreObservedWithoutAGrantManager) {
+    PhantomKeyItemLedger ledger;
+    EXPECT_TRUE(ledger.LookAtPhantom(0x2000, {}).empty());
+    ledger.ObserveKnownPhantom(0x2100, {{4114, 1}});
+    EXPECT_TRUE(ledger.Owed().empty());
+    ledger.ObserveKnownPhantom(0x2000, {{4114, 1}});
+    EXPECT_EQ(ledger.Owed(), (std::vector<OwedKeyItem>{{4114, 1, 1}}));
+    EXPECT_EQ(ledger.LookAtOwn(0x3000, {}), (std::vector<HeldGoods>{{4114, 1}}));
+}
+
 TEST(PhantomKeyItems, LiveLedgerNeverAcceptsOnlyPartOfAFile) {
     const std::vector<OwedKeyItem> owed{{4114, 1, 1}, {4001, 1, 2}};
     EXPECT_EQ(ValidateOwedKeyItems(EncodeOwedKeyItems(owed)), owed);
