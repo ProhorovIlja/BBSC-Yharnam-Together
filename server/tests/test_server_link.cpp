@@ -19,6 +19,7 @@
 
 #include "coop/link_auth.h"
 #include "coop/packet_routes.h"
+#include "coop/rpc_tunnel.h"
 #include "server_link.h"
 
 using namespace ServerLink;
@@ -1139,6 +1140,45 @@ int Handshake() {
   const auto rpc = game.Open(Span(*hub.Seal(Kaniel, EncodeRpc("secret rpc"))));
   CHECK(rpc && DecodeRpc(ToQt(*rpc)) == "secret rpc");
   CHECK(!hub.Seal(Kaniel, EncodeRpc("secret rpc"))->contains("secret"));
+
+  // Compose the authenticated hub with both production RPC tunnel codecs.
+  // The backend here is scripted; this does not start a TCP service.
+  using Tunnel = BloodborneCoop::RpcTunnel;
+  using EventKind = Tunnel::Event::Kind;
+  Tunnel request{"game", 7}, backend{"shadnet", 9};
+  const auto bytes = [](const auto &frame) {
+    return QByteArray(reinterpret_cast<const char *>(frame.data()), frame.size());
+  };
+  request.Open(3500);
+  const QByteArray login("login request");
+  request.Write(Span(login), 3500);
+  std::vector<Tunnel::Event> rpc_events;
+  for (const auto &frame : request.Flush(3500)) {
+    const auto wire = sealed(EncodeRpc(bytes(frame)));
+    const auto routed = hub.Receive(Kaniel, wire, 3500);
+    CHECK(routed.rpc.size() == 1 && routed.rpc.front().online_id == "Kaniel");
+    CHECK(routed.coop.isEmpty() && hub.Receive(Kaniel, wire, 3501).rpc.isEmpty());
+    auto events = backend.Receive(Span(routed.rpc.front().body), 3500);
+    rpc_events.insert(rpc_events.end(), events.begin(), events.end());
+  }
+  CHECK(rpc_events.size() == 2 && rpc_events[0].kind == EventKind::Opened);
+  CHECK(rpc_events[1].kind == EventKind::Data && bytes(rpc_events[1].bytes) == login);
+  const QByteArray accepted("login response");
+  backend.Write(Span(accepted), 3502);
+  rpc_events.clear();
+  for (const auto &frame : backend.Flush(3502)) {
+    const auto wire = hub.Seal(Kaniel, EncodeRpc(bytes(frame)));
+    CHECK(wire.has_value());
+    const auto decoded = game.Open(Span(*wire));
+    CHECK(decoded.has_value());
+    const auto body = DecodeRpc(ToQt(*decoded));
+    CHECK(body.has_value());
+    auto events = request.Receive(Span(*body), 3502);
+    rpc_events.insert(rpc_events.end(), events.begin(), events.end());
+  }
+  CHECK(rpc_events.size() == 1 && rpc_events[0].kind == EventKind::Data);
+  CHECK(bytes(rpc_events[0].bytes) == accepted && request.Unacked() == 0);
+
 
   // A game with no key from its launcher takes the first cookie's, and keeps
   // it once a welcome proves the server holds it (trust on first use); then a

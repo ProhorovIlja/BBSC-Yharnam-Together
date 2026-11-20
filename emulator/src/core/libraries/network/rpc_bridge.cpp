@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/libraries/network/rpc_bridge.h"
+#include "core/libraries/network/rpc_local_send.h"
 
 #include <array>
 #include <chrono>
 #include <mutex>
 #include <random>
 #include <span>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -16,9 +18,10 @@
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
+#include <cerrno>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <sys/select.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -44,7 +47,14 @@ void CloseSocket(Socket socket) {
 }
 #endif
 
+u32 NewRpcInstance(u32 previous = 0) {
+    std::random_device random;
+    const u32 next = static_cast<u32>(random()) | 1u;
+    return next == previous ? (next ^ 2u) : next;
+}
+
 constexpr int TickMs = 5;
+constexpr size_t MaxRequestUnackedBytes = 1 << 20;
 
 s64 NowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -54,30 +64,26 @@ s64 NowMs() {
 
 // Whether `socket` has something to read (a connection, bytes, its end) within `ms`.
 bool Readable(Socket socket, int ms) {
+#ifdef _WIN32
     fd_set read_set;
     FD_ZERO(&read_set);
     FD_SET(socket, &read_set);
     timeval timeout{0, ms * 1000};
-    return select(static_cast<int>(socket) + 1, &read_set, nullptr, nullptr, &timeout) > 0;
-}
-
-bool SendAll(Socket socket, std::span<const u8> bytes) {
-    size_t sent = 0;
-    while (sent < bytes.size()) {
-        const int rc = send(socket, reinterpret_cast<const char*>(bytes.data() + sent),
-                            static_cast<int>(bytes.size() - sent), 0);
-        if (rc <= 0) {
-            return false;
-        }
-        sent += static_cast<size_t>(rc);
-    }
-    return true;
+    return select(0, &read_set, nullptr, nullptr, &timeout) > 0;
+#else
+    // FD_SET is undefined for POSIX descriptors at or above FD_SETSIZE.
+    pollfd watched{socket, POLLIN, 0};
+    return poll(&watched, 1, ms) > 0 && (watched.revents & (POLLIN | POLLHUP | POLLERR));
+#endif
 }
 
 class Bridge {
 public:
     u16 Start() {
         std::scoped_lock lock{mutex};
+        if (stopping) {
+            return 0;
+        }
         if (port != 0) {
             return port;
         }
@@ -98,28 +104,62 @@ public:
             listener = NoSocket;
             return 0;
         }
+        try {
+            worker = std::jthread{[this](std::stop_token stop) { Run(stop); }};
+        } catch (const std::system_error&) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: could not start the local worker");
+            CloseSocket(listener);
+            listener = NoSocket;
+            return 0;
+        }
         port = ntohs(address.sin_port);
-        std::thread{[this] { Run(); }}.detach();
         LOG_INFO(Lib_Net, "Rpc bridge: shadNet's calls go through the server link (127.0.0.1:{})",
                  port);
         return port;
     }
 
+    void Stop() {
+        std::scoped_lock lock{mutex};
+        stopping = true;
+        if (worker.joinable()) {
+            worker.request_stop();
+            worker.join();
+        }
+        if (listener != NoSocket) {
+            CloseSocket(listener);
+            listener = NoSocket;
+        }
+        port = 0;
+    }
+
 private:
-    void Run() {
+    void Run(std::stop_token stop) {
         std::array<u8, 16384> buffer{};
-        while (true) {
+        while (!stop.stop_requested()) {
             const s64 now_ms = NowMs();
             if (client == NoSocket) {
                 if (Readable(listener, TickMs)) {
                     Accept(now_ms);
                 }
-            } else if (Readable(client, TickMs)) {
+            } else if (!tunnel.CanWriteRequest(buffer.size(), MaxRequestUnackedBytes)) {
+                // Leave unread request bytes in TCP while exchanging ACKs.
+                if (read_pause.Expired(now_ms)) {
+                    LOG_ERROR(Lib_Net, "Rpc bridge: request queue remained full");
+                    ResetTunnel();
+                } else {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(TickMs));
+                }
+            } else if ((read_pause.Reset(), Readable(client, TickMs))) {
                 const int got =
                     recv(client, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
                 if (got > 0) {
-                    tunnel.Write({buffer.data(), static_cast<size_t>(got)}, now_ms);
-                } else {
+                    if (!tunnel.TryWrite({buffer.data(), static_cast<size_t>(got)}, now_ms,
+                                         MaxRequestUnackedBytes)) {
+                        LOG_ERROR(Lib_Net, "Rpc bridge: local request exceeded the unacknowledged budget");
+                        DropClient();
+                        tunnel.Close(now_ms);
+                    }
+                } else if (got == 0 || !RpcLocal::WasInterrupted()) {
                     LOG_INFO(Lib_Net, "Rpc bridge: the game's connection ended");
                     DropClient();
                     tunnel.Close(now_ms);
@@ -127,12 +167,12 @@ private:
             }
             // A new connection while one is open replaces it (the game reconnected).
             if (client != NoSocket && Readable(listener, 0)) {
-                DropClient();
-                tunnel.Close(now_ms);
+                ResetTunnel();
                 Accept(now_ms);
             }
-            Exchange(now_ms, buffer);
+            Exchange(buffer, stop);
         }
+        DropClient();
     }
 
     void Accept(s64 now_ms) {
@@ -140,10 +180,39 @@ private:
         if (client == NoSocket) {
             return;
         }
-        tunnel.Open(now_ms);
+        if (!RpcLocal::ConfigureLocalSend(client)) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: could not configure safe local TCP sends");
+            DropClient();
+            return;
+        }
+        // Normal EOF can drain in the old stream while idle. As soon as a
+        // new local client is accepted, never deliver old replies to it.
+        if (stream_used) {
+            RenewTunnel();
+        }
+        if (!tunnel.TryOpen(now_ms, MaxRequestUnackedBytes)) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: could not queue an open");
+            DropClient();
+            return;
+        }
+        stream_used = true;
+    }
+
+    // Forced replacement abandons the old stream. Reusing its instance
+    // would let delayed replies reach the new local TCP socket.
+    void ResetTunnel() {
+        DropClient();
+        RenewTunnel();
+    }
+
+    void RenewTunnel() {
+        instance = NewRpcInstance(instance);
+        tunnel = NewTunnel();
+        stream_used = false;
     }
 
     void DropClient() {
+        read_pause.Reset();
         if (client != NoSocket) {
             CloseSocket(client);
             client = NoSocket;
@@ -151,20 +220,39 @@ private:
     }
 
     // What came from shadNet to the game's connection, and what the tunnel sends.
-    void Exchange(s64 now_ms, std::array<u8, 16384>& buffer) {
-        for (int count = 0; count < 256; ++count) {
+    void Exchange(std::array<u8, 16384>& buffer, std::stop_token stop) {
+        for (int count = 0; count < 256 && !stop.stop_requested(); ++count) {
             const int size = ServerRpcReceive(buffer.data(), static_cast<u32>(buffer.size()));
             if (size < 0) {
                 break;
             }
-            for (auto& event : tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, now_ms)) {
+            // Defend the span boundary even if a transport adapter reports
+            // the original datagram length rather than the number copied.
+            if (size == 0 || static_cast<size_t>(size) > buffer.size()) {
+                continue;
+            }
+            auto events = tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, NowMs());
+            if (tunnel.Broken()) {
+                LOG_ERROR(Lib_Net, "Rpc bridge: invalid reply stream; reopening on the next local connection");
+                ResetTunnel();
+                break;
+            }
+            for (auto& event : events) {
+                if (stop.stop_requested()) {
+                    return;
+                }
                 using Kind = BloodborneCoop::RpcTunnel::Event::Kind;
                 if (event.kind == Kind::Data && client != NoSocket) {
-                    if (!SendAll(client, event.bytes)) {
+                    if (!RpcLocal::SendAll(client, event.bytes, stop)) {
+                        if (stop.stop_requested()) {
+                            return;
+                        }
+                        LOG_ERROR(Lib_Net, "Rpc bridge: local TCP reply write failed or timed out");
                         DropClient();
-                        tunnel.Close(now_ms);
+                        tunnel.Close(NowMs());
                     }
-                } else if (event.kind == Kind::Closed && client != NoSocket) {
+                } else if ((event.kind == Kind::Closed || event.kind == Kind::PeerRestarted) &&
+                           client != NoSocket) {
                     // shadNet's end is over (or shadNet restarted): the game's client sees its
                     // connection end and connects again.
                     LOG_INFO(Lib_Net, "Rpc bridge: shadNet ended the connection");
@@ -172,30 +260,46 @@ private:
                 }
             }
         }
-        for (const auto& body : tunnel.Flush(now_ms)) {
+        if (stop.stop_requested()) {
+            return;
+        }
+        for (const auto& body : tunnel.Flush(NowMs())) {
+            if (stop.stop_requested()) {
+                return;
+            }
             ServerRpcSend(body.data(), static_cast<u32>(body.size()));
         }
     }
 
     std::mutex mutex;
+    std::jthread worker;
+    bool stopping = false;
     u16 port = 0;
     Socket listener = NoSocket;
     Socket client = NoSocket;
-    BloodborneCoop::RpcTunnel tunnel{"game", [] {
-                                         std::random_device random;
-                                         return static_cast<u32>(random()) | 1u;
-                                     }()};
+    BloodborneCoop::RpcReadPause read_pause;
+    bool stream_used = false;
+    u32 instance = NewRpcInstance();
+    BloodborneCoop::RpcTunnel NewTunnel() const {
+        return {"game", instance, BloodborneCoop::RpcTunnel::TransportLimits()};
+    }
+    BloodborneCoop::RpcTunnel tunnel = NewTunnel();
 };
 
 Bridge& Instance() {
-    static Bridge bridge;
-    return bridge;
+    // Shutdown is explicit: static destruction order must not race the worker.
+    static Bridge* const bridge = new Bridge;
+    return *bridge;
 }
 
 } // namespace
 
 u16 StartRpcBridge() {
     return Instance().Start();
+}
+
+void StopRpcBridge() {
+    Instance().Stop();
 }
 
 } // namespace Libraries::Net

@@ -19,6 +19,9 @@
 #include "config.h"
 #include "coop/build_fingerprint.h"
 #include "link_server.h"
+#include "rpc_write_budget.h"
+#include "rpc_backend_errors.h"
+#include "rpc_backend_read.h"
 #include "signed_accounts.h"
 
 namespace {
@@ -474,8 +477,10 @@ void LinkServer::OnWorldTick() {
     busy.start();
     Apply(m_world.Tick(QDateTime::currentMSecsSinceEpoch()));
     // The Rpc tunnels' resends and keepalives.
-    for (auto& [id, end] : m_rpc)
+    for (auto& [id, end] : m_rpc) {
+        PumpRpcReply(*end);
         FlushRpc(*end);
+    }
     Busy(busy);
 }
 
@@ -851,14 +856,10 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
     if (!slot) {
         // The game's calls: none past a read of its bridge (16 KiB), its chunks a Send's. Each end
         // its own instance: a game whose end was dropped sees a new one and connects again.
-        BloodborneCoop::CoopStream::Limits limits;
-        limits.message_bytes = MaxRpcMessageBytes;
-        limits.chunk_bytes = BloodborneCoop::CoopStream::ChunkBytes + 1;
-        limits.held_bytes = MaxRpcHeldBytes;
-        limits.unreliable_channels = 16;
         slot = std::make_unique<RpcEnd>();
         slot->tunnel = std::make_unique<BloodborneCoop::RpcTunnel>(
-            "shadnet", QRandomGenerator::global()->generate() | 1u, limits);
+            "shadnet", QRandomGenerator::global()->generate() | 1u,
+            BloodborneCoop::RpcTunnel::TransportLimits());
     }
     RpcEnd& end = *slot;
     end.to = from;
@@ -866,11 +867,10 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
         std::span{reinterpret_cast<const u8*>(body.constData()), static_cast<size_t>(body.size())};
     const auto events = end.tunnel->Receive(bytes, m_clock.elapsed());
     if (end.tunnel->Broken()) {
-        qInfo().noquote() << QStringLiteral("Link: %1's Rpc tunnel dropped: a message past %2 "
-                                            "bytes")
-                                 .arg(QString::fromLatin1(online_id.toHex()))
-                                 .arg(MaxRpcMessageBytes);
-        CloseRpc(end);
+        qInfo().noquote() << QStringLiteral("Link: %1's RPC tunnel exceeded a receive limit")
+                                 .arg(QString::fromLatin1(online_id.toHex()));
+        // The stream is no longer trustworthy: do not drain pending TCP writes.
+        CloseRpc(end, true);
         m_rpc.erase(online_id);
         return;
     }
@@ -881,21 +881,33 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
             OpenRpc(online_id, end);
             break;
         case Kind::Data: {
-            const QByteArray data(reinterpret_cast<const char*>(event.bytes.data()),
-                                  static_cast<qsizetype>(event.bytes.size()));
-            if (end.socket && end.socket->state() == QAbstractSocket::ConnectedState) {
-                end.socket->write(data);
-            } else if (end.pending.size() + data.size() <= MaxRpcPendingBytes) {
-                end.pending.append(data);
-            } else {
-                // The connection to the TCP port is not up and the game keeps sending: over.
-                CloseRpc(end);
+            if (!end.socket || event.bytes.empty())
+                break;
+            const auto size = static_cast<qsizetype>(event.bytes.size());
+            const auto* data = reinterpret_cast<const char*>(event.bytes.data());
+            const auto state = end.socket->state();
+            if (end.backend_failed || !ShadNetRpc::BackendCanReceiveRequest(state, end.backend_eof))
+                break;
+            const bool connected = state == QAbstractSocket::ConnectedState;
+            const bool accepted = connected
+                ? ShadNetRpc::TryQueueBackendWrite(*end.socket, data, size, MaxRpcPendingBytes)
+                : ShadNetRpc::FitsWriteBudget(end.pending.size(), size, MaxRpcPendingBytes);
+            if (!accepted) {
+                // This local backend isn't consuming the request. Abort the
+                // socket rather than waiting for its queued writes to drain.
+                CloseRpc(end, true);
                 end.tunnel->Close(m_clock.elapsed());
+            } else if (!connected) {
+                end.pending.append(data, size);
             }
             break;
         }
         case Kind::Closed:
             CloseRpc(end);
+            break;
+        case Kind::PeerRestarted:
+            // The old process no longer owns these pending TCP requests.
+            CloseRpc(end, true);
             break;
         }
     }
@@ -903,8 +915,11 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
 }
 
 void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
-    CloseRpc(end);
+    // A replacement Open supersedes the previous connection, including
+    // any bytes still queued for its local socket.
+    CloseRpc(end, true);
     QTcpSocket* socket = new QTcpSocket(this);
+    socket->setReadBufferSize(256 * 1024);
     end.socket = socket;
     // The game's end, while this socket is still its connection (it may be gone by then).
     const auto mine = [this, online_id, socket]() -> RpcEnd* {
@@ -912,50 +927,90 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
         return found != m_rpc.end() && found->second->socket == socket ? found->second.get()
                                                                        : nullptr;
     };
-    connect(socket, &QTcpSocket::connected, this, [socket, mine] {
-        if (RpcEnd* at = mine(); at && !at->pending.isEmpty())
-            socket->write(std::exchange(at->pending, {}));
-    });
-    connect(socket, &QTcpSocket::readyRead, this, [this, socket, mine] {
-        const QByteArray data = socket->readAll();
-        RpcEnd* at = mine();
-        if (!at)
-            return;
-        at->tunnel->Write(std::span{reinterpret_cast<const u8*>(data.constData()),
-                                    static_cast<size_t>(data.size())},
-                          m_clock.elapsed());
-        // A game that does not ack what shadNet answers: its connection ends, not the server's
-        // memory.
-        if (at->tunnel->UnackedBytes() > MaxRpcUnackedBytes) {
-            CloseRpc(*at);
-            at->tunnel->Close(m_clock.elapsed());
+    connect(socket, &QTcpSocket::connected, this, [this, socket, mine] {
+        if (RpcEnd* at = mine(); at && !at->pending.isEmpty()) {
+            const QByteArray pending = std::exchange(at->pending, {});
+            if (!ShadNetRpc::TryQueueBackendWrite(*socket, pending.constData(), pending.size(),
+                                                 MaxRpcPendingBytes)) {
+                CloseRpc(*at, true);
+                at->tunnel->Close(m_clock.elapsed());
+                FlushRpc(*at);
+            }
         }
-        FlushRpc(*at);
+    });
+    connect(socket, &QTcpSocket::readyRead, this, [this, mine] {
+        if (RpcEnd* at = mine()) {
+            PumpRpcReply(*at);
+            FlushRpc(*at);
+        }
     });
     connect(socket, &QTcpSocket::disconnected, this, [this, socket, mine] {
-        RpcEnd* at = mine();
-        socket->deleteLater();
-        if (!at)
-            return;
-        at->socket = nullptr;
-        at->tunnel->Close(m_clock.elapsed());
-        FlushRpc(*at);
+        if (RpcEnd* at = mine()) {
+            at->backend_eof = true;
+            PumpRpcReply(*at);
+            FlushRpc(*at);
+        } else {
+            socket->deleteLater();
+        }
     });
+    const auto fail = [this, mine] {
+        if (RpcEnd* at = mine()) {
+            CloseRpc(*at, true);
+            at->tunnel->Close(m_clock.elapsed());
+            FlushRpc(*at);
+        }
+    };
+    ShadNetRpc::OnBackendFailure(*socket, [mine] {
+        if (RpcEnd* at = mine())
+            at->backend_failed = true;
+    }, fail);
     socket->connectToHost(QHostAddress::LocalHost, m_tcpPort);
+    if (ShadNetRpc::MayBufferBackendRequest(socket->state())) {
+        ShadNetRpc::OnBackendConnectTimeout(*socket, 5000, fail);
+    }
 }
 
-void LinkServer::CloseRpc(RpcEnd& end) {
+void LinkServer::PumpRpcReply(RpcEnd& end) {
+    if (!end.socket || end.backend_failed)
+        return;
+    const auto now = m_clock.elapsed();
+    const auto result = ShadNetRpc::PumpBackendReply(*end.socket, *end.tunnel,
+        end.reply_pause, end.backend_eof, now, MaxRpcUnackedBytes, 256 * 1024);
+    if (result != ShadNetRpc::BackendRead::Pending) {
+        CloseRpc(end, result == ShadNetRpc::BackendRead::Failed);
+        end.tunnel->Close(now);
+    }
+}
+
+void LinkServer::CloseRpc(RpcEnd& end, bool abort) {
     end.pending.clear();
+    end.reply_pause.Reset();
+    end.backend_eof = false;
+    end.backend_failed = false;
+    if (abort || end.socket) {
+        // A replaced or lost tunnel must not leave an older graceful drain
+        // writing to the backend alongside the new tunnel.
+        ShadNetRpc::AbortRetiredBackend(end.draining);
+    }
     if (QTcpSocket* socket = std::exchange(end.socket, nullptr)) {
         // Its disconnected signal finds it no longer the game's connection, and deletes it.
-        socket->disconnectFromHost();
+        if (abort) {
+            socket->abort();
+        } else {
+            ShadNetRpc::DrainAndCloseBackend(*socket);
+            if (socket->state() == QAbstractSocket::ClosingState)
+                end.draining = socket;
+        }
         if (socket->state() == QAbstractSocket::UnconnectedState)
             socket->deleteLater();
     }
 }
 
 void LinkServer::FlushRpc(RpcEnd& end) {
-    for (const auto& body : end.tunnel->Flush(m_clock.elapsed())) {
+    // A coalesced backend reply can queue megabytes. Send only a slice of
+    // new fragments per callback; OnWorldTick resumes the remaining queue.
+    constexpr size_t MaxFreshRpcFragments = 256;
+    for (const auto& body : end.tunnel->Flush(m_clock.elapsed(), MaxFreshRpcFragments)) {
         if (const auto sealed = m_link.Seal(
                 end.to, ServerLink::EncodeRpc(QByteArray(reinterpret_cast<const char*>(body.data()),
                                                          static_cast<qsizetype>(body.size())))))
@@ -964,6 +1019,16 @@ void LinkServer::FlushRpc(RpcEnd& end) {
 }
 
 void LinkServer::Apply(const ServerLink::Hub::Result& result) {
+    const auto retire_rpc = [this](const ServerLink::Endpoint& endpoint) {
+        for (auto it = m_rpc.begin(); it != m_rpc.end();) {
+            if (it->second->to == endpoint) {
+                CloseRpc(*it->second, true);
+                it = m_rpc.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
     for (const auto& send : result.sends)
         m_socket->writeDatagram(send.datagram, QHostAddress(send.to.ipv4), send.to.port);
     for (const auto& line : result.log)
@@ -985,14 +1050,7 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
         m_guard.Forget(gone.Key());
         m_shared->httpGate.Gone(gone.Key());
         // A game gone (or moved to another address): its connection to the TCP port is over.
-        for (auto it = m_rpc.begin(); it != m_rpc.end();) {
-            if (it->second->to == gone) {
-                CloseRpc(*it->second);
-                it = m_rpc.erase(it);
-            } else {
-                ++it;
-            }
-        }
+        retire_rpc(gone);
     }
     // Phase 7: a linked game's address for the rooms and signaling is its virtual one, known from
     // its hello.
@@ -1012,12 +1070,9 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
     // and the game is told when it is back (its client signs in again by itself).
     for (const auto& lost : result.lost) {
         Apply(m_world.LinkLost(lost));
-        for (auto& [id, end] : m_rpc) {
-            if (end->to == lost && end->socket) {
-                CloseRpc(*end);
-                end->tunnel->Close(m_clock.elapsed());
-            }
-        }
+        // A lost authenticated session cannot resume the previous TCP stream.
+        // Discard unsent and unacknowledged replies as well as socket writes.
+        retire_rpc(lost);
     }
     for (const auto& coop : result.coop)
         Apply(m_world.Receive(coop.from, coop.online_id, coop.body,

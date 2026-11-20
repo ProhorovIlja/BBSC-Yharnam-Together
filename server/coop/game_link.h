@@ -4,6 +4,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <limits>
@@ -168,6 +169,7 @@ public:
         // they go at once).
         s64 max_resend_ms = 2000;
         size_t max_resends = 64;
+        size_t max_reliable_in_flight = SIZE_MAX;
         s64 quiet_ms = 10'000;
         // What a member may make this side hold (shadNet's streams set them; none by default): the
         // bytes of the out-of-order packets held (past it they are dropped, and come again as
@@ -198,7 +200,7 @@ public:
     }
 
     // The frames to send now: new packets, reliable ones due again, and an ack when one is owed.
-    std::vector<GameFrame> Flush(s64 now_ms) {
+    std::vector<GameFrame> Flush(s64 now_ms, size_t max_fresh = SIZE_MAX) {
         if (++flush_serial == 0) {
             // Keep tags distinct even across a counter wrap. Only existing entries need
             // clearing; fresh entries receive the new tag below.
@@ -221,8 +223,11 @@ public:
                 {packet_class, seq, std::forward<decltype(packet)>(packet)});
             bytes += size;
         };
-        for (Outgoing& out : fresh) {
+        for (; max_fresh != 0 && !fresh.empty(); --max_fresh) {
+            Outgoing& out = fresh.front();
             if (out.packet_class == PacketClass::Reliable) {
+                if (unacked.size() >= settings.max_reliable_in_flight)
+                    break;
                 // Keep the original payload until ACKed; the wire frame needs its own copy.
                 append(out.packet_class, out.seq, out.packet);
                 // Queued sequence numbers have not necessarily been sent yet.
@@ -238,8 +243,8 @@ public:
                 // to the frame instead of copying every visual/enemy update before clear().
                 append(out.packet_class, out.seq, std::move(out.packet));
             }
+            fresh.pop_front();
         }
-        fresh.clear();
         const bool quiet = last_heard_ms && now_ms - *last_heard_ms >= settings.quiet_ms;
         if (heard_since_quiet) {
             // Heard again after a silence: what is owed goes now.
@@ -277,6 +282,12 @@ public:
         return frames;
     }
 
+    // Preflight for callers that validate payload limits before Receive.
+    [[nodiscard]] bool CanAffectReceiveState(const GameFrame& frame) const {
+        return (frame.peer_instance == 0 || frame.peer_instance == instance) &&
+               !IsRetired(frame.instance);
+    }
+
     // A frame from the member: the packets for the game, in order.
     std::vector<std::vector<u8>> Receive(const GameFrame& frame, s64 now_ms) {
         return ReceiveFrame(frame, now_ms);
@@ -288,12 +299,22 @@ public:
     }
 
 private:
+    bool IsRetired(u32 remote) const {
+        return peer_instance && remote != *peer_instance &&
+               std::find(retired_instances.begin(), retired_instances.end(), remote) != retired_instances.end();
+    }
+
     template <typename Frame>
     std::vector<std::vector<u8>> ReceiveFrame(Frame& frame, s64 now_ms) {
         if (frame.peer_instance != 0 && frame.peer_instance != instance) {
             // Advertise this run, but do not let a frame for a previous local run reset the
             // current stream, acknowledge its packets, or keep a dead peer alive.
             ack_owed = true;
+            return {};
+        }
+        // A delayed frame from a recently replaced run is not a restart or
+        // evidence of liveness. Instance IDs are opaque, not ordered counters.
+        if (IsRetired(frame.instance)) {
             return {};
         }
         if (was_quiet) {
@@ -303,6 +324,8 @@ private:
         last_heard_ms = now_ms;
         if (!peer_instance || *peer_instance != frame.instance) {
             if (peer_instance) {
+                retired_instances[retired_cursor] = *peer_instance;
+                retired_cursor = (retired_cursor + 1) % retired_instances.size();
                 RestartStreams(heard_before);
             }
             peer_instance = frame.instance;
@@ -469,6 +492,8 @@ private:
     u32 instance;
     Settings settings;
     std::optional<u32> peer_instance;
+    std::array<std::optional<u32>, 8> retired_instances{};
+    size_t retired_cursor = 0;
     std::optional<s64> last_heard_ms;
 
     u32 next_reliable = 0;
