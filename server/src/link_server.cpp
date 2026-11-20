@@ -943,7 +943,7 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
         // Fail before copying/fragmenting an over-budget reply. Leave two
         // bytes for the close opcode and its fragment marker.
         if (!at->tunnel->CanQueueWrite(static_cast<size_t>(bytes), MaxRpcUnackedBytes - 2)) {
-            CloseRpc(*at);
+            CloseRpc(*at, true);
             at->tunnel->Close(now);
         } else {
             const QByteArray data = socket->read(bytes);
@@ -958,8 +958,22 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
         if (!at)
             return;
         at->socket = nullptr;
+        at->pending.clear();
         at->tunnel->Close(m_clock.elapsed());
         FlushRpc(*at);
+    });
+    connect(socket, &QTcpSocket::errorOccurred, this,
+            [this, socket, mine](QAbstractSocket::SocketError error) {
+        if (error == QAbstractSocket::RemoteHostClosedError)
+            return; // The normal disconnected path follows, after final reads.
+        // Do not tear down the socket inside Qt's connect/error transition.
+        QMetaObject::invokeMethod(socket, [this, mine] {
+            if (RpcEnd* at = mine()) {
+                CloseRpc(*at, true);
+                at->tunnel->Close(m_clock.elapsed());
+                FlushRpc(*at);
+            }
+        }, Qt::QueuedConnection);
     });
     socket->connectToHost(QHostAddress::LocalHost, m_tcpPort);
 }
