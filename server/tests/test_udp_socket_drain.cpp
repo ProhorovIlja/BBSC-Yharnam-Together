@@ -3,6 +3,7 @@
 
 #include <QCoreApplication>
 #include <QTimer>
+#include <QVariant>
 #include <cstdlib>
 #include <iostream>
 
