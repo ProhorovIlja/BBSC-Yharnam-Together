@@ -421,6 +421,49 @@ class AnimationTests(unittest.TestCase):
         window.set_running.assert_not_called()
         window.status.configure.assert_not_called()
 
+    def test_coop_play_log_preparation_failure_clears_preparing(self):
+        window = types.SimpleNamespace(
+            coop_busy=True, play_button=mock.Mock(), set_running=mock.Mock(),
+            status=mock.Mock(), process=None,
+        )
+        with mock.patch.object(launcher.bbport_coop, 'rotate_logs',
+                               side_effect=PermissionError('log locked')), \
+                mock.patch.object(launcher, 'start_game') as start, \
+                mock.patch.object(launcher, '_', side_effect=lambda english, *_: english):
+            launcher.Launcher.coop_start_game(window, {}, None, None, '')
+        self.assertFalse(window.coop_busy)
+        window.play_button.configure.assert_called_once_with(state='normal')
+        window.set_running.assert_called_once_with(False)
+        window.status.configure.assert_called_once_with(
+            text='Could not prepare the game log: log locked', fg=launcher.BAD)
+        start.assert_not_called()
+
+    def test_start_server_probe_error_clears_starting_and_does_not_open_router(self):
+        window = types.SimpleNamespace(
+            coop={'host_ip': '127.0.0.1'}, server_starting=False,
+            coop_server_line=mock.Mock(), ui_calls=queue.Queue(),
+            coop_firewall=mock.Mock(), coop_say=mock.Mock(), coop_open_router=mock.Mock(),
+        )
+        jobs = []
+        def thread(*, target, daemon):
+            return types.SimpleNamespace(start=lambda: jobs.append(target))
+        with mock.patch.object(launcher.threading, 'Thread', side_effect=thread), \
+                mock.patch.object(launcher.bbport_coop, 'is_this_pc', return_value=True), \
+                mock.patch.object(launcher.bbport_coop, 'start_servers', return_value=[]), \
+                mock.patch.object(launcher.bbport_coop, 'server_state', side_effect=OSError('probe failed')), \
+                mock.patch.object(launcher, '_', side_effect=lambda english, *_: english):
+            launcher.Launcher.coop_start_servers(window)
+            launcher.Launcher.coop_start_servers(window)
+            self.assertEqual(len(jobs), 1)
+            jobs[0]()
+            window.ui_calls.get_nowait()()
+        self.assertFalse(window.server_starting)
+        window.coop_open_router.assert_not_called()
+        window.coop_server_line.configure.assert_called_with(
+            text='Status unavailable', fg=launcher.CAUTION)
+        window.coop_say.assert_called_once_with(
+            'Could not check local server status: probe failed', launcher.MUTED)
+
     def test_manual_stop_wins_over_already_scheduled_account_retry(self):
         window = types.SimpleNamespace(
             coop_new_id='retry', coop_playing=object(), installing=False, job=mock.Mock(),

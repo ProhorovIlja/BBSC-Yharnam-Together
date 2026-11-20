@@ -5248,6 +5248,8 @@ class Launcher:
         self.ui_calls.put(lambda: self.status.configure(text=text, fg=color))
 
     def coop_start_servers(self):
+        if self.server_starting:
+            return
         if not bbport_coop.valid_ip(self.coop.get('host_ip', '')):
             self.messagebox.showerror('Bloodborne', _("Type the host's IP address first (yours, as the guests reach you).",
                                                       'Сначала введите IP хоста (ваш, по которому вас видят гости).'))
@@ -5271,11 +5273,17 @@ class Launcher:
                 traceback.print_exc()
                 said = [_('Start server stopped on an unexpected error: {}', 'Запуск сервера остановлен ошибкой: {}'
                           ).format(f'{type(error).__name__}: {error}')]
+            try:
+                state = bbport_coop.server_state()
+            except Exception as error:  # the health probe must not strand Starting…
+                state = None
+                said = [*said, _('Could not check local server status: {}',
+                                 'Не удалось проверить состояние локального сервера: {}').format(error)]
             finally:
                 self.server_starting = False
-            state = bbport_coop.server_state()
-            running = state != 'stopped'
-            text, color = {'running': (_('Running', 'Работает'), OK),
+            running = state in ('running', 'no_backend')
+            text, color = {None: (_('Status unavailable', 'Состояние недоступно'), CAUTION),
+                           'running': (_('Running', 'Работает'), OK),
                            'no_backend': (_(bbport_coop.NO_BACKEND_TEXT), CAUTION)}.get(
                 state, (_('Not running', 'Не работает'), BAD))
             self.ui_calls.put(lambda: self.coop_server_line.configure(text=text, fg=color))
@@ -5430,7 +5438,13 @@ class Launcher:
             self.messagebox.showerror('Bloodborne', failed)
             return
         playing = (dict(settings), root)
-        log_path = bbport_coop.rotate_logs(PORT_DIR)
+        try:
+            log_path = bbport_coop.rotate_logs(PORT_DIR)
+        except OSError as error:
+            self.set_running(False)
+            self.status.configure(text=_('Could not prepare the game log: {}',
+                                         'Не удалось подготовить журнал игры: {}').format(error), fg=BAD)
+            return
         # Phase 11: a crash's dump and logs go to the host's server by themselves, alongside.
         threading.Thread(target=bbport_coop.send_reports, args=(PORT_DIR, dict(settings)),
                          daemon=True).start()
