@@ -160,5 +160,21 @@ int main() {
     CHECK(probing.acknowledge(a, 3, nonce, 2003));
     CHECK(probing.route(Traffic::PoseSnapshot, true, true, 2004) == Route::Direct);
 
+    HybridPathLease send_failure;
+    CHECK(send_failure.bind(a, 1));
+    send_failure.allow_direct(true);
+    CHECK(send_failure.challenge(a, 1, nonce, 2));
+    CHECK(send_failure.acknowledge(a, 1, nonce, 3));
+    CHECK(send_failure.challenge(a, 2, other, 4));
+    CHECK(!send_failure.probe_send_failed(b, 2, 5));
+    CHECK(send_failure.probe_send_failed(a, 2, 6));
+    CHECK(!send_failure.acknowledge(a, 2, other, 7));
+    CHECK(!send_failure.challenge(a, 2, other, 8));
+    CHECK(send_failure.route(Traffic::PoseSnapshot, true, true, 9) == Route::Direct);
+    CHECK(send_failure.challenge(a, 3, nonce, 10));
+    CHECK(!send_failure.probe_send_failed(a, 2, 11));
+    CHECK(send_failure.acknowledge(a, 3, nonce, 12));
+    CHECK(!send_failure.probe_send_failed(a, 3, 13));
+
     std::cout << checks << " hybrid path checks passed\n";
 }

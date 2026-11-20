@@ -70,6 +70,16 @@ public:
         return true;
     }
 
+    // The adapter could not queue this exact probe. Retire it without
+    // recycling its serial or invalidating an independently verified path.
+    [[nodiscard]] bool probe_send_failed(const PathBinding& peer, std::uint64_t serial,
+                                         std::uint64_t now) {
+        if (!tick(now) || !matches(peer) || !pending_ || pending_->serial != serial)
+            return false;
+        pending_.reset();
+        return true;
+    }
+
     // An authenticated reply to our fresh challenge proves request + return.
     // The receive layer must additionally verify it arrived on peer.endpoint.
     [[nodiscard]] bool acknowledge(const PathBinding& peer, std::uint64_t serial,
