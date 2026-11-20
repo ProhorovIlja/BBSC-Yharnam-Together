@@ -267,6 +267,26 @@ int AnRpcMessagePastTheLimitBreaksTheTunnel() {
   return 0;
 }
 
+int ClosedTunnelDoesNotDeliverData() {
+  RpcTunnel game{"game", 7};
+  RpcTunnel server{"shadnet", 9};
+  server.Write(Bytes("before open"), 0);
+  CHECK(Carry(server, game, 0).empty());
+  game.Open(1);
+  CHECK(Carry(game, server, 1).size() == 1);
+  server.Write(Bytes("active"), 2);
+  CHECK(Carry(server, game, 2) == (std::vector<Event>{{Event::Kind::Data, Bytes("active")}}));
+  server.Close(3);
+  server.Write(Bytes("after close"), 3);
+  CHECK(Carry(server, game, 3) == (std::vector<Event>{{Event::Kind::Closed, {}}}));
+  game.Open(4);
+  CHECK(Carry(game, server, 4).size() == 1);
+  server.Write(Bytes("reopened"), 5);
+  CHECK(Carry(server, game, 5) == (std::vector<Event>{{Event::Kind::Data, Bytes("reopened")}}));
+  std::cout << "rpc tunnel: only active TCP connections receive data\n";
+  return 0;
+}
+
 int BackendWriteBudgetIsCheckedBeforeBuffering() {
   using ShadNetRpc::FitsWriteBudget;
   constexpr auto limit = 1 << 20;
@@ -317,7 +337,8 @@ int main() {
       UnreliableChannelsAreCapped() != 0 || UnackedBytesAreCounted() != 0 ||
       AnRpcMessagePastTheLimitBreaksTheTunnel() != 0 ||
       CoalescedReplyStaysWithinMessageAndQueueBounds() != 0 ||
-      BackendWriteBudgetIsCheckedBeforeBuffering() != 0) {
+      BackendWriteBudgetIsCheckedBeforeBuffering() != 0 ||
+      ClosedTunnelDoesNotDeliverData() != 0) {
     return 1;
   }
   return 0;

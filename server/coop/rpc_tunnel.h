@@ -88,6 +88,10 @@ public:
                 events.push_back({Event::Kind::Opened, {}});
                 break;
             case Message::Data:
+                // A closed or restarted tunnel no longer owns a TCP
+                // connection. Don't deliver data to the old endpoint.
+                if (!open || message.size() == 1)
+                    break;
                 message.erase(message.begin());
                 events.push_back({Event::Kind::Data, std::move(message)});
                 break;
