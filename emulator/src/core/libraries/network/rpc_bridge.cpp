@@ -116,6 +116,10 @@ private:
                 if (Readable(listener, TickMs)) {
                     Accept(now_ms);
                 }
+            } else if (!tunnel.CanWriteRequest(buffer.size(), MaxRequestUnackedBytes)) {
+                // Leave unread request bytes in TCP instead of accepting data
+                // that would overflow the reliable queue. Keep exchanging ACKs.
+                std::this_thread::sleep_for(std::chrono::milliseconds(TickMs));
             } else if (Readable(client, TickMs)) {
                 const int got =
                     recv(client, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);

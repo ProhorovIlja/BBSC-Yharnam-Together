@@ -62,8 +62,12 @@ public:
         return true;
     }
 
+    [[nodiscard]] bool CanWriteRequest(size_t bytes, size_t budget) const {
+        return open && budget >= ControlBytes && CanQueueWrite(bytes, budget - ControlBytes);
+    }
+
     [[nodiscard]] bool TryWrite(std::span<const u8> bytes, s64 now_ms, size_t budget) {
-        if (!open || budget < ControlBytes || !CanQueueWrite(bytes.size(), budget - ControlBytes))
+        if (!CanWriteRequest(bytes.size(), budget))
             return false;
         Write(bytes, now_ms);
         return true;

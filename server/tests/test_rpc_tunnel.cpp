@@ -391,12 +391,21 @@ int RequestBudgetReservesCloseAndRecoversAfterAck() {
   RpcTunnel game{"game", 7}, server{"shadnet", 9};
   const auto data = Bytes("abc");
   constexpr size_t budget = 9; // Open (2), Data (5), Close (2).
+  CHECK(!game.CanWriteRequest(data.size(), budget));
   CHECK(!game.TryWrite(data, 0, budget));
   CHECK(!game.TryOpen(0, 3) && game.UnackedBytes() == 0);
   CHECK(game.TryOpen(0, budget));
+  CHECK(!game.CanWriteRequest(data.size(), budget - 1));
+  CHECK(game.CanWriteRequest(data.size(), budget));
   CHECK(!game.TryWrite(data, 0, budget - 1) && game.UnackedBytes() == 2);
   CHECK(game.TryWrite(data, 0, budget) && game.UnackedBytes() == 7);
+  CHECK(!game.CanWriteRequest(1, budget));
   CHECK(!game.TryWrite(Bytes("x"), 0, budget) && game.UnackedBytes() == 7);
+  Carry(game, server, 0);
+  CHECK(game.UnackedBytes() == 0);
+  CHECK(game.CanWriteRequest(data.size(), budget));
+  CHECK(game.TryOpen(0, budget));
+  CHECK(game.TryWrite(data, 0, budget));
   game.Close(0);
   CHECK(game.UnackedBytes() == budget);
   for (int retry = 0; retry < 100; ++retry)
