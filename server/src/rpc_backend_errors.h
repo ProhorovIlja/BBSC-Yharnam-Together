@@ -12,6 +12,12 @@ inline bool MayBufferBackendRequest(QAbstractSocket::SocketState state) {
            state == QAbstractSocket::ConnectingState;
 }
 
+// Once disconnected, a socket may still own unread reply data. Late
+// request data must not abort that socket before the reply drains.
+inline bool BackendCanReceiveRequest(QAbstractSocket::SocketState state, bool eof) {
+    return !eof && (state == QAbstractSocket::ConnectedState || MayBufferBackendRequest(state));
+}
+
 // Retired sockets get a chance to drain, but a backend that stops reading
 // must not keep a detached socket and its write queue indefinitely.
 inline void DrainAndCloseBackend(QTcpSocket& socket, int timeout_ms = 2000) {
