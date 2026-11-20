@@ -162,6 +162,30 @@ class AnimationTests(unittest.TestCase):
         launcher.Launcher.drain_output(window)
         callback.assert_called_once_with()
 
+    def test_banner_uses_latest_width_and_cancels_pending_paint_on_destroy(self):
+        header = mock.Mock(painted_width=0)
+        header.after.return_value = 'paint'
+        app = types.SimpleNamespace(paint_street=mock.Mock())
+        launcher.Launcher.bind_street_resize(app, header)
+        resize, destroy = (call.args[1] for call in header.bind.call_args_list)
+        for width in range(640, 740):
+            resize(types.SimpleNamespace(width=width))
+        header.after.assert_called_once()
+        delay, paint = header.after.call_args.args
+        self.assertEqual(delay, 16)
+        app.paint_street.assert_not_called()
+        paint()
+        app.paint_street.assert_called_once_with(header, 739)
+
+        header.painted_width = 739
+        resize(types.SimpleNamespace(width=739))
+        header.after.assert_called_once()
+        resize(types.SimpleNamespace(width=740))
+        destroy(types.SimpleNamespace(widget=object()))
+        header.after_cancel.assert_not_called()
+        destroy(types.SimpleNamespace(widget=header))
+        header.after_cancel.assert_called_once_with('paint')
+
     def test_scrolled_page_only_updates_layout_when_it_changes(self):
         outer, body, inner, canvas, bar = (mock.Mock() for _ in range(5))
         window = types.SimpleNamespace(
