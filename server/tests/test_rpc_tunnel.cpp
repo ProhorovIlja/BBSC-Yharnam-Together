@@ -287,6 +287,32 @@ int AnRpcMessagePastTheLimitBreaksTheTunnel() {
   return 0;
 }
 
+int FreshClientTunnelRecoversAfterInvalidReply() {
+  RpcTunnel game{"game", 7, SmallLimits()};
+  RpcTunnel server{"shadnet", 9};
+  game.Open(0);
+  CHECK(Carry(game, server, 0).size() == 1);
+  server.Write(std::vector<u8>(5000, 'x'), 1);
+  const auto bad = server.Flush(1);
+  CHECK(!bad.empty());
+  for (const auto& frame : bad) CHECK(game.Receive(frame, 1).empty());
+  CHECK(game.Broken());
+
+  // The bridge drops the old TCP connection and constructs a fresh instance.
+  game = RpcTunnel{"game", 11, SmallLimits()};
+  for (const auto& frame : bad) CHECK(game.Receive(frame, 2).empty());
+  CHECK(!game.Broken() && !game.IsOpen());
+  game.Open(3);
+  game.Write(Bytes("login"), 3);
+  const std::vector<Event> opening{{Event::Kind::PeerRestarted, {}},
+                                   {Event::Kind::Opened, {}},
+                                   {Event::Kind::Data, Bytes("login")}};
+  CHECK(Carry(game, server, 3) == opening);
+  server.Write(Bytes("ok"), 4);
+  CHECK(Carry(server, game, 4) == (std::vector<Event>{{Event::Kind::Data, Bytes("ok")}}));
+  return 0;
+}
+
 int ClosedTunnelDoesNotDeliverData() {
   RpcTunnel game{"game", 7};
   RpcTunnel server{"shadnet", 9};
@@ -407,6 +433,7 @@ int main() {
       OutOfOrderChunksAreHeldUpToTheLimit() != 0 ||
       UnreliableChannelsAreCapped() != 0 || UnackedBytesAreCounted() != 0 ||
       AnRpcMessagePastTheLimitBreaksTheTunnel() != 0 ||
+      FreshClientTunnelRecoversAfterInvalidReply() != 0 ||
       CoalescedReplyStaysWithinMessageAndQueueBounds() != 0 ||
       RequestBudgetReservesCloseAndRecoversAfterAck() != 0 ||
       BackendWriteBudgetIsCheckedBeforeBuffering() != 0 ||

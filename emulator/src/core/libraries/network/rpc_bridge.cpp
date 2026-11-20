@@ -46,6 +46,12 @@ void CloseSocket(Socket socket) {
 }
 #endif
 
+u32 NewRpcInstance(u32 previous = 0) {
+    std::random_device random;
+    const u32 next = static_cast<u32>(random()) | 1u;
+    return next == previous ? (next ^ 2u) : next;
+}
+
 constexpr int TickMs = 5;
 constexpr size_t MaxRequestUnackedBytes = 1 << 20;
 
@@ -166,7 +172,15 @@ private:
             if (size < 0) {
                 break;
             }
-            for (auto& event : tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, NowMs())) {
+            auto events = tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, NowMs());
+            if (tunnel.Broken()) {
+                LOG_ERROR(Lib_Net, "Rpc bridge: invalid reply stream; reopening on the next local connection");
+                DropClient();
+                instance = NewRpcInstance(instance);
+                tunnel = BloodborneCoop::RpcTunnel{"game", instance};
+                break;
+            }
+            for (auto& event : events) {
                 using Kind = BloodborneCoop::RpcTunnel::Event::Kind;
                 if (event.kind == Kind::Data && client != NoSocket) {
                     if (!RpcLocal::SendAll(client, event.bytes)) {
@@ -192,10 +206,8 @@ private:
     u16 port = 0;
     Socket listener = NoSocket;
     Socket client = NoSocket;
-    BloodborneCoop::RpcTunnel tunnel{"game", [] {
-                                         std::random_device random;
-                                         return static_cast<u32>(random()) | 1u;
-                                     }()};
+    u32 instance = NewRpcInstance();
+    BloodborneCoop::RpcTunnel tunnel{"game", instance};
 };
 
 Bridge& Instance() {

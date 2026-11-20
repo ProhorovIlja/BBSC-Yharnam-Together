@@ -82,6 +82,17 @@ int main(int argc, char** argv) {
     CHECK(stalled.state() == QAbstractSocket::UnconnectedState && stalled.bytesToWrite() == 0);
     std::cout << "RPC backend TCP: graceful drain and bounded stalled close passed\n";
 
+    QTcpSocket cancelled;
+    cancelled.connectToHost(QHostAddress::LocalHost, backend.serverPort());
+    if (ShadNetRpc::MayBufferBackendRequest(cancelled.state())) {
+        ShadNetRpc::DrainAndCloseBackend(cancelled);
+        CHECK(cancelled.state() == QAbstractSocket::UnconnectedState);
+    } else {
+        // Some platforms complete loopback connect synchronously.
+        CHECK(cancelled.state() == QAbstractSocket::ConnectedState);
+        cancelled.abort();
+    }
+
     const auto unusedPort = backend.serverPort();
     backend.close();
     QTcpSocket refused;
