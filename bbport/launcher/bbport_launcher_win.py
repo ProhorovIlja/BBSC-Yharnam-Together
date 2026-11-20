@@ -6468,7 +6468,8 @@ class Launcher:
         the window's thread."""
         exe, env = tool or gpu_tool()
         try:
-            check = subprocess.run([str(exe), '--upscalers'], capture_output=True, text=True, timeout=30,
+            check = subprocess.run([str(exe), '--upscalers'], capture_output=True, encoding='utf-8',
+                                    errors='replace', timeout=30,
                                    env=env, creationflags=NO_WINDOW)
             self.upscaler_support = parse_upscaler_support(check.stdout) or None
         except (OSError, subprocess.TimeoutExpired):
@@ -6480,7 +6481,8 @@ class Launcher:
         text = _('• Graphics card: not checked', '• Видеокарта: не проверена')
         self.check_upscalers(tool)
         try:
-            result = subprocess.run([str(exe), '--live-resolution'], capture_output=True, text=True, timeout=30,
+            result = subprocess.run([str(exe), '--live-resolution'], capture_output=True, encoding='utf-8',
+                                    errors='replace', timeout=30,
                                     env=env, creationflags=NO_WINDOW)
             names = [line[5:].split(':')[0] for line in result.stderr.splitlines() if line.startswith('GPU: ')]
             if names:

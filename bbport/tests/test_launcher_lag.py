@@ -118,6 +118,26 @@ class FakeRoot:
 
 @unittest.skipUnless(sys.platform == 'win32', 'the Windows launcher')
 class AnimationTests(unittest.TestCase):
+    def test_gpu_probe_does_not_depend_on_the_windows_code_page(self):
+        app = types.SimpleNamespace(ui_calls=queue.Queue(), apply_displays=mock.Mock(),
+                                    refresh_status=mock.Mock(), apply_upscaler_support=mock.Mock())
+        methods = launcher.Launcher
+        app.check_upscalers = lambda tool: methods.check_upscalers(app, tool)
+        upscalers = mock.Mock(stdout='')
+        gpu = mock.Mock(stderr='GPU: Карта 名称: Vulkan\n', returncode=0)
+        with (
+            mock.patch.object(launcher, 'gpu_tool', return_value=('probe.exe', {})),
+            mock.patch.object(launcher, 'connected_displays'),
+            mock.patch.object(launcher.subprocess, 'run', side_effect=[upscalers, gpu]) as run,
+        ):
+            methods.detect_gpu(app)
+        self.assertIn('Карта 名称', app.gpu_text)
+        self.assertFalse(app.gpu_checking)
+        self.assertEqual(run.call_count, 2)
+        for call in run.call_args_list:
+            self.assertEqual(call.kwargs['encoding'], 'utf-8')
+            self.assertEqual(call.kwargs['errors'], 'replace')
+
     def ticks(self, focused):
         root, frames = FakeRoot(focused), []
         motion = launcher.Motion(root, Exception, True)
