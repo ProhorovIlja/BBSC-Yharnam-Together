@@ -601,7 +601,9 @@ def with_own_player_id(settings, machine):
     a friend's install copied with its user\\coop.json). An id made on another PC is made again here; an
     install from before the PC was noted keeps its id and notes this PC."""
     if machine and settings.get('machine') and settings['machine'] != machine:
-        settings = dict(settings, account='', password='')
+        # Overrides are machine-local identities too. Keep server public keys
+        # (pinning) and the separate Global account settings unchanged.
+        settings = dict(settings, account='', password='', server_ids={})
     settings = with_player_id(settings)
     if machine:
         settings['machine'] = machine
@@ -651,10 +653,10 @@ def move_old_rules(install):
     moved = False
     try:
         if line and not rules.exists():
-            rules.write_text(line + '\n', encoding='utf-8')
+            write_json_atomic(rules, line + '\n')
             moved = True
-        path.write_text(json.dumps({key: value for key, value in saved.items() if key not in OLD_RULE_KEYS},
-                                   indent=2) + '\n', encoding='utf-8')
+        write_json_atomic(path, json.dumps({key: value for key, value in saved.items()
+                                            if key not in OLD_RULE_KEYS}, indent=2) + '\n')
     except OSError:
         pass
     return moved
@@ -695,15 +697,32 @@ def load_settings(install):
     return settings
 
 
+COOP_SWITCHES = frozenset({
+    'hide_glow', 'confirmed', 'discord_status', 'discord_show_area', 'discord_show_level',
+    'discord_show_build', 'discord_show_boss', 'discord_reference_layout', 'public_asked',
+})
+
+
 def read_settings(install):
     path = settings_path(install)
     try:
         saved = json.loads(path.read_text(encoding='utf-8'))
-        settings = {key: str(saved.get(key, default)) for key, default in DEFAULTS.items()}
+        if not isinstance(saved, dict):
+            raise ValueError('coop.json must contain an object')
+        settings = dict(DEFAULTS)
+        for key, default in DEFAULTS.items():
+            value = saved.get(key, default)
+            if isinstance(value, str) and '\0' not in value:
+                settings[key] = value
+            elif key == 'p2p_port' and type(value) is int and 1 <= value <= 65535:
+                settings[key] = str(value)
+            elif key in COOP_SWITCHES and (type(value) is bool or type(value) is int and value in (0, 1)):
+                settings[key] = '1' if value else ''
         settings['server_ids'] = server_ids_of(saved)
         settings['server_keys'] = server_keys_of(saved)
-        if not settings['global_name'] and isinstance(saved.get('discord_name'), str):
-            settings['global_name'] = saved['discord_name']  # 1.3.2's first builds
+        legacy_name = saved.get('discord_name')
+        if not settings['global_name'] and isinstance(legacy_name, str) and '\0' not in legacy_name:
+            settings['global_name'] = legacy_name  # 1.3.2's first builds
         return settings
     except (OSError, ValueError, AttributeError):
         pass
@@ -718,18 +737,30 @@ def read_settings(install):
 
 def save_settings(install, settings):
     path = settings_path(install)
-    path.parent.mkdir(parents=True, exist_ok=True)
     saved = {key: settings.get(key, default) for key, default in DEFAULTS.items()}
+    # A failed migration must not lose the source rules during an unrelated
+    # automatic identity save. Successful migration already removed them.
+    try:
+        previous = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        previous = None
+    if isinstance(previous, dict):
+        saved.update({key: previous[key] for key in OLD_RULE_KEYS if key in previous})
     if settings.get('server_ids'):  # only once a server refused the id: older files stay as they were
         saved['server_ids'] = settings['server_ids']
     if settings.get('server_keys'):
         saved['server_keys'] = settings['server_keys']
+    write_json_atomic(path, json.dumps(saved, indent=2) + '\n')
+
+
+def write_json_atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
     pending = None
     try:
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
                                          prefix='.coop-', suffix='.tmp', delete=False) as out:
             pending = Path(out.name)
-            out.write(json.dumps(saved, indent=2) + '\n')
+            out.write(text)
         os.replace(pending, path)
     finally:
         if pending is not None:
@@ -1268,8 +1299,7 @@ def launch_settings(install, settings, say=print, on_prepared=None):
         settings = dict(settings, host_ip=address, server=settings['host_ip'], account=account,
                         password=secret, link_key=link_key_for(settings, settings['host_ip']))
     user = install / 'user'
-    user.mkdir(parents=True, exist_ok=True)
-    (user / 'host_overrides.custom.json').write_text(host_overrides(settings['host_ip']), encoding='utf-8')
+    write_json_atomic(user / 'host_overrides.custom.json', host_overrides(settings['host_ip']))
     return settings, root, note
 
 
@@ -2125,16 +2155,20 @@ def firewall_commands(install, host):
     return lines
 
 
-def firewall_ready(install, host):
+def firewall_ready(install, host, *, timeout_s=5.0):
     """Whether this install's rules are there (reading rules needs no administrator)."""
     if sys.platform != 'win32':  # Windows Firewall only: elsewhere (ufw, firewalld) the player opens the ports
         return True
     probe = str(Path(install) / 'bin' / 'bb-probe.exe').lower()
     names = [RULE_GAME] + ([RULE_HOST_TCP, RULE_HOST_UDP] if host else [])
+    deadline = time.monotonic() + timeout_s
     for name in names:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
         try:
             out = subprocess.run(['netsh', 'advfirewall', 'firewall', 'show', 'rule', f'name={name}', 'verbose'],
-                                 capture_output=True, timeout=15, creationflags=NO_WINDOW)
+                                 capture_output=True, timeout=remaining, creationflags=NO_WINDOW)
         except (OSError, subprocess.TimeoutExpired):
             return False
         if out.returncode != 0:
@@ -2148,6 +2182,18 @@ def firewall_ready(install, host):
                        for line in output.splitlines()):
                 return False
     return True
+
+
+def wait_for_firewall(install, host, *, timeout_s=10.0):
+    """Bound the entire post-UAC polling phase, not each netsh command separately."""
+    deadline = time.monotonic() + timeout_s
+    while (remaining := deadline - time.monotonic()) > 0:
+        if firewall_ready(install, host, timeout_s=min(2.0, remaining)):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.5, remaining))
+    return False
 
 
 def allow_through_firewall(install, host):

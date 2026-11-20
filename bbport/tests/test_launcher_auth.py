@@ -13,6 +13,7 @@ import os
 import pathlib
 import socketserver
 import ssl
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 import bbport_auth as auth  # noqa: E402
 import bbport_coop as coop  # noqa: E402
 
-OPENSSL = r'C:\Program Files\Git\mingw64\bin\openssl.exe'
+OPENSSL = shutil.which('openssl') or r'C:\Program Files\Git\mingw64\bin\openssl.exe'
 PASSWORD = 'a long and fine password'
 SECRET = format(int(time.time()), '08x') + 'b' * 24
 
@@ -264,6 +265,7 @@ class TlsErrorTests(unittest.TestCase):
         alert.reason = 'TLSV1_ALERT_PROTOCOL_VERSION'
         self.assertEqual(auth._tls_error(alert).args, (auth.CONNECTION_TEXT, 'TLSV1_ALERT_PROTOCOL_VERSION'))
         self.assertEqual(auth._tls_error(ssl.SSLEOFError()).args, (auth.CONNECTION_TEXT, 'SSLEOFError'))
+        self.assertIn('Account data was not sent', auth.CERTIFICATE_TEXT.format('x'))
         for text in (auth.CERTIFICATE_TEXT, auth.CONNECTION_TEXT):
             self.assertIn('not sent', text.format('x'))
 
@@ -321,6 +323,74 @@ class SystemCertificateTests(unittest.TestCase):
 
 
 class OfflineTests(unittest.TestCase):
+    def test_invalid_account_server_urls_never_open_a_connection(self):
+        opener = mock.Mock()
+        for url in ('https:///route', 'https://user@example.com', 'https://example.com:0',
+                    'https://example.com:', 'https://example.com:70000',
+                    'https://[::1', 'https://example.com?other', 'https://example.com#other',
+                    'https://exa\tmple.com', r'https://example.com\path'):
+            with self.subTest(url=url), self.assertRaises(auth.AuthError):
+                auth.sign_in(url, 'Hunter', PASSWORD, opener=opener)
+        opener.open.assert_not_called()
+        self.assertEqual(auth.https_base(' HTTPS://[::1]:20443/proxy/ '),
+                         'HTTPS://[::1]:20443/proxy')
+
+    def test_http_error_closes_body_even_when_truncated(self):
+        import http.client
+        import urllib.error
+        for truncated in (False, True):
+            with self.subTest(truncated=truncated):
+                response = mock.Mock(closed=False)
+                response.read.return_value = b'{"error": "wrong"}'
+                if truncated:
+                    response.read.side_effect = http.client.IncompleteRead(b'{', 20)
+                opener = mock.Mock()
+                opener.open.side_effect = urllib.error.HTTPError(
+                    'https://example.com/bb/auth/sign-in', 401, 'Unauthorized', {}, response)
+                with self.assertRaises(auth.AuthError) as err:
+                    auth.sign_in('https://example.com', 'Hunter', PASSWORD, opener=opener)
+                self.assertEqual(err.exception.text(), auth.WRONG_TEXT)
+                response.close.assert_called_once()
+
+    def test_non_object_and_large_success_reply_refused(self):
+        for body in (b'null', b'[]', b'{' * 5000, b' ' * 65537):
+            with self.subTest(size=len(body)):
+                response = mock.MagicMock()
+                response.__enter__.return_value = response
+                response.status = 200
+                response.read.return_value = body
+                opener = mock.Mock()
+                opener.open.return_value = response
+                with self.assertRaises(auth.AuthError) as error:
+                    auth.sign_in('https://example.com', 'Hunter', PASSWORD, opener=opener)
+                self.assertEqual(error.exception.text(), auth.REFUSED_TEXT)
+                response.read.assert_called_once_with(65537)
+
+    def test_malformed_auth_fields_never_raise_raw_parser_errors(self):
+        with mock.patch.object(auth, '_call', return_value=(200, {'challenge': 'x', 'bits': None})):
+            with self.assertRaises(auth.AuthError):
+                auth.sign_up('https://example.com', 'Hunter', PASSWORD)
+        with mock.patch.object(auth, '_call', return_value=(200, {'sign_in': None})):
+            with self.assertRaises(auth.AuthError):
+                auth.config('https://example.com')
+        with self.assertRaises(auth.AuthError):
+            auth._account(200, {'id': ['hunter'], 'secret': PASSWORD})
+        self.assertEqual(auth._refusal(400, {'error': [], 'problem': {}}).text(), auth.REFUSED_TEXT)
+        self.assertEqual(auth._refusal(429, {'error': 'wait', 'seconds': None}).text(), auth.BUSY_TEXT)
+
+    def test_auth_worker_fails_once_without_leaking_credentials(self):
+        done = mock.Mock()
+        with mock.patch.object(auth.threading, 'Thread', side_effect=RuntimeError(PASSWORD)):
+            auth.run_thread(mock.Mock(), done)
+        done.assert_called_once()
+        self.assertEqual(done.call_args.args[1].text(), auth.BUSY_TEXT)
+        done.reset_mock()
+        with mock.patch.object(auth.threading, 'Thread') as thread:
+            auth.run_thread(mock.Mock(side_effect=ValueError(PASSWORD)), done)
+            thread.call_args.kwargs['target']()
+        done.assert_called_once()
+        self.assertEqual(done.call_args.args[1].text(), auth.REFUSED_TEXT)
+
     def test_every_language_has_every_account_text(self):
         import bbport_lang
         import bbport_lang_auth as lang

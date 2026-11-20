@@ -36,6 +36,11 @@ import urllib.parse
 import urllib.request
 import webbrowser
 import zipfile
+import zlib
+
+from bbport_shortcut_win import write_shortcut
+from bbport_update_zip import (copy_portable_update, download_update, extract_update,
+                              lock_portable_install, make_portable_stage)
 
 FROZEN = getattr(sys, 'frozen', False)
 EXE = '.exe' if sys.platform == 'win32' else ''  # the port's own programs; Linux: no suffix
@@ -130,10 +135,9 @@ def fetch_update_release(beta=False):
         if found or len(releases) < RELEASES_PER_PAGE:
             return found
     return None
-UPDATE_DIR = Path(tempfile.gettempdir()) / 'bbport-update'
 # Never copied over an installation by an update (the package does not hold them either). fsr4vk is the
 # experimental FSR 4.1.1 download (fsr4vk_dir()).
-USER_FILES = ('user', 'out', 'mods', 'bbport.ini', 'mods.json', 'patches.json', 'last_run.log', 'fsr4vk')
+USER_FILES = ('user', 'out', 'mods', 'bbport.ini', 'mods.json', 'patches.json', 'last_run.log', 'fsr4vk', '.bbport-update.lock')
 # ReShade (packaging/windows/package.sh): turned on per game run through the Vulkan loader's layer
 # variables, see game_environment().
 RESHADE_DIR = PORT_DIR / 'bin' / 'reshade'
@@ -1023,8 +1027,17 @@ def load_app_settings():
     """settings.json over the defaults. A frame cap that is not one FRAME_CAPS offers is Auto: the Play page's Browse
     button wrote the chosen game folder into it (AdrianCsT c4bc36a), and every start then failed. That folder becomes
     the game folder again when it holds the game and the saved game folder does not."""
-    settings = {**APP_DEFAULTS, **load_json(CONFIG_FILE, {})}
-    cap = str(settings.get('frame_cap') or '')
+    saved = load_json(CONFIG_FILE, {})
+    settings = dict(APP_DEFAULTS)
+    if isinstance(saved, dict):
+        settings.update(saved)
+        for key, default in APP_DEFAULTS.items():
+            value = settings[key]
+            if key in ('frame_cap', 'language') and type(value) is int:
+                settings[key] = str(value)  # older settings could store a numeric selector
+            elif type(value) is not type(default) or (isinstance(value, str) and '\0' in value):
+                settings[key] = default
+    cap = settings['frame_cap']
     if cap not in {value for value, _label in FRAME_CAPS} | {'half'}:
         if (Path(cap) / 'eboot.bin').is_file() and not (Path(settings['game_dir'] or '.') / 'eboot.bin').is_file():
             settings['game_dir'] = cap
@@ -2405,20 +2418,39 @@ class StatusLine:
         self.text = ui.tk.Label(self.frame, bg=bg, fg=TEXT, font=ui.fonts['body'], justify='left', anchor='w',
                                 wraplength=px(240), width=1)
         self.text.pack(side='left', fill='x', expand=True, anchor='n')
-        self.text.bind('<Configure>', lambda e: self.text.configure(wraplength=max(px(120), e.width - px(4))))
+        self.wraplength = px(240)
+        self._text_state = self._glyph_state = None
+        self._busy = False
+        self.text.bind('<Configure>', self.wrap)
+
+    def wrap(self, event):
+        px = self.ui.px
+        width = max(px(120), event.width - px(4))
+        if width != self.wraplength:
+            self.text.configure(wraplength=width)
+            self.wraplength = width
 
     def set(self, text, busy=False):
         glyph, rest = (text[0], text[1:].strip()) if text[:1] in GLYPH_COLORS else ('', text)
-        self.text.configure(text=rest, fg=MUTED if glyph == '•' else TEXT)
-        if busy:
-            self.glyph.pack_forget()
-            self.spinner.pack(pady=(self.ui.px(2), 0))
-            self.spinner.start()
-        else:
-            self.spinner.stop()
-            self.spinner.pack_forget()
-            self.glyph.pack()
-            self.glyph.configure(text=glyph or '•', fg=GLYPH_COLORS.get(glyph, DIM))
+        text_state = (rest, MUTED if glyph == '•' else TEXT)
+        if text_state != self._text_state:
+            self.text.configure(text=text_state[0], fg=text_state[1])
+            self._text_state = text_state
+        if busy != self._busy:
+            if busy:
+                self.glyph.pack_forget()
+                self.spinner.pack(pady=(self.ui.px(2), 0))
+                self.spinner.start()
+            else:
+                self.spinner.stop()
+                self.spinner.pack_forget()
+                self.glyph.pack()
+            self._busy = busy
+        if not busy:
+            glyph_state = (glyph or '•', GLYPH_COLORS.get(glyph, DIM))
+            if glyph_state != self._glyph_state:
+                self.glyph.configure(text=glyph_state[0], fg=glyph_state[1])
+                self._glyph_state = glyph_state
 
 
 class CaptionButton(Widget):
@@ -2492,6 +2524,8 @@ class WindowChrome:
         self.native_frame = sys.platform == 'win32' and os.environ.get('BB_LAUNCHER_CUSTOM_CHROME') != '1'
         self.enabled = sys.platform == 'win32' and not self.native_frame
         self.applied, self.restore, self.sizing, self.grab = False, None, None, None
+        self.native_grab = self.drag_job = self.drag_point = self.drag_target = None
+        self.resize_job = self.resize_point = self.resize_target = None
 
     def hwnd(self):
         return int(self.root.wm_frame(), 16)
@@ -2540,19 +2574,46 @@ class WindowChrome:
                 pass
 
     def drag_move(self, event):
-        if not self.grab:
+        if self.grab is None:
             return
+        # High-rate mouse input can enqueue more moves than the window can paint.
+        # Keep the latest position, not one window move per queued event.
+        self.drag_point = event.x_root, event.y_root
+        if self.drag_job is None:
+            self.drag_job = self.root.after(8, self.flush_drag)
+
+    def flush_drag(self):
+        self.drag_job = None
+        if self.grab is None or self.drag_point is None:
+            return
+        x, y = self.drag_point
+        self.drag_point = None
         if self.native_grab is not None:
             win, hwnd, pointer, dx, dy = self.native_grab
-            if win.GetCursorPos(ctypes.byref(pointer)) and win.SetWindowPos(
-                    hwnd, None, pointer.x - dx, pointer.y - dy, 0, 0, 0x0215):
+            if win.GetCursorPos(ctypes.byref(pointer)):
+                target = ('win32', pointer.x - dx, pointer.y - dy)
+                if target == self.drag_target:
+                    return
                 # NOSIZE | NOZORDER | NOACTIVATE | NOOWNERZORDER
-                return
-        self.root.geometry(f'+{event.x_root - self.grab[0]}+{event.y_root - self.grab[1]}')
+                if win.SetWindowPos(hwnd, None, target[1], target[2], 0, 0, 0x0215):
+                    self.drag_target = target
+                    return
+        target = ('tk', x - self.grab[0], y - self.grab[1])
+        if target != self.drag_target:
+            self.root.geometry(f'+{target[1]}+{target[2]}')
+            self.drag_target = target
 
-    def drag_end(self, _event=None):
-        self.grab = self.native_grab = None
-        self.ui.motion.paused = False
+    def drag_end(self, event=None):
+        if self.drag_job is not None:
+            self.root.after_cancel(self.drag_job)
+            self.drag_job = None
+        try:
+            if event is not None and self.grab is not None:
+                self.drag_point = event.x_root, event.y_root
+                self.flush_drag()
+        finally:
+            self.grab = self.native_grab = self.drag_point = self.drag_target = None
+            self.ui.motion.paused = False
 
     def bind_drag(self, widget):
         widget.bind('<ButtonPress-1>', self.drag, add='+')
@@ -2560,19 +2621,48 @@ class WindowChrome:
         widget.bind('<ButtonRelease-1>', self.drag_end, add='+')
 
     def resize_start(self, event):
-        self.sizing = (event.x_root, event.y_root, self.root.winfo_width(), self.root.winfo_height())
+        self.resize_end()
+        if not self.native_frame and not self.restore:
+            w, h = self.root.winfo_width(), self.root.winfo_height()
+            self.sizing = (event.x_root, event.y_root, w, h)
+            self.resize_target = (w, h)
 
     def resize_move(self, event):
-        if self.sizing and not self.restore:
-            x, y, w, h = self.sizing
-            minw, minh = self.root.minsize()
-            self.root.geometry(f'{max(minw, w + event.x_root - x)}x{max(minh, h + event.y_root - y)}')
+        if self.sizing is not None and not self.restore:
+            self.resize_point = event.x_root, event.y_root
+            if self.resize_job is None:
+                self.resize_job = self.root.after(8, self.flush_resize)
+
+    def flush_resize(self):
+        self.resize_job = None
+        if self.sizing is None or self.resize_point is None or self.restore:
+            return
+        x, y, w, h = self.sizing
+        px, py = self.resize_point
+        self.resize_point = None
+        minw, minh = self.root.minsize()
+        target = max(minw, w + px - x), max(minh, h + py - y)
+        if target != self.resize_target:
+            self.root.geometry(f'{target[0]}x{target[1]}')
+            self.resize_target = target
+
+    def resize_end(self, event=None):
+        if self.resize_job is not None:
+            self.root.after_cancel(self.resize_job)
+            self.resize_job = None
+        try:
+            if event is not None and self.sizing is not None:
+                self.resize_point = event.x_root, event.y_root
+                self.flush_resize()
+        finally:
+            self.sizing = self.resize_point = self.resize_target = None
 
     def zoomed(self):
         return self.restore is not None
 
     def toggle_zoom(self, _event=None):
         """Maximize: the work area of the screen the window is on; again: back to where it was."""
+        self.resize_end()
         if self.restore:
             self.root.geometry(self.restore)
             self.restore = None
@@ -2987,8 +3077,11 @@ class Launcher:
         self.process = self.job = None
         self.downloading = self.downloading_fsr4vk = self.fsr4vk_hashing = self.rechecking = False
         self.updating, self.update_release = False, None  # the co-op release's update (coop_check_update)
-        self.close_scheduled = False  # "Close the launcher when the game starts" is armed once per run
-        self.server_checking = self.server_starting = False  # the server line: a check, a Start server under way
+        self.close_on_ready_job = None
+        self.output_ready = False
+        self.server_checking = self.server_starting = self.server_stopping = False
+        self.server_stop_pending = False
+        self.server_status_epoch = 0
         self.installing, self.install_proc, self.install_cancel = False, None, threading.Event()
         self.install_card = self.install_hide = self.pkg_dialog = None
         self.output = queue.Queue()
@@ -3038,6 +3131,7 @@ class Launcher:
             self.coop_offer_public()
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.bind('<Destroy>', self.cancel_window_polls, add='+')
+        self.unwatched_game_poll = None
         self.output_poll = root.after(100, self.drain_output)
         self.motion_start = root.after(30, self.start_motion)
         if COOP_INSTALL:
@@ -3319,9 +3413,15 @@ class Launcher:
     def light(self, card, value):
         card.glow = value
         try:
-            card.configure(highlightbackground=mix(LINE, ACCENT, value * 0.75))
-            for corner in getattr(card, 'corners', ()):
-                corner.itemconfigure('arm', fill=mix(GOLD_DIM, GOLD, value * 0.8))
+            border = mix(LINE, ACCENT, value * 0.75)
+            arm = mix(GOLD_DIM, GOLD, value * 0.8)
+            previous = getattr(card, '_glow_colors', (None, None))
+            if border != previous[0]:
+                card.configure(highlightbackground=border)
+            if arm != previous[1]:
+                for corner in getattr(card, 'corners', ()):
+                    corner.itemconfigure('arm', fill=arm)
+            card._glow_colors = border, arm
         except self.tk.TclError:
             # The card's page was rebuilt under the pointer: forget it. Every pointer move logged
             # this traceback again (a player's launcher-errors.txt grew to 15.8 MB).
@@ -3424,14 +3524,33 @@ class Launcher:
         inner = tk.Frame(canvas, bg=PANEL)
         window = canvas.create_window(0, 0, window=inner, anchor='nw')
 
+        content_height = viewport_width = None
+        bar_shown = False
+
         def fit(_event=None):
-            canvas.configure(scrollregion=(0, 0, 1, inner.winfo_reqheight() + px(8)))
-            if inner.winfo_reqheight() + px(8) > canvas.winfo_height():
-                bar.pack(side='right', fill='y', padx=(0, px(4)), before=canvas)
-            else:
-                bar.pack_forget()
+            nonlocal content_height, bar_shown
+            height = inner.winfo_reqheight() + px(8)
+            if height != content_height:
+                canvas.configure(scrollregion=(0, 0, 1, height))
+                content_height = height
+            show = height > canvas.winfo_height()
+            if show != bar_shown:
+                if show:
+                    bar.pack(side='right', fill='y', padx=(0, px(4)), before=canvas)
+                else:
+                    bar.pack_forget()
+                bar_shown = show
+
+        def resize(event):
+            nonlocal viewport_width
+            # Configure events can repeat without changing the scrollable layout.
+            if event.width != viewport_width:
+                canvas.itemconfigure(window, width=event.width)
+                viewport_width = event.width
+            fit()
+
         inner.bind('<Configure>', fit)
-        canvas.bind('<Configure>', lambda e: (canvas.itemconfigure(window, width=e.width), fit()))
+        canvas.bind('<Configure>', resize)
         canvas.configure(yscrollcommand=bar.set)
         canvas.pack(side='left', fill='both', expand=True)
 
@@ -3624,6 +3743,7 @@ class Launcher:
         if not self.chrome.native_frame:
             self.grip.bind('<ButtonPress-1>', self.chrome.resize_start)
             self.grip.bind('<B1-Motion>', self.chrome.resize_move)
+            self.grip.bind('<ButtonRelease-1>', self.chrome.resize_end)
         self.side.flush()
         if self.motion.enabled:
             self.side.set_reveal(0.0)
@@ -3735,7 +3855,16 @@ class Launcher:
     def flow(self, parent, text, style='body', fg=TEXT, bg=CARD):
         """A label that wraps at the width its parent gives it (it asks for no width of its own)."""
         label = self.label(parent, text, style, fg, bg=bg, justify='left', anchor='w', width=1)
-        label.bind('<Configure>', lambda e: label.configure(wraplength=max(self.px(80), e.width - self.px(4))))
+        wraplength = None
+
+        def wrap(event):
+            nonlocal wraplength
+            width = max(self.px(80), event.width - self.px(4))
+            if width != wraplength:
+                label.configure(wraplength=width)
+                wraplength = width
+
+        label.bind('<Configure>', wrap)
         return label
 
     # --- home: the website's news --------------------------------------------------------------
@@ -3744,19 +3873,56 @@ class Launcher:
         """The home page: the banner of news and patch notes from the website (news.json), its cards of
         information under it."""
         self.street_art = load_art('home-banner.jpg')
+        self._street_photo_cache = None
         page = self.scrolled_page('home', None, None)
         self.news_holder = self.tk.Frame(page, bg=PANEL)
         self.news_holder.pack(fill='both', expand=True)
         self.patch_notes = cached_patch_notes()
         self.render_news(cached_news())
 
+    def bind_street_resize(self, header):
+        """Coalesce width bursts before resampling the full-resolution banner on Tk's thread."""
+        job = None
+        width = 0
+
+        def paint():
+            nonlocal job
+            job = None
+            self.paint_street(header, width)
+
+        def resize(event):
+            nonlocal job, width
+            width = event.width
+            if job is None and width >= 50 and width != getattr(header, 'painted_width', 0):
+                job = header.after(16, paint)
+
+        def destroy(event):
+            nonlocal job
+            if event.widget is header and job is not None:
+                header.after_cancel(job)
+                job = None
+
+        header.bind('<Configure>', resize)
+        header.bind('<Destroy>', destroy, add='+')
+
     def paint_street(self, header, width):
         """The street picture covering the header at its width (kept to the right, where the moon is), fading
         into the card at its foot."""
         if width < 50 or getattr(header, 'painted_width', 0) == width:
             return
-        from PIL import Image, ImageTk
         art, height = self.street_art, int(header.cget('height'))
+        cached = self._street_photo_cache
+        # News rebuilds the canvas. Keep only the last rendered size, not a cache of resize steps.
+        if cached is None or cached[0] is not art or cached[1:3] != (width, height):
+            cached = (art, width, height, self.render_street_photo(art, width, height))
+            self._street_photo_cache = cached
+        header.image = cached[3]
+        header.itemconfigure(header.picture, image=header.image)
+        header.painted_width = width
+
+    @staticmethod
+    def render_street_photo(art, width, height):
+        from PIL import Image, ImageTk
         scale = max(width / art.width, height / art.height)
         size = (max(width, round(art.width * scale)), max(height, round(art.height * scale)))
         picture = art.resize(size, Image.Resampling.LANCZOS).crop((size[0] - width, (size[1] - height) // 2,
@@ -3764,9 +3930,7 @@ class Launcher:
         fade = Image.linear_gradient('L').resize((width, height)).point(lambda v: 0 if v < 170 else (v - 170) * 255 // 85)
         card = Image.new('RGBA', (width, height), tuple(int(CARD[i:i + 2], 16) for i in (1, 3, 5)) + (255,))
         picture = Image.composite(card, picture, fade)
-        header.image = ImageTk.PhotoImage(picture)
-        header.itemconfigure(header.picture, image=header.image)
-        header.painted_width = width
+        return ImageTk.PhotoImage(picture)
 
     def load_news(self):
         """Off the window's thread: the website's news.json and the releases' patch notes; kept for the next
@@ -3827,7 +3991,7 @@ class Launcher:
                 if text:
                     header.create_text(px(36) + 2, y + 2, text=text, font=self.fonts[font], fill='#000000', anchor='nw')
                     header.create_text(px(36), y, text=text, font=self.fonts[font], fill=color, anchor='nw')
-            header.bind('<Configure>', lambda e, h=header: self.paint_street(h, e.width))
+            self.bind_street_resize(header)
             banner.pack_configure(pady=(0, px(30)))
             for corner in banner.frame.corners[2:]:  # the lower ones: the picture is the top's frame
                 corner.tk.call('raise', corner._w)  # (Canvas.lift raises canvas items)
@@ -5100,6 +5264,8 @@ class Launcher:
         self.ui_calls.put(lambda: self.status.configure(text=text, fg=color))
 
     def coop_start_servers(self):
+        if self.server_starting or self.server_stopping:
+            return
         if not bbport_coop.valid_ip(self.coop.get('host_ip', '')):
             self.messagebox.showerror('Bloodborne', _("Type the host's IP address first (yours, as the guests reach you).",
                                                       'Сначала введите IP хоста (ваш, по которому вас видят гости).'))
@@ -5113,6 +5279,7 @@ class Launcher:
         self.coop_server_line.configure(text=_('Starting…', 'Запуск…'), fg=MUTED)
         host_ip = self.coop['host_ip']
         self.server_starting = True
+        self.server_status_epoch += 1
 
         def work():
             try:
@@ -5123,20 +5290,40 @@ class Launcher:
                 traceback.print_exc()
                 said = [_('Start server stopped on an unexpected error: {}', 'Запуск сервера остановлен ошибкой: {}'
                           ).format(f'{type(error).__name__}: {error}')]
-            finally:
-                self.server_starting = False
-            state = bbport_coop.server_state()
-            running = state != 'stopped'
-            text, color = {'running': (_('Running', 'Работает'), OK),
+            try:
+                state = bbport_coop.server_state()
+            except Exception as error:  # the health probe must not strand Starting…
+                state = None
+                said = [*said, _('Could not check local server status: {}',
+                                 'Не удалось проверить состояние локального сервера: {}').format(error)]
+            running = state in ('running', 'no_backend')
+            text, color = {None: (_('Status unavailable', 'Состояние недоступно'), CAUTION),
+                           'running': (_('Running', 'Работает'), OK),
                            'no_backend': (_(bbport_coop.NO_BACKEND_TEXT), CAUTION)}.get(
                 state, (_('Not running', 'Не работает'), BAD))
-            self.ui_calls.put(lambda: self.coop_server_line.configure(text=text, fg=color))
-            said = [_(line) for line in said]
-            if running and bbport_coop.wants_router(host_ip):
-                said.append(self.coop_open_router())
-            if said:
-                self.coop_say(' '.join(said), MUTED)
-        threading.Thread(target=work, daemon=True).start()
+            def complete():
+                self.server_starting = False
+                if self.server_stop_pending:
+                    self.server_stop_pending = False
+                    self.coop_stop_servers()
+                else:
+                    self.coop_server_line.configure(text=text, fg=color)
+                    if said:
+                        self.coop_say(' '.join(said), MUTED)
+
+            try:
+                said = [_(line) for line in said]
+                if running and not self.server_stop_pending and bbport_coop.wants_router(host_ip):
+                    said.append(self.coop_open_router())
+            finally:
+                # Stop must run after Start and its router work, not alongside them.
+                self.ui_calls.put(complete)
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except RuntimeError as error:
+            self.server_starting = False
+            self.coop_server_line.configure(
+                text=_('Could not start server: {}', 'Не удалось запустить сервер: {}').format(error), fg=BAD)
 
     def coop_open_router(self):
         """Off the window's thread: asks the router to forward the host's ports (UPnP) and says what came of
@@ -5173,30 +5360,59 @@ class Launcher:
                  'Radmin VPN или ручной проброс портов.')
 
     def coop_stop_servers(self):
+        if self.server_stopping:
+            return
+        self.coop_server_line.configure(text=_('Stopping…', 'Остановка…'), fg=MUTED)
+        if self.server_starting:
+            self.server_stop_pending = True
+            return
+        self.server_stopping = True
+        self.server_status_epoch += 1
+        host_ip = self.coop.get('host_ip', '')
+
         def work():
-            if bbport_coop.wants_router(self.coop.get('host_ip', '')) or \
-                    (getattr(self, 'coop_upnp', None) or {}).get('state') == 'open':
-                try:
-                    bbport_upnp.close_ports()
-                except Exception:  # the forwards stay until the next Stop; the server stops regardless
-                    pass
-                self.coop_upnp = None
-                if self.coop_help is not None:
-                    self.ui_calls.put(self.coop_help_refresh_public)
-            stopped = bbport_coop.stop_servers(PORT_DIR)
-            self.ui_calls.put(lambda: self.coop_server_line.configure(
-                text=_('Stopped ({})', 'Остановлен ({})').format(stopped), fg=MUTED))
-        threading.Thread(target=work, daemon=True).start()
+            try:
+                if bbport_coop.wants_router(host_ip) or (self.coop_upnp or {}).get('state') == 'open':
+                    try:
+                        bbport_upnp.close_ports()
+                    except Exception:  # stop the server even if the router cannot be reached
+                        pass
+                    else:
+                        self.coop_upnp = None
+                        if self.coop_help is not None:
+                            self.ui_calls.put(self.coop_help_refresh_public)
+                stopped = bbport_coop.stop_servers(PORT_DIR)
+                text, color = _('Stopped ({})', 'Остановлен ({})').format(stopped), MUTED
+            except Exception as error:
+                text, color = _('Could not stop server: {}',
+                                'Не удалось остановить сервер: {}').format(error), BAD
+
+            def complete():
+                self.server_stopping = False
+                self.coop_server_line.configure(text=text, fg=color)
+
+            self.ui_calls.put(complete)
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except RuntimeError as error:
+            self.server_stopping = False
+            self.coop_server_line.configure(
+                text=_('Could not stop server: {}', 'Не удалось остановить сервер: {}').format(error), fg=BAD)
 
     def coop_watch_server(self):
-        """Every few seconds the server line says whether this PC's co-op server runs (Reddit 2026-10-21: it
-        stayed empty while the server ran)."""
-        if not self.server_checking and not self.server_starting:
+        """Refresh local server status when no explicit Start or Stop is in progress."""
+        if not (self.server_checking or self.server_starting or self.server_stopping):
             self.server_checking = True
-            threading.Thread(target=self.coop_check_server, daemon=True).start()
+            try:
+                threading.Thread(target=self.coop_check_server,
+                                 args=(self.server_status_epoch,), daemon=True).start()
+            except RuntimeError:
+                self.server_checking = False
+                self.coop_server_line.configure(
+                    text=_('Status unavailable', 'Состояние недоступно'), fg=CAUTION)
         self.server_poll = self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
 
-    def coop_check_server(self):
+    def coop_check_server(self, epoch):
         try:
             state = bbport_coop.server_state()
             if state == 'running':
@@ -5208,10 +5424,15 @@ class Launcher:
                                 'Не работает: чтобы стать хостом, нажмите «Запустить сервер»'), CAUTION
             else:
                 text, color = '', MUTED  # a guest's server is the host's
-            if not self.server_starting:
-                self.ui_calls.put(lambda: self.coop_server_line.configure(text=text, fg=color))
-        finally:
+        except Exception:
+            text, color = _('Status unavailable', 'Состояние недоступно'), CAUTION
+
+        def complete():
             self.server_checking = False
+            if epoch == self.server_status_epoch and not (self.server_starting or self.server_stopping):
+                self.coop_server_line.configure(text=text, fg=color)
+
+        self.ui_calls.put(complete)
 
     def coop_firewall(self):
         """This install's firewall rules, asking Windows for them (one UAC prompt) when they are missing."""
@@ -5221,11 +5442,7 @@ class Launcher:
         self.coop_say(_('Windows asks to let co-op through its firewall…', 'Windows спрашивает разрешение брандмауэра…'))
         if not bbport_coop.allow_through_firewall(PORT_DIR, host):
             return False
-        for _i in range(20):
-            time.sleep(0.5)
-            if bbport_coop.firewall_ready(PORT_DIR, host):
-                return True
-        return False
+        return bbport_coop.wait_for_firewall(PORT_DIR, host)
 
     def play_coop(self):
         if self.coop_busy:
@@ -5239,8 +5456,14 @@ class Launcher:
         self.coop_id_tries = 0  # new ids made after the server refused this one's address (coop_watch_line)
         self.play_button.configure(state='disabled')
         self.set_running(False, preparing=True)
-        threading.Thread(target=self.coop_prepare_and_play,
-                         args=(dict(bbport_coop.played_settings(self.coop)),), daemon=True).start()
+        try:
+            settings = dict(bbport_coop.played_settings(self.coop))
+            threading.Thread(target=self.coop_prepare_and_play,
+                             args=(settings,), daemon=True).start()
+        except (RuntimeError, OSError, ValueError) as error:
+            self.coop_start_game({}, None,
+                                 _('Could not prepare PLAY: {}',
+                                   'Не удалось подготовить запуск: {}').format(error), '')
 
     def coop_prepare_and_play(self, settings):
         """Off the window's thread: the firewall and the game folder; then the game starts on the window's
@@ -5282,10 +5505,19 @@ class Launcher:
             self.messagebox.showerror('Bloodborne', failed)
             return
         playing = (dict(settings), root)
-        log_path = bbport_coop.rotate_logs(PORT_DIR)
+        try:
+            log_path = bbport_coop.rotate_logs(PORT_DIR)
+        except OSError as error:
+            self.set_running(False)
+            self.status.configure(text=_('Could not prepare the game log: {}',
+                                         'Не удалось подготовить журнал игры: {}').format(error), fg=BAD)
+            return
         # Phase 11: a crash's dump and logs go to the host's server by themselves, alongside.
-        threading.Thread(target=bbport_coop.send_reports, args=(PORT_DIR, dict(settings)),
-                         daemon=True).start()
+        try:
+            threading.Thread(target=bbport_coop.send_reports, args=(PORT_DIR, dict(settings)),
+                             daemon=True).start()
+        except RuntimeError as error:
+            print(f'Could not start the co-op report worker: {error}', file=sys.stderr)
         settings = dict(settings, unlocked_fps='1' if bbport_coop.unlocked_fps(self.app.get('fps_mode')) else '')
         env = bbport_coop.game_environment(game_environment(self.app), settings, PORT_DIR, root)
         self.set_log('')
@@ -5298,9 +5530,10 @@ class Launcher:
             self.status.configure(text=_('Could not start: {}', 'Не удалось запустить: {}').format(error), fg=BAD)
             self.process = None
             return
+        self.reset_run_output(env)
         self.job = GameJob(self.process)
         self.coop_playing = playing
-        threading.Thread(target=self.read_output, args=(self.process, self.job, log_path), daemon=True).start()
+        self.start_output_watcher(log_path)
         self.set_running(True, preparing=True)
         self.status.configure(text=_('Preparing the game; it opens in its own window…',
                                      'Подготовка игры; она откроется в своём окне…'), fg=GOLD)
@@ -5324,6 +5557,9 @@ class Launcher:
                 pass
             return
         if bbport_coop.other_key(line):
+            # Local game readiness does not establish the server's identity.
+            self.coop_key_mismatch = True
+            self.cancel_ready_close()
             self.status.configure(text=_(bbport_coop.OTHER_KEY_TEXT), fg=BAD)
             return
         # Global: no new id without a sign-in, and no other id to try.
@@ -5334,9 +5570,9 @@ class Launcher:
                 self.coop_auth_view = 'sign_in'
                 self.coop_auth_show()
             self.coop_auth_saved_settings()
-            self.status.configure(text=_('Sign in again (Co-op settings, the first step).',
-                                         'Войдите снова (настройки кооператива, первый шаг).'), fg=BAD)
+            self.show_coop_sign_in_required()
             self.coop_new_id = 'give_up_account'
+            self.cancel_ready_close()
             if self.job:
                 self.job.terminate()
             return
@@ -5361,20 +5597,29 @@ class Launcher:
         else:
             self.status.configure(text=_(bbport_coop.NEW_ID_FAILED_TEXT).format(tries), fg=BAD)
         self.coop_new_id = what
+        self.cancel_ready_close()
         if self.job:
             self.job.terminate()
+
+    def show_coop_sign_in_required(self):
+        self.status.configure(text=_('Sign in again (Co-op settings, the first step).',
+                                     'Войдите снова (настройки кооператива, первый шаг).'), fg=BAD)
 
     def coop_game_ended(self):
         """The co-op game ended: started again with the new id coop_watch_line made, or the status line
         keeps saying why it was stopped."""
         what, self.coop_new_id = getattr(self, 'coop_new_id', None), None
         playing, self.coop_playing = getattr(self, 'coop_playing', None), None
+        if getattr(self, 'run_stopped', False):
+            return  # Stop wins even if recovery was queued before the click
         if what == 'retry' and playing:
             settings, root = playing
             account, secret = bbport_coop.player_id_for(self.coop, settings['server'])
             self.coop_start_game(dict(settings, account=account, password=secret), root, None, '')
         elif what == 'give_up_account':
-            pass  # the status line already says why (coop_watch_line)
+            # The normal post-exit status refresh restores the Play button
+            # but also replaces the text written when we received the refusal.
+            self.show_coop_sign_in_required()
         elif what == 'give_up':
             self.status.configure(text=_(bbport_coop.NEW_ID_FAILED_TEXT).format(getattr(self, 'coop_id_tries', 0)),
                                   fg=BAD)
@@ -6193,8 +6438,8 @@ class Launcher:
             game = _('⚠ Game version {}: runs at 30 FPS without the community patches (they are for 1.09)',
                      '⚠ Версия игры {}: 30 FPS без патчей сообщества (они для 1.09)').format(info[1])
         user = Path(self.var('user_dir', 'app').get() or DATA_DIR / 'user')
-        saves = list((user / 'savedata').glob('*/*/SPRJ*')) if (user / 'savedata').is_dir() else []
-        save = (_('✓ Saves found in {}', '✓ Найдены сохранения в {}').format(short_path(user)) if saves
+        has_save = next((user / 'savedata').glob('*/*/SPRJ*'), None) is not None
+        save = (_('✓ Saves found in {}', '✓ Найдены сохранения в {}').format(short_path(user)) if has_save
                 else _('• No saves yet: the game creates them in {}', '• Сохранений пока нет: игра создаст их в {}').format(short_path(user)))
         missing = fsr4_missing()
         fsr4 = (_('✓ FSR 4 assets installed', '✓ Ассеты FSR 4 установлены') if not missing else
@@ -6214,12 +6459,11 @@ class Launcher:
                 label.grid_remove()
         if not self.process and not self.installing:
             self.play_button.configure(state='normal' if info else 'disabled')
-            self.status.configure(text=self.summary() if info else _('Choose the game folder first.',
+            self.status.configure(text=self.summary(info) if info else _('Choose the game folder first.',
                                                                      'Сначала выберите папку игры.'), fg=MUTED)
 
-    def summary(self):
+    def summary(self, info):
         fps = dict(FPS_MODES).get(self.var('fps_mode', 'app').get(), ('?',))
-        info = self.coop_game_info() if COOP_INSTALL else game_info(self.var('game_dir', 'app').get())
         if info and info[1] != PATCH_VERSION:
             fps = ('30 FPS',)
         upscaler = dict(UPSCALERS).get(self.var('upscaler', 'ini').get(), ('?',))[0].split(' (')[0]
@@ -6233,7 +6477,8 @@ class Launcher:
         the window's thread."""
         exe, env = tool or gpu_tool()
         try:
-            check = subprocess.run([str(exe), '--upscalers'], capture_output=True, text=True, timeout=30,
+            check = subprocess.run([str(exe), '--upscalers'], capture_output=True, encoding='utf-8',
+                                    errors='replace', timeout=30,
                                    env=env, creationflags=NO_WINDOW)
             self.upscaler_support = parse_upscaler_support(check.stdout) or None
         except (OSError, subprocess.TimeoutExpired):
@@ -6245,7 +6490,8 @@ class Launcher:
         text = _('• Graphics card: not checked', '• Видеокарта: не проверена')
         self.check_upscalers(tool)
         try:
-            result = subprocess.run([str(exe), '--live-resolution'], capture_output=True, text=True, timeout=30,
+            result = subprocess.run([str(exe), '--live-resolution'], capture_output=True, encoding='utf-8',
+                                    errors='replace', timeout=30,
                                     env=env, creationflags=NO_WINDOW)
             names = [line[5:].split(':')[0] for line in result.stderr.splitlines() if line.startswith('GPU: ')]
             if names:
@@ -6544,10 +6790,6 @@ class Launcher:
         self.set_log('')
         log_path = Path(self.app.get('user_dir') or DATA_DIR / 'user') / 'last_run.log'
         env = game_environment(self.app)
-        # What a game that closes while starting may blame (drain_output): see start_crash_suspects.
-        self.run_started, self.run_up, self.run_stopped = False, False, False
-        self.run_layers_disabled = env.get('VK_LOADER_LAYERS_DISABLE', '')
-        self.run_reshade = RESHADE_LAYER in env.get('VK_INSTANCE_LAYERS', '')
         try:
             self.process = start_game(run_command(), env, log_path)
         except OSError as error:
@@ -6555,11 +6797,63 @@ class Launcher:
             self.status.configure(text=_('Could not start: {}', 'Не удалось запустить: {}').format(error), fg=BAD)
             self.process = None
             return
+        self.reset_run_output(env)
         self.job = GameJob(self.process)
-        threading.Thread(target=self.read_output, args=(self.process, self.job, log_path), daemon=True).start()
+        self.start_output_watcher(log_path)
         self.set_running(True, preparing=True)
         self.status.configure(text=_('Preparing the game; it opens in its own window…',
                                      'Подготовка игры; она откроется в своём окне…'), fg=GOLD)
+
+    def reset_run_output(self, env):
+        self.cancel_ready_close()
+        # What a game that closes while starting may blame (drain_output): see start_crash_suspects.
+        self.run_started, self.run_up, self.run_stopped = False, False, False
+        self.output_ready = False
+        self.coop_key_mismatch = False
+        self.run_layers_disabled = env.get('VK_LOADER_LAYERS_DISABLE', '')
+        self.run_reshade = RESHADE_LAYER in env.get('VK_INSTANCE_LAYERS', '')
+
+    def cancel_ready_close(self):
+        if self.close_on_ready_job is not None:
+            self.root.after_cancel(self.close_on_ready_job)
+            self.close_on_ready_job = None
+
+    def schedule_ready_close(self):
+        # A restart may reuse the original process/job handle. Fence timers
+        # by their own identity as well as by the process they were armed for.
+        process = self.process
+        job = self.root.after(CLOSE_AFTER_UP_MS, lambda: self.close_after_ready(process, job))
+        self.close_on_ready_job = job
+
+    def close_after_ready(self, process, job):
+        if self.process is not process or self.close_on_ready_job != job:
+            return
+        self.close_on_ready_job = None
+        self.coop_release_server()
+        self.root.destroy()
+
+    def start_output_watcher(self, log_path):
+        process, job = self.process, self.job
+        try:
+            threading.Thread(target=self.read_output, args=(process, job, log_path), daemon=True).start()
+        except RuntimeError as error:
+            # The process already exists. Keep Stop and exit handling usable
+            # without reading the log or waiting for the child on the Tk thread.
+            self.output.put('\n' + _('Could not watch the game log: {}',
+                                       'Не удалось отслеживать журнал игры: {}').format(error) + '\n')
+            if job is not None:
+                job.say = self.output.put
+            self.unwatched_game_poll = self.root.after(
+                200, self.poll_unwatched_game, process, job)
+
+    def poll_unwatched_game(self, process, job):
+        if self.process is not process or self.job is not job:
+            return
+        self.unwatched_game_poll = None
+        if game_over(process, job) and (code := process.poll()) is not None:
+            self.output.put((code,))
+            return
+        self.unwatched_game_poll = self.root.after(200, self.poll_unwatched_game, process, job)
 
     def read_output(self, process, job, log_path):
         # The game writes last_run.log itself (start_game), so a crash report survives the launcher
@@ -6589,43 +6883,85 @@ class Launcher:
             self.output_poll = self.root.after(32, self.drain_output)
             return
         began = time.perf_counter()
-        try:
-            while time.perf_counter() - began < 0.003:
-                self.ui_calls.get_nowait()()
-        except queue.Empty:
-            pass
+        while time.perf_counter() - began < 0.003:
+            try:
+                callback = self.ui_calls.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                callback()
+            except Exception:
+                # Match Tk's callback exception reporting; one failed worker
+                # completion must not stop log and process-exit polling.
+                self.root.report_callback_exception(*sys.exc_info())
+        pending, chars = [], 0
         try:
             for _i in range(500):
                 if _i and time.perf_counter() - began >= 0.006:
                     break
                 item = self.output.get_nowait()
                 if isinstance(item, tuple):
+                    # Publish earlier output before any exit/status handlers run.
+                    if pending:
+                        self.append(''.join(pending))
+                        pending, chars = [], 0
                     self.append(_('\n— the game exited (code {}) —\n', '\n— игра завершилась (код {}) —\n').format(item[0]))
+                    self.cancel_ready_close()
                     self.process = None
                     if self.job:
                         self.job.close()
                     self.set_running(False)
                     self.refresh_status()
+                    # A deliberate stop for account recovery is not a crash.
+                    # Read the old run's diagnostics before recovery can start a new one.
+                    if not getattr(self, 'coop_new_id', None):
+                        self.say_start_crash(item[0])
                     self.coop_game_ended()
-                    self.say_start_crash(item[0])
                 else:
-                    self.coop_watch_line(item)
-                    if bbport_support.GAME_STARTING_LINE in item:
-                        self.run_started = True
-                    if game_is_up(item):  # mods, patches and shaders are prepared; the window exists
-                        self.run_up = True
-                        self.set_running(True)
-                        self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
-                        if self.app.get('close_on_play') and not self.close_scheduled:  # both GAME_UP_LINES arrive
-                            self.close_scheduled = True
-                            self.coop_release_server()  # the server stays for the game, then stops
-                            self.root.after(CLOSE_AFTER_UP_MS, self.root.destroy)  # the game keeps running
-                    elif 'restarting through run.py' in item:
-                        self.set_running(True, preparing=True)
-                        self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)
-                    self.append(item)
+                    # The file follower batches complete lines. A key learned
+                    # on one line must not swallow a refusal on the next.
+                    ordered = ('restarting through run.py' in item or game_is_up(item)
+                               or bbport_support.GAME_STARTING_LINE in item
+                               or bbport_coop.LEARNED_KEY_LINE in item
+                               or bbport_coop.OTHER_KEY_LINE in item
+                               or bbport_coop.REFUSED_LINE in item)
+                    if getattr(self, 'run_stopped', False):
+                        pass  # keep raw logs; do not let late auth events restart a stopped game
+                    elif not ordered:
+                        self.coop_watch_line(item)
+                    else:
+                        for line in item.splitlines(keepends=True):
+                            self.coop_watch_line(line)
+                            if getattr(self, 'coop_new_id', None):
+                                continue  # queued markers from a game we are stopping
+                            if bbport_support.GAME_STARTING_LINE in line:
+                                self.run_started = True
+                            if game_is_up(line):  # mods, patches and shaders are prepared; the window exists
+                                self.run_up = True
+                                key_mismatch = getattr(self, 'coop_key_mismatch', False)
+                                if not self.output_ready:
+                                    self.output_ready = True
+                                    self.set_running(True)
+                                    if not key_mismatch:
+                                        self.status.configure(text=_('The game is running.', 'Игра запущена.'), fg=GOLD)
+                                if (not key_mismatch and self.app.get('close_on_play') and self.close_on_ready_job is None
+                                        and self.process is not None):
+                                    self.schedule_ready_close()
+                            elif 'restarting through run.py' in line:
+                                self.cancel_ready_close()
+                                self.output_ready = False
+                                self.set_running(True, preparing=True)
+                                if not getattr(self, 'coop_key_mismatch', False):
+                                    self.status.configure(text=_('Restarting with the new settings…', 'Перезапуск с новыми настройками…'), fg=GOLD)
+                    pending.append(item)
+                    chars += len(item)
+                    if chars >= 16384:
+                        self.append(''.join(pending))
+                        pending, chars = [], 0
         except queue.Empty:
             pass
+        if pending:
+            self.append(''.join(pending))
         delay = 16 if not self.ui_calls.empty() or not self.output.empty() else 100
         self.output_poll = self.root.after(delay, self.drain_output)
 
@@ -6636,6 +6972,7 @@ class Launcher:
                 self.install_proc.kill()
         elif self.job:
             self.run_stopped = True
+            self.cancel_ready_close()
             self.job.terminate()
 
     def say_start_crash(self, code):
@@ -6657,12 +6994,15 @@ class Launcher:
         self.root.after_idle(lambda: self.messagebox.showwarning('Bloodborne', text))
 
     def append(self, text):
+        # Follow live output only when the reader is already at the bottom.
+        follow = self.log.yview()[1] >= 1.0
         self.log.configure(state='normal')
         self.log.insert('end', text)
         lines = int(self.log.index('end-1c').split('.')[0])
         if lines > MAX_LOG_LINES:
             self.log.delete('1.0', f'{lines - MAX_LOG_LINES}.0')
-        self.log.see('end')
+        if follow:
+            self.log.see('end')
         self.log.configure(state='disabled')
 
     def set_log(self, text):
@@ -7282,6 +7622,8 @@ class Launcher:
             self.status.configure(text=text, fg=GOLD)
 
     def install_update(self, version, url, page):
+        if self.updating or self.installing:
+            return
         if self.process:
             self.messagebox.showinfo('Bloodborne', _('Close the game before updating.', 'Закройте игру перед обновлением.'))
             return
@@ -7293,6 +7635,8 @@ class Launcher:
                 'Установить версию {} сейчас? Лаунчер закроется, установит её и откроется снова. Сохранения и '
                 'настройки останутся.').format(version)):
             return
+        self.updating = True
+        self.play_button.configure(state='disabled')
         self.update_button.configure(state='disabled')
         self.update_bar.pack(side='left', padx=(self.px(12), 0), before=self.update_button.canvas)
 
@@ -7301,39 +7645,41 @@ class Launcher:
                 version, percent))
             self.update_bar.set(percent / 100)
 
+        def failed(error):
+            self.updating = False
+            self.play_button.configure(state='normal')
+            self.update_button.configure(state='normal')
+            self.update_bar.pack_forget()
+            self.update_label.configure(text=_('Version {} is available.', 'Доступна версия {}.').format(version))
+            self.messagebox.showerror('Bloodborne', _('Update failed: {}', 'Не удалось обновить: {}').format(error))
+
         def work():
+            stage = None
+            handed_off = False
             try:
-                shutil.rmtree(UPDATE_DIR, ignore_errors=True)
-                UPDATE_DIR.mkdir(parents=True, exist_ok=True)
-                archive = UPDATE_DIR / 'update.zip'
+                stage = make_portable_stage()
+                archive = stage / 'update.zip'
                 request = urllib.request.Request(url, headers={'User-Agent': 'bbport-launcher'})
                 with urllib.request.urlopen(request, timeout=60) as response, open(archive, 'wb') as out:
-                    total, done, shown = int(response.headers.get('Content-Length') or 0), 0, -1
-                    while chunk := response.read(1 << 20):
-                        out.write(chunk)
-                        done += len(chunk)
-                        percent = done * 100 // total if total else 0
-                        if percent != shown:
-                            shown = percent
-                            self.ui_calls.put(lambda p=percent: progress(p))
+                    download_update(response, out, lambda percent:
+                                    self.ui_calls.put(lambda p=percent: progress(p)))
                 with zipfile.ZipFile(archive) as package:
-                    package.extractall(UPDATE_DIR / 'new')
+                    new = extract_update(package, stage / 'new')
                 archive.unlink()
-                new = next((p.parent for p in (UPDATE_DIR / 'new').rglob('BLauncher.exe')), None)
-                if not new:
-                    raise OSError('BLauncher.exe is missing from the download')
                 # The new launcher copies itself over this installation once this one has closed.
-                subprocess.Popen([str(new / 'BLauncher.exe'), '--install-update', str(PORT_DIR), str(os.getpid())],
-                                 cwd=str(new), stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                subprocess.Popen([str(new), '--install-update', str(PORT_DIR), str(os.getpid())],
+                                 cwd=str(new.parent), stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                handed_off = True
                 self.ui_calls.put(self.root.destroy)
-            except (OSError, zipfile.BadZipFile) as failure:
-                def failed(error=failure):
-                    self.update_button.configure(state='normal')
-                    self.update_bar.pack_forget()
-                    self.update_label.configure(text=_('Version {} is available.', 'Доступна версия {}.').format(version))
-                    self.messagebox.showerror('Bloodborne', _('Update failed: {}', 'Не удалось обновить: {}').format(error))
-                self.ui_calls.put(failed)
-        threading.Thread(target=work, daemon=True).start()
+            except (OSError, ValueError, RuntimeError, http.client.HTTPException, zipfile.BadZipFile, zlib.error) as error:
+                self.ui_calls.put(lambda error=error: failed(error))
+            finally:
+                if stage is not None and not handed_off:
+                    shutil.rmtree(stage, ignore_errors=True)
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except (OSError, RuntimeError) as error:
+            failed(error)
 
     def clear_cache(self):
         """Shader and pipeline caches; they are rebuilt while playing."""
@@ -7347,24 +7693,20 @@ class Launcher:
                                                  'минут будет подтормаживать, пока кэш собирается заново.'))
 
     def shortcut(self):
-        """Bloodborne.lnk on the desktop: Bloodborne.exe, which starts the game (or this launcher
-        while no game folder is chosen)."""
+        """Create the Windows desktop shortcut using the wide Shell Link API."""
         if FROZEN:
-            target, arguments, icon = str(PORT_DIR / 'Bloodborne.exe'), '', f'{sys.executable},0'
-        else:  # a source tree: the launcher script with the windowless Python
-            pythonw = Path(sys.executable).with_name('pythonw.exe')
-            target = str(pythonw if pythonw.exists() else sys.executable)
-            arguments, icon = Path(__file__).resolve(), PORT_DIR / 'launcher' / 'bloodborne.ico'
-        script = ('$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath("Desktop")'
-                  '+"\\Bloodborne.lnk");'
-                  f'$s.TargetPath="{target}";$s.WorkingDirectory="{PORT_DIR}";$s.IconLocation="{icon}";'
-                  + (f"$s.Arguments='\"{arguments}\"';" if arguments else '') + '$s.Save()')
-        result = subprocess.run(['powershell', '-NoProfile', '-Command', script], capture_output=True,
-                                creationflags=NO_WINDOW)
-        if result.returncode == 0:
-            self.messagebox.showinfo('Bloodborne', _('Shortcut created on the desktop.', 'Ярлык создан на рабочем столе.'))
+            target, arguments, icon = PORT_DIR / 'Bloodborne.exe', '', sys.executable
         else:
-            self.messagebox.showerror('Bloodborne', result.stderr.decode(errors='replace')[:400])
+            pythonw = Path(sys.executable).with_name('pythonw.exe')
+            target = pythonw if pythonw.exists() else sys.executable
+            arguments = f'"{Path(__file__).resolve()}" --play'
+            icon = PORT_DIR / 'launcher' / 'bloodborne.ico'
+        try:
+            write_shortcut(target, PORT_DIR, (icon, 0), arguments)
+        except OSError as error:
+            self.messagebox.showerror('Bloodborne', str(error)[:400])
+            return
+        self.messagebox.showinfo('Bloodborne', _('Shortcut created on the desktop.', 'Ярлык создан на рабочем столе.'))
 
     def add_to_steam(self):
         """Bloodborne in the Steam library: a non-Steam game that starts Bloodborne.exe (in a source
@@ -7425,7 +7767,12 @@ class Launcher:
     def cancel_window_polls(self, event):
         # Close-on-PLAY destroys the root directly. Ignore child widgets' destroy events.
         if event.widget is self.root:
-            for name in ('output_poll', 'motion_start', 'server_poll', 'count_poll'):
+            chrome = getattr(self, 'chrome', None)
+            if isinstance(chrome, WindowChrome):
+                chrome.drag_end()
+                chrome.resize_end()
+            self.cancel_ready_close()
+            for name in ('output_poll', 'motion_start', 'server_poll', 'count_poll', 'unwatched_game_poll'):
                 job = getattr(self, name, None)
                 if job is not None:
                     self.root.after_cancel(job)
@@ -7695,11 +8042,19 @@ def play_coop_without_window(app):
     except (RuntimeError, OSError, ValueError) as error:
         show_error_box(str(error))
         return 1
-    log_path = bbport_coop.rotate_logs(PORT_DIR)
-    threading.Thread(target=bbport_coop.send_reports, args=(PORT_DIR, dict(settings)), daemon=True).start()
-    settings = dict(settings, unlocked_fps='1' if bbport_coop.unlocked_fps(app.get('fps_mode')) else '')
-    env = bbport_coop.game_environment(game_environment(app), settings, PORT_DIR, root)
-    return start_game(run_command(), env, log_path).wait()
+    try:
+        log_path = bbport_coop.rotate_logs(PORT_DIR)
+        try:
+            threading.Thread(target=bbport_coop.send_reports, args=(PORT_DIR, dict(settings)),
+                             daemon=True).start()
+        except RuntimeError as error:
+            print(f'Could not start the co-op report worker: {error}', file=sys.stderr)
+        settings = dict(settings, unlocked_fps='1' if bbport_coop.unlocked_fps(app.get('fps_mode')) else '')
+        env = bbport_coop.game_environment(game_environment(app), settings, PORT_DIR, root)
+        return start_game(run_command(), env, log_path).wait()
+    except (RuntimeError, OSError, ValueError) as error:
+        show_error_box(str(error))
+        return 1
 
 
 def update_ignore(target):
@@ -7717,21 +8072,64 @@ def update_ignore(target):
     return ignore
 
 
+def wait_for_update_parent(pid, kernel=None, *, timeout_ms=60000):
+    """Only proceed when the old launcher is gone, not on timeout or access denial."""
+    from ctypes import wintypes
+
+    pid = int(pid)
+    if not 0 < pid <= 0xFFFFFFFF:
+        raise ValueError('Invalid update handover process ID')
+    if kernel is None:
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:  # the positive PID no longer identifies a process
+            return
+        raise ctypes.WinError(error)
+    try:
+        status = kernel.WaitForSingleObject(handle, timeout_ms)
+        if status == 0x102:
+            raise TimeoutError('The previous launcher is still running. No update files were copied.')
+        if status != 0:
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def install_update(target, wait_pid):
     """--install-update TARGET PID, run by the downloaded version from its temporary folder:
     waits for the old launcher to close, copies this version over TARGET (never the saves,
     settings, mods or ReShade presets) and starts it."""
     target = Path(target)
-    kernel = ctypes.windll.kernel32
-    handle = kernel.OpenProcess(0x00100000, False, int(wait_pid))  # SYNCHRONIZE
-    if handle:
-        kernel.WaitForSingleObject(handle, 60000)
-        kernel.CloseHandle(handle)
+    try:
+        wait_for_update_parent(wait_pid)
+    except (OSError, ValueError) as error:
+        show_error_box(str(error))
+        return 1
+    try:
+        with lock_portable_install(target):
+            return apply_portable_update(target)
+    except (OSError, ValueError) as error:
+        show_error_box(str(error))
+        return 1
+
+
+def apply_portable_update(target):
     ignore = update_ignore(target)
     for attempt in range(30):
         try:
-            shutil.copytree(PORT_DIR, target, dirs_exist_ok=True, ignore=ignore)
+            copy_portable_update(PORT_DIR, target, ignore)
             break
+        except ValueError as error:
+            show_error_box(str(error))
+            return 1
         except OSError:  # a file still in use: the old launcher is closing
             time.sleep(1)
     else:
@@ -7855,8 +8253,6 @@ def start_launcher():
     LANG = settings.get('ui_language') or windows_language()
     if args[:1] == ['--install-update'] and len(args) == 3:
         sys.exit(install_update(args[1], args[2]))
-    if FROZEN and UPDATE_DIR not in PORT_DIR.parents:
-        shutil.rmtree(UPDATE_DIR, ignore_errors=True)  # what a finished update left behind
     # Without a usable game folder there is nothing to play yet: open the launcher instead. The co-op
     # release plays co-op from Bloodborne.exe and Steam too (LeWhiske 2026-11-05: it started the plain
     # game, which could not reach the server); unfinished co-op settings open the launcher.

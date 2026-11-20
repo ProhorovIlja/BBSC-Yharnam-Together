@@ -4,10 +4,12 @@ password, sent to that server only, over HTTPS only, with its certificate checke
 never written anywhere and never logged: it goes in one request's body and the launcher keeps only
 the signed 30-day secret the server answers (bbport_coop.signed_in_global)."""
 import hashlib
+import http.client
 import json
 import ssl
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 
 NAME_MIN, NAME_MAX = 3, 20
@@ -32,7 +34,7 @@ COMMON_TEXT = 'That password is too common: choose another.'
 HAS_NAME_TEXT = 'The password must not contain your name.'
 SAME_TEXT = 'The new password is the old one.'
 # 2026-11-06 (1.4.0 sign-in): the reason the TLS layer gave goes into the {} (English, for a report).
-CERTIFICATE_TEXT = "This PC does not trust the server's certificate: not sent. ({})"
+CERTIFICATE_TEXT = "Could not verify the server certificate. Account data was not sent. ({})"
 CONNECTION_TEXT = 'The secure connection to the server failed: not sent. ({})'
 REFUSED_TEXT = 'The server refused it: try again.'
 
@@ -51,10 +53,22 @@ class AuthError(RuntimeError):
 
 def https_base(url):
     """The server's address without the slash at its end; AuthError unless it is https."""
-    url = (url or '').strip().rstrip('/')
-    if not url.lower().startswith('https://') or len(url) <= len('https://'):
+    if not isinstance(url, str):
         raise AuthError(PLAIN_HTTP_TEXT)
-    return url
+    url = url.strip()
+    # urlsplit silently strips some control characters; never send credentials
+    # to an authority different from the one the player entered.
+    if not url or any(ord(ch) <= 32 or ord(ch) == 127 for ch in url) or any(
+            ch in url for ch in ('\\', '?', '#')):
+        raise AuthError(PLAIN_HTTP_TEXT)
+    try:
+        parts = urllib.parse.urlsplit(url)
+        if (parts.scheme != 'https' or not parts.hostname or parts.username is not None
+                or parts.netloc.endswith(':') or parts.port == 0):
+            raise ValueError('invalid account server URL')
+    except ValueError:
+        raise AuthError(PLAIN_HTTP_TEXT) from None
+    return url.rstrip('/')
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -96,6 +110,19 @@ def _opener(context):
                                        urllib.request.ProxyHandler({}))
 
 
+def _read_object(response):
+    # Account responses are small. Refuse non-object and oversized replies
+    # without exposing the reply body or submitted credentials to the UI.
+    limit = 64 * 1024
+    data = response.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError('oversized auth response')
+    answer = json.loads(data or b'{}')
+    if not isinstance(answer, dict):
+        raise ValueError('auth response must be an object')
+    return answer
+
+
 def _call(url, path, body=None, context=None, opener=None):
     """(status, answer) of `path` on the server; AuthError when it does not answer."""
     base = https_base(url)
@@ -104,19 +131,23 @@ def _call(url, path, body=None, context=None, opener=None):
                                      headers={'Content-Type': 'application/json'})
     try:
         with (opener or _opener(context)).open(request, timeout=30) as answer:
-            return answer.status, json.loads(answer.read() or b'{}')
+            try:
+                return answer.status, _read_object(answer)
+            except (ValueError, RecursionError):
+                raise AuthError(REFUSED_TEXT) from None
     except urllib.error.HTTPError as error:
-        try:
-            return error.code, json.loads(error.read() or b'{}')
-        except (OSError, ValueError):
-            return error.code, {}
+        with error:
+            try:
+                return error.code, _read_object(error)
+            except (OSError, http.client.HTTPException, ValueError, RecursionError):
+                return error.code, {}
     except urllib.error.URLError as error:
         if isinstance(error.reason, ssl.SSLError):
             raise _tls_error(error.reason) from None
         raise AuthError(NO_SERVER_TEXT) from None
     except ssl.SSLError as error:
         raise _tls_error(error) from None
-    except (OSError, ValueError):
+    except (OSError, http.client.HTTPException, ValueError):
         raise AuthError(NO_SERVER_TEXT) from None
 
 
@@ -136,26 +167,33 @@ def _refusal(status, answer, wrong=WRONG_TEXT):
     if status == 401:
         return AuthError(wrong)
     if status == 429 and why == 'wait':
-        return AuthError(WAIT_TEXT, int(answer.get('seconds', 1)))
+        seconds = answer.get('seconds', 1)
+        return AuthError(WAIT_TEXT, seconds) if type(seconds) is int and seconds > 0 else AuthError(BUSY_TEXT)
     if status == 429 and why == 'signups':
         return AuthError(SIGNUPS_TEXT)
     if status in (429, 503):
         return AuthError(BUSY_TEXT)
     if status == 409:
         return AuthError(TAKEN_TEXT)
-    if status == 400 and (why, answer.get('problem')) in PROBLEMS:
-        return AuthError(PROBLEMS[why, answer['problem']])
+    problem = answer.get('problem') if isinstance(answer, dict) else None
+    if status == 400 and isinstance(why, str) and isinstance(problem, str):
+        if (why, problem) in PROBLEMS:
+            return AuthError(PROBLEMS[why, problem])
     if status == 404:
         return AuthError(NOT_GLOBAL_TEXT)
     return AuthError(REFUSED_TEXT)
 
 
 def _account(status, answer, wrong=WRONG_TEXT):
-    if status != 200 or not answer.get('id') or not answer.get('secret'):
+    if status != 200 or any(not isinstance(answer.get(k), str) or not answer[k]
+                            for k in ('id', 'secret')):
         raise _refusal(status, answer, wrong)
-    account = {'id': answer['id'], 'secret': answer['secret'], 'name': answer.get('name', '')}
-    if answer.get('recovery_code'):
-        account['recovery_code'] = answer['recovery_code']
+    name, code = answer.get('name', ''), answer.get('recovery_code', '')
+    if not isinstance(name, str) or not isinstance(code, str):
+        raise AuthError(REFUSED_TEXT)
+    account = {'id': answer['id'], 'secret': answer['secret'], 'name': name}
+    if code:
+        account['recovery_code'] = code
     return account
 
 
@@ -197,7 +235,8 @@ def strength(password):
 
 def config(url, context=None, opener=None):
     status, answer = _call(url, '/bb/auth/config', context=context, opener=opener)
-    if status != 200 or 'password' not in answer.get('sign_in', []):
+    methods = answer.get('sign_in')
+    if status != 200 or not isinstance(methods, list) or 'password' not in methods:
         raise AuthError(NOT_GLOBAL_TEXT)
     return answer
 
@@ -227,9 +266,13 @@ def sign_up(url, name, password, context=None, opener=None, stop=None):
     if problem:
         raise AuthError(problem)
     status, work = _call(url, '/bb/auth/challenge', {}, context, opener)
-    if status != 200 or not work.get('challenge'):
+    if status != 200:
         raise _refusal(status, work)
-    nonce = solve(work['challenge'], name, int(work.get('bits', 0)), stop)
+    challenge, bits = work.get('challenge'), work.get('bits')
+    if (not isinstance(challenge, str) or not challenge or not challenge.isascii()
+            or type(bits) is not int or bits < 0):
+        raise AuthError(REFUSED_TEXT)
+    nonce = solve(challenge, name, bits, stop)
     status, answer = _call(url, '/bb/auth/sign-up', {'name': name, 'password': password,
                                                     'challenge': work['challenge'], 'nonce': nonce},
                            context, opener)
@@ -278,7 +321,15 @@ def run_thread(call, done, *args, **options):
     """`call` off the window's thread: done(account, None) or done(None, AuthError)."""
     def run():
         try:
-            done(call(*args, **options), None)
+            account = call(*args, **options)
         except AuthError as error:
             done(None, error)
-    threading.Thread(target=run, daemon=True).start()
+        except Exception:
+            # A transport or parser failure must always release the form.
+            done(None, AuthError(REFUSED_TEXT))
+        else:
+            done(account, None)
+    try:
+        threading.Thread(target=run, daemon=True).start()
+    except RuntimeError:
+        done(None, AuthError(BUSY_TEXT))

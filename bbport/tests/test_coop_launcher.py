@@ -16,6 +16,247 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 import bbport_coop as coop  # noqa: E402
 
 
+class PortableUpdateZipTests(unittest.TestCase):
+    def stage(self, names, *, valid=False):
+        import io
+        import warnings
+        import zipfile
+        from bbport_update_zip import extract_update
+
+        blob = io.BytesIO()
+        with warnings.catch_warnings(), zipfile.ZipFile(blob, 'w') as archive:
+            warnings.simplefilter('ignore', UserWarning)  # deliberate duplicate
+            for name in names:
+                # zipfile's writer normalizes backslashes on Windows. Patch
+                # equal-length names in the local and central headers instead.
+                archive.writestr(name.replace('\\', '~'), b'fixture')
+        blob = io.BytesIO(blob.getvalue().replace(b'bin~escape', br'bin\escape'))
+        with tempfile.TemporaryDirectory() as scratch, zipfile.ZipFile(blob) as archive:
+            out = Path(scratch) / 'fresh'
+            if valid:
+                path = extract_update(archive, out)
+                self.assertEqual(path, out / 'Игра' / 'BLauncher.exe')
+                self.assertEqual(path.read_bytes(), b'fixture')
+                with self.assertRaises(FileExistsError):
+                    extract_update(archive, out)
+            else:
+                with self.assertRaises(ValueError):
+                    extract_update(archive, out)
+                self.assertFalse(out.exists())
+                self.assertFalse((Path(scratch) / 'escape').exists())
+
+    def test_valid_unicode_package_and_exclusive_staging(self):
+        self.stage(['Игра/BLauncher.exe', 'Игра/bin/probe.exe'], valid=True)
+
+    def test_rejects_ambiguous_or_unsafe_names_before_extraction(self):
+        for names in (['../escape'], ['/escape'], ['C:/escape'], [r'bin\escape'],
+                      ['bin/AUX.txt'], ['bin/hidden.'], ['bin/stream:alternate'],
+                      ['bin/file', 'BIN/other'], ['bin/file', 'bin/File'],
+                      ['bin/file', 'bin/file'], ['bin', 'bin/file'],
+                      ['nested/BLauncher.exe']):
+            with self.subTest(names=names):
+                self.stage(['BLauncher.exe', *names])
+
+    def test_download_bounds_and_complete_body(self):
+        import io
+        from bbport_update_zip import download_update
+
+        for declared, body, valid in ((None, b'abc', True), ('3', b'abc', True),
+                                      ('3', b'ab', False), ('2', b'abc', False),
+                                      (None, b'abcd', False), ('4', b'abc', False),
+                                      ('x', b'abc', False), (None, b'', False)):
+            with self.subTest(declared=declared, body=body):
+                response, out, progress = io.BytesIO(body), io.BytesIO(), []
+                response.headers = {} if declared is None else {'Content-Length': declared}
+                with mock.patch('bbport_update_zip.MAX_DOWNLOAD_BYTES', 3):
+                    if valid:
+                        download_update(response, out, progress.append)
+                        self.assertEqual(out.getvalue(), body)
+                        self.assertEqual(progress, [100 if declared else 0])
+                    else:
+                        with self.assertRaises(ValueError):
+                            download_update(response, out, progress.append)
+
+    def test_crc_failure_removes_partial_staging_but_preserves_install(self):
+        import io
+        import zipfile
+        from bbport_update_zip import extract_update
+
+        blob = io.BytesIO()
+        with zipfile.ZipFile(blob, 'w', compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr('BLauncher.exe', b'new')
+            archive.writestr('bin/fail.dll', b'original-payload')
+        broken = io.BytesIO(blob.getvalue().replace(b'original-payload', b'corrupt--payload'))
+        with tempfile.TemporaryDirectory() as scratch, zipfile.ZipFile(broken) as archive:
+            installed = Path(scratch) / 'installed'
+            installed.mkdir()
+            launcher = installed / 'BLauncher.exe'
+            launcher.write_bytes(b'old')
+            out = Path(scratch) / 'fresh'
+            with self.assertRaises(zipfile.BadZipFile):
+                extract_update(archive, out)
+            self.assertFalse(out.exists())
+            self.assertEqual(launcher.read_bytes(), b'old')
+
+    def test_overlay_preserves_saves_and_external_hardlink_target(self):
+        from bbport_update_zip import copy_portable_update
+        import shutil
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            stage, install = root / 'stage', root / 'install'
+            for folder in (stage, install):
+                (folder / 'user').mkdir(parents=True)
+            (stage / 'BLauncher.exe').write_bytes(b'new')
+            (stage / 'user' / 'save').write_bytes(b'package')
+            (install / 'user' / 'save').write_bytes(b'player')
+            external = root / 'external.exe'
+            external.write_bytes(b'old')
+            os.link(external, install / 'BLauncher.exe')
+            copy_portable_update(stage, install, shutil.ignore_patterns('user'))
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'new')
+            self.assertEqual((install / 'user' / 'save').read_bytes(), b'player')
+            self.assertEqual(external.read_bytes(), b'old')
+
+    def test_interrupted_file_copy_preserves_existing_binary(self):
+        from bbport_update_zip import copy_portable_update
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            stage, install = root / 'stage', root / 'install'
+            stage.mkdir()
+            install.mkdir()
+            (stage / 'BLauncher.exe').write_bytes(b'complete new binary')
+            existing = install / 'BLauncher.exe'
+            existing.write_bytes(b'old')
+
+            def interrupted(_src, temporary):
+                Path(temporary).write_bytes(b'incomplete')
+                raise OSError('simulated disk write failure')
+
+            with mock.patch('bbport_update_zip.shutil.copyfile', side_effect=interrupted):
+                with self.assertRaises(OSError):
+                    copy_portable_update(stage, install, lambda *_: ())
+            self.assertEqual(existing.read_bytes(), b'old')
+            self.assertEqual(list(install.iterdir()), [existing])
+
+    def test_overlay_rejects_linked_directory_before_any_writes(self):
+        from bbport_update_zip import copy_portable_update
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            stage, install, external = (root / name for name in ('stage', 'install', 'external'))
+            (stage / 'bin').mkdir(parents=True)
+            install.mkdir()
+            external.mkdir()
+            (stage / 'BLauncher.exe').write_bytes(b'new')
+            (stage / 'bin' / 'new.dll').write_bytes(b'new')
+            old = install / 'BLauncher.exe'
+            old.write_bytes(b'old')
+            linked = install / 'bin'
+            if os.name == 'nt':
+                subprocess.run(['cmd.exe', '/d', '/c', 'mklink', '/J', str(linked), str(external)],
+                               check=True, capture_output=True)
+            else:
+                linked.symlink_to(external, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                copy_portable_update(stage, install, lambda *_: ())
+            self.assertEqual(old.read_bytes(), b'old')
+            self.assertFalse((external / 'new.dll').exists())
+
+    def test_distinct_attempt_staging_and_install_lock(self):
+        import subprocess
+        from bbport_update_zip import lock_portable_install, make_portable_stage
+
+        with tempfile.TemporaryDirectory() as scratch:
+            first = make_portable_stage(scratch)
+            second = make_portable_stage(scratch)
+            self.assertNotEqual(first, second)
+            install = Path(scratch) / 'install'
+            install.mkdir()
+            script = ("import sys; sys.path.insert(0, sys.argv[1]); "
+                      "from bbport_update_zip import lock_portable_install\n"
+                      "try:\n with lock_portable_install(sys.argv[2]): pass\n"
+                      "except ValueError:\n sys.exit(23)")
+            command = [sys.executable, '-c', script, sys.path[0], str(install)]
+            with lock_portable_install(install):
+                self.assertEqual(subprocess.run(command, timeout=10).returncode, 23)
+                with lock_portable_install(second):
+                    self.assertTrue(second.is_dir())
+            self.assertEqual(subprocess.run(command, timeout=10).returncode, 0)
+
+    def test_expanded_budget_is_checked_before_staging(self):
+        with mock.patch('bbport_update_zip.MAX_EXPANDED_BYTES', 1):
+            self.stage(['BLauncher.exe'])
+
+
+class CoopSettingsReadTests(unittest.TestCase):
+    def test_failed_rules_migration_survives_automatic_identity_save_and_retries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path = coop.settings_path(root)
+            path.parent.mkdir(parents=True)
+            rules = path.parent / coop.TEAM_RULES_FILE
+            path.write_text(json.dumps(dict(confirmed='1', rule_rot='1')), encoding='utf-8')
+            write = coop.write_json_atomic
+
+            def deny_rules(destination, data):
+                if destination == rules:
+                    raise PermissionError('fixture: destination unavailable')
+                write(destination, data)
+
+            with (mock.patch.object(coop, 'write_json_atomic', side_effect=deny_rules),
+                  mock.patch.object(coop, 'this_machine', return_value='machine-a')):
+                first = coop.load_settings(root)
+                self.assertFalse(rules.exists())
+                saved = json.loads(path.read_text(encoding='utf-8'))
+                self.assertEqual(saved['rule_rot'], '1')
+                self.assertEqual(saved['account'], first['account'])
+            self.assertTrue(coop.move_old_rules(root))
+            self.assertTrue(rules.read_text(encoding='utf-8').startswith('1,'))
+            self.assertNotIn('rule_rot', json.loads(path.read_text(encoding='utf-8')))
+
+    def test_copied_install_rotates_all_local_identities_but_keeps_pins(self):
+        host, pin = 'play.example.com', 'a' * 64
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            original = dict(coop.with_own_player_id({}, 'machine-a'),
+                            server_keys={host: pin}, global_name='linked-account')
+            original = coop.with_server_id(original, host)
+            old_id = coop.player_id_for(original, host)
+            coop.save_settings(root, original)
+            with mock.patch.object(coop, 'this_machine', return_value='machine-a'):
+                self.assertEqual(coop.player_id_for(coop.load_settings(root), host), old_id)
+            with mock.patch.object(coop, 'this_machine', return_value='machine-b'):
+                copied = coop.load_settings(root)
+                self.assertNotEqual(coop.player_id_for(copied, host), old_id)
+                self.assertNotEqual(copied['account'], original['account'])
+                self.assertEqual(coop.player_id_for(copied, host), coop.player_id_for(coop.load_settings(root), host))
+            self.assertFalse(copied.get('server_ids'))
+            self.assertEqual(coop.link_key_for(copied, host), pin)
+            self.assertEqual(copied['global_name'], 'linked-account')
+
+    def test_malformed_values_do_not_become_paths_or_credentials(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path = coop.settings_path(root)
+            path.parent.mkdir(parents=True)
+            saved = dict(game=['wrong'], update='bad\0path', host_ip={}, password=None,
+                         account='hunter', p2p_port=12345, confirmed=True, discord_show_area=False,
+                         global_name=None, discord_name='legacy')
+            path.write_text(json.dumps(saved), encoding='utf-8')
+            actual = coop.read_settings(root)
+            for key in ('game', 'update', 'host_ip', 'password'):
+                self.assertEqual(actual[key], coop.DEFAULTS[key])
+            self.assertEqual(actual['account'], 'hunter')
+            self.assertEqual(actual['p2p_port'], '12345')
+            self.assertEqual(actual['confirmed'], '1')
+            self.assertEqual(actual['discord_show_area'], '')
+            self.assertEqual(actual['global_name'], 'legacy')
+            self.assertEqual(json.loads(path.read_text(encoding='utf-8')), saved)
+
+
 def write_sfo(path, values):
     """A minimal PS4 param.sfo with text values (format 0x0204)."""
     keys, data, entries = b'', b'', []
@@ -852,6 +1093,20 @@ class PlayTests(unittest.TestCase):
             self.assertFalse(coop.wants_router(''))
         with mock.patch.dict(os.environ, {'BB_UPNP': '0'}):
             self.assertFalse(coop.wants_router('192.168.4.25'), 'turned off')
+
+    def test_host_override_replacement_keeps_previous_json_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'user' / 'host_overrides.custom.json'
+            old = coop.host_overrides('26.1.2.3')
+            new = coop.host_overrides('26.1.2.4')
+            coop.write_json_atomic(target, old)
+            with mock.patch.object(coop.os, 'replace', side_effect=PermissionError('locked')):
+                with self.assertRaises(PermissionError):
+                    coop.write_json_atomic(target, new)
+            self.assertEqual(json.loads(target.read_text(encoding='utf-8')), json.loads(old))
+            self.assertEqual(list(target.parent.iterdir()), [target])
+            coop.write_json_atomic(target, new)
+            self.assertEqual(json.loads(target.read_text(encoding='utf-8')), json.loads(new))
 
     def test_the_host_overrides_point_the_game_at_the_host(self):
         self.assertEqual(json.loads(coop.host_overrides('26.1.2.3')),
@@ -1723,6 +1978,32 @@ class ConsoleTextTests(unittest.TestCase):
                 self.assertTrue(coop.firewall_ready(install, False))
             with mock.patch.object(coop.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=b'\x98\xff')):
                 self.assertFalse(coop.firewall_ready(install, False))
+
+    def test_firewall_probe_shares_deadline_between_host_rules(self):
+        install = Path('C:/Games/Yharnam Together')
+        game = mock.Mock(returncode=0, stdout=f'Program: {install / "bin" / "bb-probe.exe"}\n')
+        with (mock.patch.object(coop.sys, 'platform', 'win32'),
+              mock.patch.object(coop.time, 'monotonic', side_effect=[0, 0, 4.5, 5.0]),
+              mock.patch.object(coop.subprocess, 'run', return_value=game) as run):
+            self.assertFalse(coop.firewall_ready(install, True))
+            self.assertEqual([call.kwargs['timeout'] for call in run.call_args_list], [5.0, 0.5])
+
+    def test_firewall_polling_stops_at_deadline(self):
+        clock = [0.0]
+
+        def check(_install, _host, *, timeout_s):
+            clock[0] += timeout_s
+            return False
+
+        def sleep(delay):
+            clock[0] += delay
+
+        with (mock.patch.object(coop.time, 'monotonic', side_effect=lambda: clock[0]),
+              mock.patch.object(coop.time, 'sleep', side_effect=sleep),
+              mock.patch.object(coop, 'firewall_ready', side_effect=check) as probe):
+            self.assertFalse(coop.wait_for_firewall(Path('unused'), True, timeout_s=3.0))
+            self.assertEqual([call.kwargs['timeout_s'] for call in probe.call_args_list], [2.0, 0.5])
+            self.assertEqual(clock[0], 3.0)
 
     def test_firewall_requires_the_exact_application_field(self):
         install = Path('C:/Games/Yharnam Together')
