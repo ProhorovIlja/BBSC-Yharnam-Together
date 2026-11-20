@@ -3458,14 +3458,33 @@ class Launcher:
         inner = tk.Frame(canvas, bg=PANEL)
         window = canvas.create_window(0, 0, window=inner, anchor='nw')
 
+        content_height = viewport_width = None
+        bar_shown = False
+
         def fit(_event=None):
-            canvas.configure(scrollregion=(0, 0, 1, inner.winfo_reqheight() + px(8)))
-            if inner.winfo_reqheight() + px(8) > canvas.winfo_height():
-                bar.pack(side='right', fill='y', padx=(0, px(4)), before=canvas)
-            else:
-                bar.pack_forget()
+            nonlocal content_height, bar_shown
+            height = inner.winfo_reqheight() + px(8)
+            if height != content_height:
+                canvas.configure(scrollregion=(0, 0, 1, height))
+                content_height = height
+            show = height > canvas.winfo_height()
+            if show != bar_shown:
+                if show:
+                    bar.pack(side='right', fill='y', padx=(0, px(4)), before=canvas)
+                else:
+                    bar.pack_forget()
+                bar_shown = show
+
+        def resize(event):
+            nonlocal viewport_width
+            # Configure events can repeat without changing the scrollable layout.
+            if event.width != viewport_width:
+                canvas.itemconfigure(window, width=event.width)
+                viewport_width = event.width
+            fit()
+
         inner.bind('<Configure>', fit)
-        canvas.bind('<Configure>', lambda e: (canvas.itemconfigure(window, width=e.width), fit()))
+        canvas.bind('<Configure>', resize)
         canvas.configure(yscrollcommand=bar.set)
         canvas.pack(side='left', fill='both', expand=True)
 
