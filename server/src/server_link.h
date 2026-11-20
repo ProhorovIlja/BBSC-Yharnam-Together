@@ -212,6 +212,7 @@ public:
     // The static key the hellos are encrypted to (random per hub unless set: LinkServer keeps one
     // in LinkKeyFile), and its public half (the launcher gives it to the games).
     void SetStaticKey(const LinkAuth::Key& secret);
+    void SetTrafficSummaryLogging(bool enabled) { log_traffic_summaries = enabled; }
     const LinkAuth::Key& PublicKey() const {
         return static_key.pub;
     }
@@ -370,6 +371,7 @@ private:
     qint64 stats_ms;
     qint64 lost_ms;
     int pair_lines;
+    bool log_traffic_summaries = false;
     bool stats_started = false;
     qint64 stats_at_ms = 0;
     QHash<quint64, Link> members;
