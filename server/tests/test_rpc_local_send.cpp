@@ -23,6 +23,9 @@ int main() {
     shutdown.request_stop();
     if (SendAll(sockets[0], payload, shutdown.get_token()))
         return 8;
+    if (recv(sockets[1], received.data(), received.size(), MSG_DONTWAIT) != -1 ||
+        (errno != EAGAIN && errno != EWOULDBLOCK))
+        return 9;
     // A cancelled send must not put a second copy into the byte stream.
     if (!SendAll(sockets[0], payload) ||
         recv(sockets[1], received.data(), received.size(), MSG_WAITALL) != 4 ||
