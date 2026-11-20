@@ -199,7 +199,7 @@ public:
     }
 
     // The frames to send now: new packets, reliable ones due again, and an ack when one is owed.
-    std::vector<GameFrame> Flush(s64 now_ms) {
+    std::vector<GameFrame> Flush(s64 now_ms, size_t max_fresh = SIZE_MAX) {
         if (++flush_serial == 0) {
             // Keep tags distinct even across a counter wrap. Only existing entries need
             // clearing; fresh entries receive the new tag below.
@@ -222,7 +222,8 @@ public:
                 {packet_class, seq, std::forward<decltype(packet)>(packet)});
             bytes += size;
         };
-        for (Outgoing& out : fresh) {
+        for (; max_fresh != 0 && !fresh.empty(); --max_fresh) {
+            Outgoing& out = fresh.front();
             if (out.packet_class == PacketClass::Reliable) {
                 // Keep the original payload until ACKed; the wire frame needs its own copy.
                 append(out.packet_class, out.seq, out.packet);
@@ -239,8 +240,8 @@ public:
                 // to the frame instead of copying every visual/enemy update before clear().
                 append(out.packet_class, out.seq, std::move(out.packet));
             }
+            fresh.pop_front();
         }
-        fresh.clear();
         const bool quiet = last_heard_ms && now_ms - *last_heard_ms >= settings.quiet_ms;
         if (heard_since_quiet) {
             // Heard again after a silence: what is owed goes now.
