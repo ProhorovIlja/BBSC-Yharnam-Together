@@ -853,6 +853,20 @@ class PlayTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {'BB_UPNP': '0'}):
             self.assertFalse(coop.wants_router('192.168.4.25'), 'turned off')
 
+    def test_host_override_replacement_keeps_previous_json_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'user' / 'host_overrides.custom.json'
+            old = coop.host_overrides('26.1.2.3')
+            new = coop.host_overrides('26.1.2.4')
+            coop.write_json_atomic(target, old)
+            with mock.patch.object(coop.os, 'replace', side_effect=PermissionError('locked')):
+                with self.assertRaises(PermissionError):
+                    coop.write_json_atomic(target, new)
+            self.assertEqual(json.loads(target.read_text(encoding='utf-8')), json.loads(old))
+            self.assertEqual(list(target.parent.iterdir()), [target])
+            coop.write_json_atomic(target, new)
+            self.assertEqual(json.loads(target.read_text(encoding='utf-8')), json.loads(new))
+
     def test_the_host_overrides_point_the_game_at_the_host(self):
         self.assertEqual(json.loads(coop.host_overrides('26.1.2.3')),
                          {'https://ss4.scej-network.jp:20443': 'http://26.1.2.3:20443'})

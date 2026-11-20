@@ -718,18 +718,22 @@ def read_settings(install):
 
 def save_settings(install, settings):
     path = settings_path(install)
-    path.parent.mkdir(parents=True, exist_ok=True)
     saved = {key: settings.get(key, default) for key, default in DEFAULTS.items()}
     if settings.get('server_ids'):  # only once a server refused the id: older files stay as they were
         saved['server_ids'] = settings['server_ids']
     if settings.get('server_keys'):
         saved['server_keys'] = settings['server_keys']
+    write_json_atomic(path, json.dumps(saved, indent=2) + '\n')
+
+
+def write_json_atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
     pending = None
     try:
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
                                          prefix='.coop-', suffix='.tmp', delete=False) as out:
             pending = Path(out.name)
-            out.write(json.dumps(saved, indent=2) + '\n')
+            out.write(text)
         os.replace(pending, path)
     finally:
         if pending is not None:
@@ -1268,8 +1272,7 @@ def launch_settings(install, settings, say=print, on_prepared=None):
         settings = dict(settings, host_ip=address, server=settings['host_ip'], account=account,
                         password=secret, link_key=link_key_for(settings, settings['host_ip']))
     user = install / 'user'
-    user.mkdir(parents=True, exist_ok=True)
-    (user / 'host_overrides.custom.json').write_text(host_overrides(settings['host_ip']), encoding='utf-8')
+    write_json_atomic(user / 'host_overrides.custom.json', host_overrides(settings['host_ip']))
     return settings, root, note
 
 
