@@ -104,16 +104,17 @@ inline std::optional<std::string> ReadLedger(const std::filesystem::path& path) 
 
 // A committed ledger is not authoritative while an interrupted replacement
 // exists. Do not seed the live ledger from stale or missing data in that case.
-inline std::optional<std::string> ReadLiveLedger(const std::filesystem::path& path) {
+inline bool LedgerStagingClear(const std::filesystem::path& path) {
     auto staging = path;
     staging += ".tmp";
     std::error_code error;
     const auto status = std::filesystem::symlink_status(staging, error);
-    if (status.type() != std::filesystem::file_type::not_found ||
-        (error && error != std::errc::no_such_file_or_directory)) {
-        return std::nullopt;
-    }
-    return ReadLedger(path);
+    return status.type() == std::filesystem::file_type::not_found &&
+           (!error || error == std::errc::no_such_file_or_directory);
+}
+
+inline std::optional<std::string> ReadLiveLedger(const std::filesystem::path& path) {
+    return LedgerStagingClear(path) ? ReadLedger(path) : std::nullopt;
 }
 
 // Single writer (game thread). Reserve a fresh staging directory before
