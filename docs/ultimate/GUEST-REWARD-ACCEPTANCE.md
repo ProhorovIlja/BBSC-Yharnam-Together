@@ -9,8 +9,10 @@ different slot ledger, so this change preserves it rather than cherry-picking th
   and detected same-slot replacement invalidate the queues. This is not durable identity.
 - Phantom key processing pauses when the list is missing or when the needed give path is unready.
   The slot ledger replaces its old file only after a successful temporary write and close.
-- Native item awards return void. No attempt is automatically retried after an ambiguous native
-  call. The file change is not a game-save ACK and is not a power-loss durability guarantee.
+- Native item awards return void. In-process retries are suppressed while a return attempt is
+  ambiguous. Observing every owed item in the stable own inventory is only an inventory
+  acknowledgement: the current candidate can clear the sidecar before the game save commits.
+  File replacement is not a game-save ACK or a power-loss durability guarantee.
 - The queued boss/NPC rewards remain process-local; exits before grant can still lose them.
 
 ## Private game gate
@@ -32,3 +34,16 @@ rig first, then three and five clients where relevant:
    loss or duplicate rather than inferring success from logs.
 5. Reproduce Dream travel and lamp/door behavior after a wipe, clean leave and reconnect.
    Do not mark #22 or #35 fixed solely from the host-independent tests.
+
+## Separate closure evidence
+
+| Issue | Record before marking fixed |
+| --- | --- |
+| #22 | Guest's individual lamps, doors, boss and quest flags match the recorded pre-join guest state after a full process restart; host/team flags remain separate. |
+| #35 | Deferred boss and NPC lots appear exactly once for the correct hunter after ready-state recovery, including reload/restart as required by the issue. A different hunter occupying the same slot receives none. |
+| #72 | The interaction prompt itself is present on a known-unlocked Dream tombstone after co-op travel and after reconnect; distinguish no prompt from an empty destination list. |
+| #137 | Run separate interrupted clones: after the ledger write but before native grant, after inventory observation but before game save, and after a verified savedata commit. Compare the loaded inventory and journal after a fresh process on each clone, then replace the hunter in the same slot and verify no replay to the replacement. |
+
+Record the exact client, server and launcher SHAs, CUSA/1.09, initial and loaded item
+counts, and the observed save boundary. If the boundary cannot be triggered or confirmed,
+report that case as unverified rather than inferring durability from the sidecar or CI.
