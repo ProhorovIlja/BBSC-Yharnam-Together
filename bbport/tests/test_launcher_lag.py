@@ -386,6 +386,22 @@ class AnimationTests(unittest.TestCase):
         ])
         window.root.after.assert_called_once_with(100, window.drain_output)
 
+    def test_account_recovery_exit_does_not_show_startup_crash(self):
+        for reason in ('retry', 'give_up', 'give_up_account'):
+            with self.subTest(reason=reason):
+                window = types.SimpleNamespace(
+                    ui_calls=queue.Queue(), output=queue.Queue(), root=mock.Mock(),
+                    drain_output=mock.Mock(), append=mock.Mock(), job=None,
+                    cancel_ready_close=mock.Mock(), set_running=mock.Mock(),
+                    refresh_status=mock.Mock(), coop_new_id=reason,
+                    coop_game_ended=mock.Mock(), say_start_crash=mock.Mock(),
+                )
+                window.output.put((7,))
+                with mock.patch.object(launcher.time, 'perf_counter', return_value=1):
+                    launcher.Launcher.drain_output(window)
+                window.coop_game_ended.assert_called_once_with()
+                window.say_start_crash.assert_not_called()
+
     def test_status_refresh_uses_one_game_lookup_and_stops_after_first_save(self):
         def saves():
             yield Path('SPRJ0005')

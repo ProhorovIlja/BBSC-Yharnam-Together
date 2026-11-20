@@ -6783,8 +6783,11 @@ class Launcher:
                         self.job.close()
                     self.set_running(False)
                     self.refresh_status()
+                    # A deliberate stop for account recovery is not a crash.
+                    # Read the old run's diagnostics before recovery can start a new one.
+                    if not getattr(self, 'coop_new_id', None):
+                        self.say_start_crash(item[0])
                     self.coop_game_ended()
-                    self.say_start_crash(item[0])
                 else:
                     self.coop_watch_line(item)
                     # The file follower batches complete lines. Preserve lifecycle
@@ -6804,7 +6807,7 @@ class Launcher:
                                         and self.process is not None):
                                     process = self.process
                                     self.close_on_ready_job = self.root.after(
-                                        CLOSE_AFTER_UP_MS, lambda: self.close_after_ready(process))
+                                        CLOSE_AFTER_UP_MS, lambda process=process: self.close_after_ready(process))
                             elif 'restarting through run.py' in line:
                                 self.output_ready = False
                                 self.set_running(True, preparing=True)
