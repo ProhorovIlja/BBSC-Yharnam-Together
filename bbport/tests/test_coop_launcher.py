@@ -77,6 +77,27 @@ class PortableUpdateZipTests(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             download_update(response, out, progress.append)
 
+    def test_crc_failure_removes_partial_staging_but_preserves_install(self):
+        import io
+        import zipfile
+        from bbport_update_zip import extract_update
+
+        blob = io.BytesIO()
+        with zipfile.ZipFile(blob, 'w', compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr('BLauncher.exe', b'new')
+            archive.writestr('bin/fail.dll', b'original-payload')
+        broken = io.BytesIO(blob.getvalue().replace(b'original-payload', b'corrupt--payload'))
+        with tempfile.TemporaryDirectory() as scratch, zipfile.ZipFile(broken) as archive:
+            installed = Path(scratch) / 'installed'
+            installed.mkdir()
+            launcher = installed / 'BLauncher.exe'
+            launcher.write_bytes(b'old')
+            out = Path(scratch) / 'fresh'
+            with self.assertRaises(zipfile.BadZipFile):
+                extract_update(archive, out)
+            self.assertFalse(out.exists())
+            self.assertEqual(launcher.read_bytes(), b'old')
+
     def test_expanded_budget_is_checked_before_staging(self):
         with mock.patch('bbport_update_zip.MAX_EXPANDED_BYTES', 1):
             self.stage(['BLauncher.exe'])
