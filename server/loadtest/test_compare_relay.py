@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 import math
+import tempfile
+from pathlib import Path
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 import json
 
-from compare_relay import METRICS, paired_deltas, schedule, summarize, timing_summary, validate
+from compare_relay import METRICS, journal_record, paired_deltas, schedule, summarize, timing_summary, validate
 from run_load import TIMING_KEYS, admin_timing
 
 
@@ -79,3 +81,12 @@ class ComparisonTests(unittest.TestCase):
     def test_no_steady_samples_is_not_zero_latency(self):
         with self.assertRaisesRegex(ValueError, "no steady relay samples"):
             validate(self.row() | {"steady_relay_samples": 0}, 5, 10)
+
+    def test_partial_journal_preserves_trial_boundaries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "trials.jsonl"
+            journal_record(path, {"event": "trial_start", "side": "base"})
+            journal_record(path, {"event": "trial_exit", "exit_code": 1})
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual(records, [{"event": "trial_start", "side": "base"},
+                                       {"event": "trial_exit", "exit_code": 1}])

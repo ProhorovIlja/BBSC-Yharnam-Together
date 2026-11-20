@@ -74,10 +74,18 @@ def summarize(runs, repeats):
             for size, metrics in paired_deltas(runs, repeats).items()}
 
 
+def journal_record(path, record):
+    if path is None:
+        return
+    with path.open("a", encoding="utf-8") as log:
+        log.write(json.dumps(record, allow_nan=False) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ("base", "candidate", "bbload"):
         parser.add_argument(f"--{key}", type=Path, required=True)
+    parser.add_argument("--journal", type=Path, help="new JSONL file for partial trial evidence")
     parser.add_argument("--trials", type=int, default=4)
     parser.add_argument("--teams", type=int, default=2)
     parser.add_argument("--seconds", type=int, default=30)
@@ -93,6 +101,10 @@ def main():
         hashes = {key: fingerprint(path) for key, path in binaries.items()}
         if hashes["base"] == hashes["candidate"]:
             raise ValueError("baseline and candidate binaries are identical")
+        if args.journal is not None:
+            args.journal.touch(exist_ok=False)
+            journal_record(args.journal, {"event": "start", "sha256": hashes,
+                           "teams": args.teams, "seconds": args.seconds, "trials": args.trials})
         runs = []
         for trial, size, side in schedule(args.trials):
             players = size * args.teams
@@ -103,13 +115,19 @@ def main():
             if args.hosted_timing:
                 command += ["--collect-admin-timing", "--cfg", "Hosted=true", "--cfg", "SignIn=open",
                             "--cfg", "HostedSignupWorkBits=0", "--cfg", "HostedSignupWorkMaxBits=0"]
+            trial_id = {"trial": trial, "side": side, "team_size": size}
+            journal_record(args.journal, {"event": "trial_start", **trial_id})
             proc = subprocess.run(command, stdout=subprocess.PIPE, text=True)
             if proc.returncode:
+                journal_record(args.journal, {"event": "trial_exit", **trial_id,
+                                               "exit_code": proc.returncode})
                 raise ValueError(f"{side} trial {trial + 1}, size {size}: workload failed")
             row = validate(json.loads(proc.stdout), size, players, args.seconds)
             if args.hosted_timing:
                 row["udp_timing"] = validate_timing(row.get("udp_timing"))
-            runs.append({"trial": trial, "side": side, "team_size": size, "metrics": row})
+            result = {**trial_id, "metrics": row}
+            journal_record(args.journal, {"event": "trial_complete", **result})
+            runs.append(result)
         if any(fingerprint(path) != hashes[key] for key, path in binaries.items()):
             raise ValueError("a benchmark binary changed during the comparison")
         report = {"sha256": hashes, "trials": args.trials, "teams": args.teams,
@@ -118,7 +136,9 @@ def main():
                   "candidate_minus_base_trials": paired_deltas(runs, args.trials)}
         if args.hosted_timing:
             report["timing_candidate_minus_base_median"] = timing_summary(runs, args.trials)
-        print(json.dumps(report, allow_nan=False))
+        output = json.dumps(report, allow_nan=False)
+        journal_record(args.journal, {"event": "comparison_complete"})
+        print(output)
     except (OSError, ValueError, RuntimeError, OverflowError) as error:
         print(f"comparison failed: {error}", file=sys.stderr)
         return 1

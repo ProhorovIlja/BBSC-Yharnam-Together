@@ -10,6 +10,9 @@ on:
         type: string
 permissions:
   contents: read
+concurrency:
+  group: relay-compare-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 jobs:
   comparison:
     runs-on: ubuntu-latest
@@ -52,19 +55,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          printf 'baseline=%s\ncandidate=%s\n' "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/relay-output/revisions.txt"
           docker run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" \
             --mount "type=bind,src=$RUNNER_TEMP/relay-input,dst=/bench,readonly" \
+            --mount "type=bind,src=$RUNNER_TEMP/relay-output,dst=/results" \
             -e LD_LIBRARY_PATH=/opt/qt/lib -e QT_PLUGIN_PATH=/opt/qt/plugins relay-candidate \
             python3 /src/server/loadtest/compare_relay.py --base /bench/shadnet \
               --candidate /bin-out/shadnet --bbload /bin-out/bbload --trials 2 --seconds 15 \
-            > "$RUNNER_TEMP/relay-output/relay-ab.json"
-          printf 'baseline=%s\ncandidate=%s\n' "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/relay-output/revisions.txt"
+              --journal /results/trials.jsonl > "$RUNNER_TEMP/relay-output/relay-ab.json.tmp"
+          mv "$RUNNER_TEMP/relay-output/relay-ab.json.tmp" "$RUNNER_TEMP/relay-output/relay-ab.json"
           python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["candidate_minus_base_median"], indent=2))' \
             "$RUNNER_TEMP/relay-output/relay-ab.json"
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: shadnet-relay-ab
           path: ${{ runner.temp }}/relay-output/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14

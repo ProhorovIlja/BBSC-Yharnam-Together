@@ -59,3 +59,9 @@ must contribute samples; the report retains their total count. Worker
 percentiles are still summarized by their maximum. Legacy latency fields
 continue to include startup; CPU samples are still approximate and admin
 timing maxima are still process-lifetime values.
+
+Pass `--journal path/to/new.jsonl` to retain completed trials and identify
+the last attempted trial if a later one fails. A partial journal is not a
+paired result; use the final report only after all matched runs succeed.
+Actions preserves these diagnostics when a trial fails and supersedes older
+automatic A/B builds for the same PR. Manual dispatches remain independent.
