@@ -43,6 +43,27 @@ int main(int argc, char** argv) {
     assert(read() == "first" && !std::filesystem::exists(temp));
     assert(WriteLedger(path, "second"));
     assert(read() == "second" && !std::filesystem::exists(temp));
+    const auto unrelated = path.parent_path() / "keep_me";
+    std::ofstream(unrelated, std::ios::binary) << "unrelated";
+    std::error_code link_error;
+    std::filesystem::create_hard_link(unrelated, temp, link_error);
+    if (!link_error) {
+        assert(!WriteLedger(path, "must not truncate the link target"));
+        assert(read() == "second" && ReadLedger(unrelated) == "unrelated");
+        assert(std::filesystem::equivalent(unrelated, temp));
+        assert(std::filesystem::remove(temp));
+    }
+    std::ofstream(temp, std::ios::binary) << "stale";
+    assert(!WriteLedger(path, "must not consume stale staging"));
+    assert(ReadLedger(temp) == "stale" && read() == "second");
+    assert(std::filesystem::remove(temp));
+    std::filesystem::create_symlink(unrelated, temp, link_error);
+    if (!link_error) {
+        assert(!WriteLedger(path, "must not follow temporary symlink"));
+        assert(ReadLedger(unrelated) == "unrelated" && read() == "second");
+        assert(std::filesystem::remove(temp));
+    }
+    assert(std::filesystem::remove(unrelated));
     assert(std::filesystem::create_directory(temp));
     assert(!WriteLedger(path, "must not replace second"));
     assert(read() == "second");
