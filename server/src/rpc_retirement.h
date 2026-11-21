@@ -21,4 +21,15 @@ std::size_t RetireByEndpoint(RpcMap& ends, const Endpoint& peer, Close&& close) 
     }
     return retired;
 }
+// The online ID may sign in from a different endpoint before the old link's
+// loss notification reaches this server. Do not carry its tunnel or backend
+// write queue across this authenticated endpoint change.
+template <class Slot, class Endpoint, class Close>
+bool RetireIfEndpointChanged(Slot& slot, const Endpoint& peer, Close&& close) {
+    if (!slot || slot->to == peer)
+        return false;
+    close(*slot);
+    slot.reset();
+    return true;
+}
 } // namespace ShadNetRpc
