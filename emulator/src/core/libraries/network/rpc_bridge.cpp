@@ -133,7 +133,7 @@ private:
                 }
             } else if (Readable(client, TickMs)) {
                 const int got =
-                    recv(client, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
+                    recv(client, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
                 if (got > 0) {
                     tunnel.Write({buffer.data(), static_cast<size_t>(got)}, now_ms);
                 } else {
