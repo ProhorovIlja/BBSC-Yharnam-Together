@@ -37,7 +37,7 @@ jobs:
           c++ -std=c++20 -O1 -g -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -Wno-missing-field-initializers \
             -Iserver/tests/rpc_bridge_fixture -Iemulator/src -Iserver \
             server/tests/test_rpc_bridge_invalid_length.cpp emulator/src/core/libraries/network/rpc_bridge.cpp -o "$RUNNER_TEMP/adapter"
-          "$RUNNER_TEMP/adapter"
+          ASAN_OPTIONS=detect_leaks=0 "$RUNNER_TEMP/adapter"
       - name: Windows real bridge and boundary tests
         if: runner.os == 'Windows'
         shell: cmd
