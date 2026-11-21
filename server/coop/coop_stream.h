@@ -78,11 +78,27 @@ public:
         if (!frame) {
             return messages;
         }
-        if (std::ranges::any_of(frame->entries, [&](const GameFrameEntry& entry) {
-                return entry.packet.size() > limits.chunk_bytes;
-            })) {
-            Break();
-            return messages;
+        // A delayed frame addressed to our old local instance must still go
+        // through GameLinkPeer's discovery/ACK path, but must not poison the
+        // current stream's fragment limits or partial message.
+        if (peer.CanAffectReceiveState(*frame)) {
+            if (std::ranges::any_of(frame->entries, [&](const GameFrameEntry& entry) {
+                    return entry.packet.size() > limits.chunk_bytes;
+                })) {
+                Break();
+                return messages;
+            }
+            // CoopStream carries only Send()'s reliable fragments. Reject a
+            // malformed whole frame BEFORE its packets change ACK, liveness,
+            // sequence or partial-message state.
+            if (std::ranges::any_of(frame->entries, [](const GameFrameEntry& entry) {
+                    return entry.packet_class != PacketClass::Reliable ||
+                           entry.packet.empty() ||
+                           (entry.packet[0] != 0 && entry.packet[0] != LastChunk) ||
+                           (entry.packet[0] == 0 && entry.packet.size() == 1);
+                })) {
+                return messages;
+            }
         }
         const u64 restarts = peer.Restarts();
         std::vector<std::vector<u8>> chunks = peer.Receive(*frame, now_ms);
