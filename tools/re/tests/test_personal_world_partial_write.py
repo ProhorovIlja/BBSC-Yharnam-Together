@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
     const rlimit zero{0, 0};
     if (setrlimit(RLIMIT_FSIZE, &zero) != 0) return 2;
     if (WriteWholeFile(old, "guest-world-takeover-would-be-unsafe")) return 3;
-    const std::ifstream in(old, std::ios::binary);
+    std::ifstream in(old, std::ios::binary);
     const std::string got{std::istreambuf_iterator<char>{in}, {}};
     if (got != "verified-old-world") return 4;
     if (std::filesystem::exists(old.string() + ".part")) return 5;
