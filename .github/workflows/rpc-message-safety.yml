@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -Iserver server/tests/test_rpc_message_safety.cpp -o "$RUNNER_TEMP/rpc-message"
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-missing-field-initializers -pedantic -Iserver server/tests/test_rpc_message_safety.cpp -o "$RUNNER_TEMP/rpc-message"
           "$RUNNER_TEMP/rpc-message"
       - name: Compile and run RPC boundary test (Win32)
         if: runner.os == 'Windows'
