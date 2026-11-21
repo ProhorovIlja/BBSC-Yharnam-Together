@@ -745,6 +745,40 @@ bool WorldFlagsParserRejectsNarrowingAndKeepsValidBoundaries() {
     return true;
 }
 
+// A crash-stale archive_pending on one character must NEVER migrate or
+// consume a different character's personal world during another slot's load.
+// The pending slot can be recovered after it is explicitly selected again.
+bool PendingLegacyArchiveIsIsolatedToCharacterSlot() {
+    Reset(false, true);
+    HomeWorlds pending;
+    CHECK(pending.Add("test"));
+    pending.archive_pending = true;
+    CHECK(WriteWholeFile(HomeWorldFile(1), FormatHomeWorlds(pending)));
+    const auto source1 = PersonalWorldFile(1);
+    { std::ofstream out{source1}; out << "slot-one-only"; }
+    CHECK(WriteWholeFile(PersonalWorldFile(0), FormatWorldFlags({{8}, {1}})));
+    const auto slot0_before = ReadWholeFile(PersonalWorldFile(0));
+    character_slot = -1; // native slot not known during a title/transition screen
+    ApplyTeamWorldOnLoad(false);
+    CHECK(ReadHomeWorlds(1) && ReadHomeWorlds(1)->archive_pending);
+    CHECK(ReadWholeFile(source1) == "slot-one-only");
+    character_slot = 0;
+    ApplyTeamWorldOnLoad(false);
+    CHECK(ReadHomeWorlds(1) && ReadHomeWorlds(1)->archive_pending);
+    CHECK(ReadWholeFile(source1) == "slot-one-only");
+    CHECK(ReadWholeFile(PersonalWorldFile(0)) == slot0_before);
+    character_slot = 1;
+    team_world_due = false;
+    personal_world_due = false;
+    ApplyTeamWorldOnLoad(false);
+    CHECK(ReadHomeWorlds(1) && !ReadHomeWorlds(1)->archive_pending);
+    CHECK(!std::filesystem::exists(source1));
+    const auto archive1 = test_root / SlotFileName("personal_world_before_home", 1);
+    CHECK(ReadWholeFile(archive1) == "slot-one-only");
+    CHECK(ReadWholeFile(PersonalWorldFile(0)) == slot0_before);
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -779,8 +813,9 @@ int main() {
                       LegacyHostArchiveExhaustionPersistsIntentAndRetries,
                       ArchivedBeforeMarkerClearResumesAfterRestart,
                       FailedArchiveCompletionMarkerKeepsRetrying,
-                      WorldFlagsParserRejectsNarrowingAndKeepsValidBoundaries}) if (!test()) ++failed;
+                      WorldFlagsParserRejectsNarrowingAndKeepsValidBoundaries,
+                      PendingLegacyArchiveIsIsolatedToCharacterSlot}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (30 - failed) << "/30 passed\n";
+    std::cout << "World preservation scenarios: " << (31 - failed) << "/31 passed\n";
     return failed ? 1 : 0;
 }
