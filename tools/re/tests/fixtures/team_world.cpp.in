@@ -596,6 +596,14 @@ bool FailedPartialPersonalRestoreDoesNotRegisterNewHostWorld() {
     CHECK(personal_world_due);
     CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->worlds.empty());
     CHECK(ReadWholeFile(PersonalWorldFile(0)) == before);
+    // The server can be late: a pending team transfer must not be mistaken
+    // for leaving the team just because its world has not arrived yet.
+    team_world.reset();
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!team_world_taken && personal_world_due);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->worlds.empty());
+    CHECK(ReadWholeFile(PersonalWorldFile(0)) == before);
+    team_world = bbcoop::TeamWorld{false, {{9}, {1}}};
     std::filesystem::remove(partial);
     ApplyTeamWorldOnLoad(false);
     CHECK(team_world_taken && !personal_world_due);
