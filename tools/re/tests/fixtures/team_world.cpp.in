@@ -576,6 +576,43 @@ bool LinkedSidecarsAndScratchFilesNeverTruncateOutsideWorldData() {
     return true;
 }
 
+
+// A verified native restore is not fully complete until the remaining
+// personal-world sidecar is persisted. A failed .part write must NOT let a
+// former guest's snapshot be registered as this new host's home world.
+bool FailedPartialPersonalRestoreDoesNotRegisterNewHostWorld() {
+    Reset(true, false);
+    CHECK(WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds({})));
+    CHECK(WriteWholeFile(PersonalWorldFile(0),
+                         FormatWorldFlags({{8, 16}, {1, 2}})));
+    const auto before = ReadWholeFile(PersonalWorldFile(0));
+    memory[1][0] = 0x40; // A visited host's flag 9, not the solo flag 8.
+    auto partial = PersonalWorldFile(0);
+    partial += ".part";
+    std::filesystem::create_directory(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8) && !EventFlagOn(9)); // native restore did work
+    CHECK(!team_world_taken);
+    CHECK(personal_world_due);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->worlds.empty());
+    CHECK(ReadWholeFile(PersonalWorldFile(0)) == before);
+    // The server can be late: a pending team transfer must not be mistaken
+    // for leaving the team just because its world has not arrived yet.
+    team_world.reset();
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!team_world_taken && personal_world_due);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->worlds.empty());
+    CHECK(ReadWholeFile(PersonalWorldFile(0)) == before);
+    team_world = bbcoop::TeamWorld{false, {{9}, {1}}};
+    std::filesystem::remove(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(team_world_taken && !personal_world_due);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->Has("test"));
+    const auto remaining = ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)));
+    CHECK(remaining && remaining->blocks == std::vector<u32>{2});
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -604,8 +641,9 @@ int main() {
                       OversizedOwnWorldNeverLoadsOrGetsOverwritten,
                       DamagedHomeMetadataIsNotReplacedOnHostOrGuestJoin,
                       DamagedHomeMetadataDefersPersonalRestoreWithoutLosingBackup,
-                      LinkedSidecarsAndScratchFilesNeverTruncateOutsideWorldData}) if (!test()) ++failed;
+                      LinkedSidecarsAndScratchFilesNeverTruncateOutsideWorldData,
+                      FailedPartialPersonalRestoreDoesNotRegisterNewHostWorld}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (24 - failed) << "/24 passed\n";
+    std::cout << "World preservation scenarios: " << (25 - failed) << "/25 passed\n";
     return failed ? 1 : 0;
 }
