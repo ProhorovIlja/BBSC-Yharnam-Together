@@ -87,8 +87,71 @@ int BufferedReplyAcrossAckAndEof() {
     return 0;
 }
 
+int LargeBackendReplyHasBoundedReliableDebt() {
+    using namespace ShadNetRpc;
+    using BloodborneCoop::RpcTunnel;
+    QTcpServer listener;
+    CHECK(listener.listen(QHostAddress::LocalHost, 0));
+    QTcpSocket client;
+    client.setReadBufferSize(32 * 1024);
+    client.connectToHost(QHostAddress::LocalHost, listener.serverPort());
+    CHECK(client.waitForConnected(2000));
+    CHECK(listener.hasPendingConnections() || listener.waitForNewConnection(2000));
+    auto* backend = listener.nextPendingConnection();
+    CHECK(backend);
+    QByteArray expected(512 * 1024 + 17, '\0');
+    for (qsizetype i = 0; i < expected.size(); ++i)
+        expected[i] = static_cast<char>('A' + (i % 26));
+    CHECK(backend->write(expected) == expected.size());
+
+    RpcTunnel outbound{"shadnet", 71}, inbound{"game", 79};
+    outbound.Open(0);
+    for (const auto& frame : outbound.Flush(0))
+        inbound.Receive(frame, 0);
+    for (const auto& ack : inbound.Flush(0))
+        outbound.Receive(ack, 0);
+    RpcReadPause pause;
+    QByteArray actual;
+    constexpr size_t budget = 64 * 1024;
+    size_t peak_debt = 0;
+    bool blocked_once = false;
+    for (int tick = 1; tick <= 500 && actual.size() < expected.size(); ++tick) {
+        QCoreApplication::processEvents();
+        backend->flush();
+        if (client.bytesAvailable() == 0)
+            client.waitForReadyRead(50);
+        const auto available = client.bytesAvailable();
+        const auto state = PumpBackendReply(client, outbound, pause, false,
+                                            tick * 10, budget, 16 * 1024);
+        CHECK(state == BackendRead::Pending);
+        blocked_once |= available > 0 && client.bytesAvailable() == available;
+        peak_debt = (std::max)(peak_debt, outbound.UnackedBytes());
+        CHECK(peak_debt <= budget);
+        for (const auto& frame : outbound.Flush(tick * 10, 128)) {
+            for (const auto& event : inbound.Receive(frame, tick * 10)) {
+                CHECK(event.kind != RpcTunnel::Event::Kind::PeerRestarted);
+                if (event.kind == RpcTunnel::Event::Kind::Data)
+                    actual.append(reinterpret_cast<const char*>(event.bytes.data()),
+                                  static_cast<qsizetype>(event.bytes.size()));
+            }
+        }
+        if (tick % 4 == 0) {
+            for (const auto& ack : inbound.Flush(tick * 10 + 1))
+                outbound.Receive(ack, tick * 10 + 1);
+        }
+    }
+    CHECK(actual == expected);
+    CHECK(peak_debt > 16 * 1024 && blocked_once);
+    for (const auto& ack : inbound.Flush(5100))
+        outbound.Receive(ack, 5100);
+    CHECK(outbound.UnackedBytes() == 0);
+    backend->disconnectFromHost();
+    return 0;
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    CHECK(LargeBackendReplyHasBoundedReliableDebt() == 0);
     CHECK(BufferedReplyAcrossAckAndEof() == 0);
     PendingSocket pending;
     pending.setSocketState(QAbstractSocket::ConnectingState);
