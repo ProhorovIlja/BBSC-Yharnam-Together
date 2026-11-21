@@ -66,11 +66,14 @@ View ViewOf(const QJsonObject& answer, std::vector<Invite>* inbox) {
         }
         const int players = players_value.toInt(-1);
         const int capacity = capacity_value.toInt(-1);
-        if (players < 0 || capacity <= 0 || !row.value("draining").isBool()) {
+        const auto draining_value = row.value("draining");
+        // Older directory versions may omit "draining" (false by default).
+        if (players < 0 || capacity <= 0 ||
+            (!draining_value.isUndefined() && !draining_value.isBool())) {
             continue;
         }
         view.shards.push_back({name.toStdString(), *address, *key,
-                               players, capacity, row.value("draining").toBool()});
+                               players, capacity, draining_value.toBool()});
     }
     for (const QJsonValue& value : answer.value("players").toArray()) {
         const QJsonObject row = value.toObject();
