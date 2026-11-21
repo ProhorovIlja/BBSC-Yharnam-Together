@@ -21,6 +21,7 @@
 #include "link_server.h"
 #include "rpc_backend_errors.h"
 #include "rpc_retirement.h"
+#include "rpc_write_budget.h"
 #include "signed_accounts.h"
 
 namespace {
@@ -872,15 +873,29 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
             OpenRpc(online_id, end);
             break;
         case Kind::Data: {
+            // bytesToWrite is Qt's in-memory backlog, not a bound on the
+            // receiving backend's kernel socket buffer. Both the connected
+            // and not-yet-connected queues must fit the same maximum.
+            if (!end.socket || event.bytes.empty())
+                break;
             const QByteArray data(reinterpret_cast<const char*>(event.bytes.data()),
                                   static_cast<qsizetype>(event.bytes.size()));
-            if (end.socket && end.socket->state() == QAbstractSocket::ConnectedState) {
-                end.socket->write(data);
-            } else if (end.pending.size() + data.size() <= MaxRpcPendingBytes) {
+            const auto state = end.socket->state();
+            bool accepted = false;
+            if (state == QAbstractSocket::ConnectedState) {
+                accepted = ShadNetRpc::TryQueueBackendWrite(
+                    *end.socket, data.constData(), data.size(), MaxRpcPendingBytes);
+            } else if ((state == QAbstractSocket::ConnectingState ||
+                        state == QAbstractSocket::HostLookupState) &&
+                       ShadNetRpc::FitsWriteBudget(
+                           end.pending.size(), data.size(), MaxRpcPendingBytes)) {
                 end.pending.append(data);
-            } else {
-                // The connection to the TCP port is not up and the game keeps sending: over.
-                CloseRpc(end);
+                accepted = true;
+            }
+            if (!accepted) {
+                // A stalled or failed backend must not grow Qt's pending
+                // writes without limit or carry old requests across sessions.
+                CloseRpc(end, true);
                 end.tunnel->Close(m_clock.elapsed());
             }
             break;
@@ -903,9 +918,16 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
         return found != m_rpc.end() && found->second->socket == socket ? found->second.get()
                                                                        : nullptr;
     };
-    connect(socket, &QTcpSocket::connected, this, [socket, mine] {
-        if (RpcEnd* at = mine(); at && !at->pending.isEmpty())
-            socket->write(std::exchange(at->pending, {}));
+    connect(socket, &QTcpSocket::connected, this, [this, socket, mine] {
+        if (RpcEnd* at = mine(); at && !at->pending.isEmpty()) {
+            const QByteArray pending = std::exchange(at->pending, {});
+            if (!ShadNetRpc::TryQueueBackendWrite(
+                    *socket, pending.constData(), pending.size(), MaxRpcPendingBytes)) {
+                CloseRpc(*at, true);
+                at->tunnel->Close(m_clock.elapsed());
+                FlushRpc(*at);
+            }
+        }
     });
     connect(socket, &QTcpSocket::readyRead, this, [this, socket, mine] {
         const QByteArray data = socket->readAll();
