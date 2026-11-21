@@ -1,0 +1,30 @@
+name: Tk launcher redraw deduplication
+
+on:
+  pull_request:
+    paths:
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/tests/test_launcher_tk_redraw.py'
+      - '.github/workflows/launcher-tk-redraw.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  responsiveness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test AST and Windows mock Tk redraw paths
+        run: python -m unittest discover -s bbport/tests -p 'test_launcher_tk_redraw.py' -v

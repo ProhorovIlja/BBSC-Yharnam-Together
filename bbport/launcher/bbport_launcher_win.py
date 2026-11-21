@@ -2406,20 +2406,39 @@ class StatusLine:
         self.text = ui.tk.Label(self.frame, bg=bg, fg=TEXT, font=ui.fonts['body'], justify='left', anchor='w',
                                 wraplength=px(240), width=1)
         self.text.pack(side='left', fill='x', expand=True, anchor='n')
-        self.text.bind('<Configure>', lambda e: self.text.configure(wraplength=max(px(120), e.width - px(4))))
+        self.wraplength = px(240)
+        self._text_state = self._glyph_state = None
+        self._busy = False
+        self.text.bind('<Configure>', self.wrap)
+
+    def wrap(self, event):
+        px = self.ui.px
+        width = max(px(120), event.width - px(4))
+        if width != self.wraplength:
+            self.text.configure(wraplength=width)
+            self.wraplength = width
 
     def set(self, text, busy=False):
         glyph, rest = (text[0], text[1:].strip()) if text[:1] in GLYPH_COLORS else ('', text)
-        self.text.configure(text=rest, fg=MUTED if glyph == '•' else TEXT)
-        if busy:
-            self.glyph.pack_forget()
-            self.spinner.pack(pady=(self.ui.px(2), 0))
-            self.spinner.start()
-        else:
-            self.spinner.stop()
-            self.spinner.pack_forget()
-            self.glyph.pack()
-            self.glyph.configure(text=glyph or '•', fg=GLYPH_COLORS.get(glyph, DIM))
+        text_state = (rest, MUTED if glyph == '•' else TEXT)
+        if text_state != self._text_state:
+            self.text.configure(text=text_state[0], fg=text_state[1])
+            self._text_state = text_state
+        if busy != self._busy:
+            if busy:
+                self.glyph.pack_forget()
+                self.spinner.pack(pady=(self.ui.px(2), 0))
+                self.spinner.start()
+            else:
+                self.spinner.stop()
+                self.spinner.pack_forget()
+                self.glyph.pack()
+            self._busy = busy
+        if not busy:
+            glyph_state = (glyph or '•', GLYPH_COLORS.get(glyph, DIM))
+            if glyph_state != self._glyph_state:
+                self.glyph.configure(text=glyph_state[0], fg=glyph_state[1])
+                self._glyph_state = glyph_state
 
 
 class CaptionButton(Widget):
@@ -3292,9 +3311,15 @@ class Launcher:
     def light(self, card, value):
         card.glow = value
         try:
-            card.configure(highlightbackground=mix(LINE, ACCENT, value * 0.75))
-            for corner in getattr(card, 'corners', ()):
-                corner.itemconfigure('arm', fill=mix(GOLD_DIM, GOLD, value * 0.8))
+            border = mix(LINE, ACCENT, value * 0.75)
+            arm = mix(GOLD_DIM, GOLD, value * 0.8)
+            previous = getattr(card, '_glow_colors', (None, None))
+            if border != previous[0]:
+                card.configure(highlightbackground=border)
+            if arm != previous[1]:
+                for corner in getattr(card, 'corners', ()):
+                    corner.itemconfigure('arm', fill=arm)
+            card._glow_colors = border, arm
         except self.tk.TclError:
             # The card's page was rebuilt under the pointer: forget it. Every pointer move logged
             # this traceback again (a player's launcher-errors.txt grew to 15.8 MB).
@@ -3668,7 +3693,16 @@ class Launcher:
     def flow(self, parent, text, style='body', fg=TEXT, bg=CARD):
         """A label that wraps at the width its parent gives it (it asks for no width of its own)."""
         label = self.label(parent, text, style, fg, bg=bg, justify='left', anchor='w', width=1)
-        label.bind('<Configure>', lambda e: label.configure(wraplength=max(self.px(80), e.width - self.px(4))))
+        wraplength = None
+
+        def wrap(event):
+            nonlocal wraplength
+            width = max(self.px(80), event.width - self.px(4))
+            if width != wraplength:
+                label.configure(wraplength=width)
+                wraplength = width
+
+        label.bind('<Configure>', wrap)
         return label
 
     # --- home: the website's news --------------------------------------------------------------
