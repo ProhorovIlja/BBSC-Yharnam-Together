@@ -520,6 +520,30 @@ class AnswersTests(unittest.TestCase):
                          None if '/v1/where' in endpoint else {'shards': [good]})[:2],
                          ('203.0.113.1', 31314))
 
+    def test_where_preference_must_match_a_live_directory_shard(self):
+        key = 'ab' * 32
+        primary = {'name': 'a', 'address': '203.0.113.1:31314', 'key': key,
+                   'players': 3, 'capacity': 5, 'draining': False}
+        secondary = dict(primary, name='b', address='203.0.113.2:31314',
+                         players=0)
+        shards = [primary, secondary]
+        self.assertEqual(coop.pick_shard(shards, dict(primary))['name'], 'a')
+        self.assertIs(coop.pick_shard(shards, dict(primary)), primary,
+                      'use the authoritative fresh shard row')
+        self.assertEqual(coop.pick_shard(shards, dict(primary, address='203.0.113.99:31314'))['name'], 'b')
+        self.assertEqual(coop.pick_shard(shards, dict(primary, key='cd' * 32))['name'], 'b')
+        self.assertEqual(coop.pick_shard(shards, dict(primary, name='forged'))['name'], 'b')
+        self.assertEqual(coop.pick_shard(shards, dict(primary, draining=True))['name'], 'b')
+        self.assertEqual(coop.pick_shard([dict(primary, draining=True), secondary], dict(primary))['name'], 'b')
+        self.assertEqual(coop.pick_shard(shards, dict(primary, players=5))['name'], 'b')
+        self.assertEqual(coop.pick_shard(shards)['name'], 'b')
+        def fetch(url):
+            if '/v1/where' in url:
+                return {'shard': dict(primary, address='203.0.113.99:31314')}
+            return {'shards': shards}
+        self.assertEqual(coop.resolve_region('https://eu.example.com', 'Hunter', fetch=fetch)[:2],
+                         ('203.0.113.2', 31314))
+
     def test_a_copied_install_makes_its_own_player_id(self):
         # Player report 2026-10-24: a friend's install copied with its user\\coop.json gave two PCs one
         # id; their games took the server's link from each other and a new team left at once.

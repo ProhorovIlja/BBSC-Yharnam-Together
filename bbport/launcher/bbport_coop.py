@@ -166,9 +166,16 @@ def pick_shard(shards, own=None):
         return (type(players) is int and type(capacity) is int and
                 players >= 0 and capacity > 0 and players < capacity and
                 isinstance(shard.get('name', ''), str) and not shard.get('draining'))
-    if own and usable(own):
-        return own
+    # /where may point at a stale (or no longer advertised) shard. It is a
+    # preference, never authority to connect outside the current /shards roster.
+    # Compare name, address and key; use the live row's capacity/draining state.
     candidates = [shard for shard in shards if usable(shard)]
+    if usable(own):
+        for shard in candidates:
+            if (shard.get('name') == own.get('name') and
+                    shard.get('address') == own.get('address') and
+                    shard.get('key') == own.get('key')):
+                return shard
     if not candidates:
         return None
     return min(candidates, key=lambda shard: (shard.get('players', 0) / max(1, shard.get('capacity', 0)),
