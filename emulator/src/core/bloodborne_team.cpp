@@ -852,7 +852,12 @@ std::optional<WorldFlags> ParseWorldFlags(std::string_view text) {
         }
         s64 value = 0;
         const auto [parsed, error] = std::from_chars(line.data(), line.data() + line.size(), value);
-        if (error != std::errc{} || parsed != line.data() + line.size() || part == 0 || part == 3) {
+        if (error != std::errc{} || parsed != line.data() + line.size() || part == 0 || part == 3 ||
+            (part == 1 && !std::in_range<u32>(value)) ||
+            (part == 2 && !std::in_range<s32>(value))) {
+            // A syntactically valid 64-bit number need not fit the on-disk
+            // 32-bit flag/block identity. Narrowing would wrap it into a
+            // different hunter's or world's progression flag.
             return std::nullopt;
         }
         if (part == 1) {
