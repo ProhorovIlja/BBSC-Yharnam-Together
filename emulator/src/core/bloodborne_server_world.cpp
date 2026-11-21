@@ -2749,13 +2749,36 @@ std::filesystem::path PersonalWorldFile(int slot) {
            SlotFileName("personal_world", slot);
 }
 
+// A corrupt or hostile sidecar must never make the game allocate unbounded
+// memory on launch/rejoin. Legitimate world text records are much smaller;
+// reject excess data *without touching or deleting the original file*.
+constexpr size_t MaxWorldSidecarBytes = 16u << 20;
+
 std::string ReadWholeFile(const std::filesystem::path& path) {
     std::ifstream file{path, std::ios::binary};
     if (!file) {
         return {};
     }
     try {
-        return std::string{std::istreambuf_iterator<char>{file}, {}};
+        std::string result;
+        char chunk[8192];
+        while (file) {
+            file.read(chunk, sizeof(chunk));
+            const auto got = file.gcount();
+            if (got <= 0) {
+                break;
+            }
+            if (static_cast<size_t>(got) > MaxWorldSidecarBytes - result.size()) {
+                LOG_WARNING(Debug, "Co-op team world: sidecar {} is above {} bytes, not loaded",
+                            path.string(), MaxWorldSidecarBytes);
+                return {};
+            }
+            result.append(chunk, static_cast<size_t>(got));
+        }
+        if (file.bad() || (file.fail() && !file.eof())) {
+            return {};
+        }
+        return result;
     } catch (const std::ios_base::failure&) {
         // An unreadable backup (including a directory at the file path) is not an empty world.
         return {};
