@@ -1,0 +1,59 @@
+name: RPC backend write budget
+
+on:
+  pull_request:
+    paths:
+      - 'server/src/rpc_write_budget.h'
+      - 'server/src/link_server.cpp'
+      - 'server/tests/test_rpc_write_budget.cpp'
+      - 'server/tests/test_rpc_write_budget_qt.cpp'
+      - '.github/workflows/rpc-write-budget.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  budget-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Portable C++ test (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ -std=c++20 -Wall -Wextra -Werror -pedantic -Iserver server/tests/test_rpc_write_budget.cpp -o "$RUNNER_TEMP/budget"
+          "$RUNNER_TEMP/budget"
+      - name: Portable C++ test (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cl /nologo /std:c++20 /W4 /WX /EHsc /Iserver server\tests\test_rpc_write_budget.cpp /Fe:%RUNNER_TEMP%\budget.exe
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\budget.exe"
+
+  qt-loopback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Qt6 network headers
+        run: sudo apt-get update -qq && sudo apt-get install -y qt6-base-dev pkg-config
+      - name: Qt local TCP stalled-queue regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic -Iserver server/tests/test_rpc_write_budget_qt.cpp $(pkg-config --cflags --libs Qt6Network) -o "$RUNNER_TEMP/qt-budget"
+          "$RUNNER_TEMP/qt-budget"
