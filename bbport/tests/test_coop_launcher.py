@@ -22,7 +22,7 @@ class CopiedProfileTests(unittest.TestCase):
             path = coop.settings_path(root)
             path.parent.mkdir(parents=True)
             saved = dict(game=['wrong'], update='bad\0path', host_ip={}, password=None,
-                         account='hunter', p2p_port=12345, confirmed=True, discord_show_area=False,
+                         account='hunter', p2p_port=12345, confirmed=True, discord_status=False,
                          global_name=None, discord_name='legacy')
             path.write_text(json.dumps(saved), encoding='utf-8')
             actual = coop.read_settings(root)
@@ -31,7 +31,7 @@ class CopiedProfileTests(unittest.TestCase):
             self.assertEqual(actual['account'], 'hunter')
             self.assertEqual(actual['p2p_port'], '12345')
             self.assertEqual(actual['confirmed'], '1')
-            self.assertEqual(actual['discord_show_area'], '')
+            self.assertEqual(actual['discord_status'], '')
             self.assertEqual(actual['global_name'], 'legacy')
             self.assertEqual(json.loads(path.read_text(encoding='utf-8')), saved)
 
