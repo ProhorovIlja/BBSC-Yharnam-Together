@@ -15,6 +15,7 @@ so a packaged port needs no Python installation.
 """
 import collections
 import ctypes
+from bbport_shortcut_win import write_shortcut
 import json
 import math
 import os
@@ -7308,24 +7309,20 @@ class Launcher:
                                                  'минут будет подтормаживать, пока кэш собирается заново.'))
 
     def shortcut(self):
-        """Bloodborne.lnk on the desktop: Bloodborne.exe, which starts the game (or this launcher
-        while no game folder is chosen)."""
+        """Create a Unicode Windows desktop shortcut using the Shell Link API."""
         if FROZEN:
-            target, arguments, icon = str(PORT_DIR / 'Bloodborne.exe'), '', f'{sys.executable},0'
-        else:  # a source tree: the launcher script with the windowless Python
-            pythonw = Path(sys.executable).with_name('pythonw.exe')
-            target = str(pythonw if pythonw.exists() else sys.executable)
-            arguments, icon = Path(__file__).resolve(), PORT_DIR / 'launcher' / 'bloodborne.ico'
-        script = ('$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath("Desktop")'
-                  '+"\\Bloodborne.lnk");'
-                  f'$s.TargetPath="{target}";$s.WorkingDirectory="{PORT_DIR}";$s.IconLocation="{icon}";'
-                  + (f"$s.Arguments='\"{arguments}\"';" if arguments else '') + '$s.Save()')
-        result = subprocess.run(['powershell', '-NoProfile', '-Command', script], capture_output=True,
-                                creationflags=NO_WINDOW)
-        if result.returncode == 0:
-            self.messagebox.showinfo('Bloodborne', _('Shortcut created on the desktop.', 'Ярлык создан на рабочем столе.'))
+            target, arguments, icon = PORT_DIR / 'Bloodborne.exe', '', sys.executable
         else:
-            self.messagebox.showerror('Bloodborne', result.stderr.decode(errors='replace')[:400])
+            pythonw = Path(sys.executable).with_name('pythonw.exe')
+            target = pythonw if pythonw.exists() else sys.executable
+            arguments = f'"{Path(__file__).resolve()}" --play'
+            icon = PORT_DIR / 'launcher' / 'bloodborne.ico'
+        try:
+            write_shortcut(target, PORT_DIR, (icon, 0), arguments)
+        except OSError as error:
+            self.messagebox.showerror('Bloodborne', str(error)[:400])
+            return
+        self.messagebox.showinfo('Bloodborne', _('Shortcut created on the desktop.', 'Ярлык создан на рабочем столе.'))
 
     def add_to_steam(self):
         """Bloodborne in the Steam library: a non-Steam game that starts Bloodborne.exe (in a source
