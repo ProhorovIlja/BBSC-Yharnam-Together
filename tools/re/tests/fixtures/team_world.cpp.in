@@ -272,7 +272,7 @@ bool RetireOwnWorldPreservesOldArchivesAndLiveSnapshot() {
     const auto old = test_root / SlotFileName("personal_world_before_home", 0);
     { std::ofstream file{live}; file << "live-private-world"; }
     { std::ofstream file{old}; file << "older-private-world"; }
-    RetireOwnWorld(0);
+    CHECK(RetireOwnWorld(0));
     CHECK(!std::filesystem::exists(live));
     CHECK(ReadWholeFile(old) == "older-private-world");
     CHECK(ReadWholeFile(old.string() + ".1") == "live-private-world");
@@ -287,7 +287,7 @@ bool RetireOwnWorldArchiveExhaustionNeverDeletesBackup() {
         const auto name = i == 0 ? old : std::filesystem::path(old.string() + "." + std::to_string(i));
         { std::ofstream file{name}; file << "previous-archive"; }
     }
-    RetireOwnWorld(0);
+    CHECK(!RetireOwnWorld(0));
     CHECK(ReadWholeFile(live) == "must-not-be-deleted");
     CHECK(ReadWholeFile(old) == "previous-archive");
     CHECK(ReadWholeFile(old.string() + ".63") == "previous-archive");
@@ -639,6 +639,94 @@ bool NgPlusKeepsLastPersonalSnapshotUntilHomeProvenanceRecovers() {
     return true;
 }
 
+
+// Home registration is not committed until a legacy personal snapshot is
+// archived. When all archive slots are occupied the pending marker persists,
+// no team world is taken, and an explicit released slot allows safe retry.
+bool LegacyHostArchiveExhaustionPersistsIntentAndRetries() {
+    Reset(true, true);
+    const auto old_name = lobby_name;
+    lobby_name = "host";
+    const auto live = PersonalWorldFile(0);
+    const auto archive = test_root / SlotFileName("personal_world_before_home", 0);
+    { std::ofstream file{live}; file << "legacy-live-personal"; }
+    for (int n = 0; n < 64; ++n) {
+        const auto target = n == 0 ? archive :
+            std::filesystem::path(archive.string() + "." + std::to_string(n));
+        { std::ofstream file{target}; file << "older-" << n; }
+    }
+    ApplyTeamWorldOnLoad(false);
+    const auto pending = ReadHomeWorlds(0);
+    CHECK(pending && pending->Has("test") && pending->archive_pending);
+    CHECK(!team_take.has_value() && !team_world_taken);
+    CHECK(ReadWholeFile(live) == "legacy-live-personal");
+    CHECK(ReadWholeFile(archive) == "older-0");
+    // This is an operator/user recovery action, not silent deletion of old
+    // archives. Retry after freeing *only* the last test slot.
+    const auto released = std::filesystem::path(archive.string() + ".63");
+    std::filesystem::remove(released);
+    ApplyTeamWorldOnLoad(false);
+    const auto committed = ReadHomeWorlds(0);
+    CHECK(committed && committed->Has("test") && !committed->archive_pending);
+    CHECK(team_world_taken && team_take.has_value());
+    CHECK(!std::filesystem::exists(live));
+    CHECK(ReadWholeFile(released) == "legacy-live-personal");
+    CHECK(ReadWholeFile(archive) == "older-0");
+    lobby_name = old_name;
+    return true;
+}
+
+// If the process ended after the sidecar rename but before the pending home
+// marker was cleared, recovery is idempotent: the renamed backup is not
+// overwritten or archived again, and registration completes.
+bool ArchivedBeforeMarkerClearResumesAfterRestart() {
+    Reset(true, true);
+    HomeWorlds home;
+    CHECK(home.Add("test"));
+    home.archive_pending = true;
+    CHECK(WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds(home)));
+    CHECK(ParseHomeWorlds(FormatHomeWorlds(home))->archive_pending);
+    CHECK(!ParseHomeWorlds("worlds\ntest 0\narchive_pending\narchive_pending\nend\n"));
+    const auto live = PersonalWorldFile(0);
+    const auto archive = test_root / SlotFileName("personal_world_before_home", 0);
+    { std::ofstream file{live}; file << "saved-after-crash"; }
+    CHECK(RetireOwnWorld(0)); // crash before home archive_pending=false write
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->archive_pending);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(ReadHomeWorlds(0) && !ReadHomeWorlds(0)->archive_pending);
+    CHECK(team_world_taken && !std::filesystem::exists(live));
+    CHECK(ReadWholeFile(archive) == "saved-after-crash");
+    CHECK(!std::filesystem::exists(archive.string() + ".1"));
+    return true;
+}
+
+// Failure writing the completion marker AFTER a successful archive rename
+// leaves a recoverable persistent pending record. A later load retries marker
+// publication without losing or replacing the already archived bytes.
+bool FailedArchiveCompletionMarkerKeepsRetrying() {
+    Reset(true, true);
+    HomeWorlds home;
+    CHECK(home.Add("test"));
+    home.archive_pending = true;
+    CHECK(WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds(home)));
+    const auto archive = test_root / SlotFileName("personal_world_before_home", 0);
+    { std::ofstream file{PersonalWorldFile(0)}; file << "durable-old-world"; }
+    auto partial = HomeWorldFile(0);
+    partial += ".part";
+    std::filesystem::create_directory(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!team_take.has_value() && !team_world_taken);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->archive_pending);
+    CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+    CHECK(ReadWholeFile(archive) == "durable-old-world");
+    std::filesystem::remove(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(team_world_taken && team_take.has_value());
+    CHECK(ReadHomeWorlds(0) && !ReadHomeWorlds(0)->archive_pending);
+    CHECK(ReadWholeFile(archive) == "durable-old-world");
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -669,8 +757,11 @@ int main() {
                       DamagedHomeMetadataDefersPersonalRestoreWithoutLosingBackup,
                       LinkedSidecarsAndScratchFilesNeverTruncateOutsideWorldData,
                       FailedPartialPersonalRestoreDoesNotRegisterNewHostWorld,
-                      NgPlusKeepsLastPersonalSnapshotUntilHomeProvenanceRecovers}) if (!test()) ++failed;
+                      NgPlusKeepsLastPersonalSnapshotUntilHomeProvenanceRecovers,
+                      LegacyHostArchiveExhaustionPersistsIntentAndRetries,
+                      ArchivedBeforeMarkerClearResumesAfterRestart,
+                      FailedArchiveCompletionMarkerKeepsRetrying}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (26 - failed) << "/26 passed\n";
+    std::cout << "World preservation scenarios: " << (29 - failed) << "/29 passed\n";
     return failed ? 1 : 0;
 }
