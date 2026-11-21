@@ -332,6 +332,77 @@ bool FailedNewHostHomeWriteDoesNotClaimRegisteredWorld() {
     return true;
 }
 
+
+// Failure-injected metadata writes must not permit a guest's last solo backup
+// to be consumed while the durable home-world marker still says "in team".
+bool FailedAloneMarkerWriteKeepsOwnWorldForRetry() {
+    Reset(false, false);
+    HomeWorlds home;
+    CHECK(home.Add("test"));
+    CHECK(WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds(home)));
+    CHECK(WriteWholeFile(PersonalWorldFile(0), FormatWorldFlags({{8}, {1}})));
+    memory[1][0] = 0x40; // Team visit took flag 8 away and lit 9.
+    personal_world_due = true;
+    team_world_due = false;
+    auto partial = HomeWorldFile(0); partial += ".part";
+    std::filesystem::create_directory(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(personal_world_due);
+    CHECK(!EventFlagOn(8) && EventFlagOn(9));
+    CHECK(ReadHomeWorlds(0) && !ReadHomeWorlds(0)->alone);
+    CHECK(std::filesystem::exists(PersonalWorldFile(0)));
+    std::filesystem::remove_all(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8) && !EventFlagOn(9));
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->alone);
+    CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+    return true;
+}
+
+// An unsuccessful "back in team" marker write must leave both the in-memory
+// take decision and original flag state pending. Re-read original alone=true
+// on retry, so SaveLeads vs Home is decided from the right save provenance.
+bool FailedRejoinMarkerWriteDefersTeamFlagsAndDecision() {
+    Reset(false, true);
+    HomeWorlds home;
+    CHECK(home.Add("test"));
+    home.alone = true;
+    CHECK(WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds(home)));
+    auto partial = HomeWorldFile(0); partial += ".part";
+    std::filesystem::create_directory(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!team_take.has_value());
+    CHECK(!team_world_taken);
+    CHECK(EventFlagOn(8) && !EventFlagOn(9));
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->alone);
+    std::filesystem::remove_all(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(team_take.has_value() && team_world_taken);
+    CHECK(ReadHomeWorlds(0) && !ReadHomeWorlds(0)->alone);
+    CHECK(!EventFlagOn(8) && EventFlagOn(9));
+    return true;
+}
+
+// A next-playthrough transition cannot mark its old backup retired when the
+// filesystem refuses to remove it. The flag and sidecar remain for retry.
+bool FailedNextPlaythroughSidecarRemovalKeepsPendingTransition() {
+    Reset(true, false);
+    const auto own = PersonalWorldFile(0);
+    std::filesystem::create_directory(own);
+    { std::ofstream file{own / "cannot-delete"}; file << "keep old state"; }
+    next_playthrough_due = true;
+    personal_world_due = true;
+    ApplyTeamWorldOnLoad(false);
+    CHECK(next_playthrough_due && personal_world_due && !team_world_taken);
+    CHECK(std::filesystem::exists(own / "cannot-delete"));
+    std::filesystem::remove_all(own);
+    CHECK(WriteWholeFile(own, FormatWorldFlags({{8}, {1}})));
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!next_playthrough_due && !personal_world_due);
+    CHECK(!std::filesystem::exists(own));
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -351,8 +422,11 @@ int main() {
                       RetireOwnWorldPreservesOldArchivesAndLiveSnapshot,
                       RetireOwnWorldArchiveExhaustionNeverDeletesBackup,
                       FailedLegacyHomeWriteKeepsPersonalSnapshotAndRetries,
-                      FailedNewHostHomeWriteDoesNotClaimRegisteredWorld}) if (!test()) ++failed;
+                      FailedNewHostHomeWriteDoesNotClaimRegisteredWorld,
+                      FailedAloneMarkerWriteKeepsOwnWorldForRetry,
+                      FailedRejoinMarkerWriteDefersTeamFlagsAndDecision,
+                      FailedNextPlaythroughSidecarRemovalKeepsPendingTransition}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (15 - failed) << "/15 passed\n";
+    std::cout << "World preservation scenarios: " << (18 - failed) << "/18 passed\n";
     return failed ? 1 : 0;
 }
