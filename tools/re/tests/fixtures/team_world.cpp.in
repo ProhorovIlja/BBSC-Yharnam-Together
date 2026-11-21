@@ -478,6 +478,56 @@ bool OversizedOwnWorldNeverLoadsOrGetsOverwritten() {
     return true;
 }
 
+
+// A malformed/oversized existing home-world record is not the same as one
+// that never existed: both host creation and guest visits must not overwrite
+// it, consume a personal backup, or apply the borrowed world prematurely.
+bool DamagedHomeMetadataIsNotReplacedOnHostOrGuestJoin() {
+    for (bool host : {true, false}) {
+        Reset(host, !host);
+        const auto home = HomeWorldFile(0);
+        { std::ofstream file{home}; file << "broken home record"; }
+        const auto before = ReadWholeFile(home);
+        ApplyTeamWorldOnLoad(false);
+        CHECK(!team_world_taken);
+        CHECK(EventFlagOn(8) && !EventFlagOn(9));
+        CHECK(ReadWholeFile(home) == before);
+        CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+        std::filesystem::remove(home);
+        ApplyTeamWorldOnLoad(false);
+        CHECK(team_world_taken);
+        CHECK(ReadHomeWorlds(0).has_value());
+        if (!host) {
+            CHECK(!EventFlagOn(8) && EventFlagOn(9));
+            const auto own = ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)));
+            CHECK(own && own->on == std::vector<s32>{8});
+        }
+    }
+    return true;
+}
+
+// Solo restoration must keep a valid personal backup untouched if the home
+// marker is corrupt. Once explicitly repaired/removed, restore solo flags.
+bool DamagedHomeMetadataDefersPersonalRestoreWithoutLosingBackup() {
+    Reset(false, false);
+    const auto home = HomeWorldFile(0);
+    const auto own = PersonalWorldFile(0);
+    { std::ofstream file{home}; file << "damaged"; }
+    CHECK(WriteWholeFile(own, FormatWorldFlags({{8}, {1}})));
+    memory[1][0] = 0x40;
+    personal_world_due = true;
+    team_world_due = false;
+    ApplyTeamWorldOnLoad(false);
+    CHECK(personal_world_due);
+    CHECK(!EventFlagOn(8) && EventFlagOn(9));
+    CHECK(std::filesystem::exists(own) && ReadWholeFile(home) == "damaged");
+    std::filesystem::remove(home);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8) && !EventFlagOn(9));
+    CHECK(!std::filesystem::exists(own));
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -503,8 +553,10 @@ int main() {
                       FailedNextPlaythroughSidecarRemovalKeepsPendingTransition,
                       HostVersionNoteRetriesAndNeverCrossesCharacterSlots,
                       RejectedNativeTeamFlagWriteDoesNotAcknowledgeWorldTakeover,
-                      OversizedOwnWorldNeverLoadsOrGetsOverwritten}) if (!test()) ++failed;
+                      OversizedOwnWorldNeverLoadsOrGetsOverwritten,
+                      DamagedHomeMetadataIsNotReplacedOnHostOrGuestJoin,
+                      DamagedHomeMetadataDefersPersonalRestoreWithoutLosingBackup}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (21 - failed) << "/21 passed\n";
+    std::cout << "World preservation scenarios: " << (23 - failed) << "/23 passed\n";
     return failed ? 1 : 0;
 }
