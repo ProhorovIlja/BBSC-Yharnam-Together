@@ -215,6 +215,44 @@ class PortableUpdateZipTests(unittest.TestCase):
             self.assertEqual((install / 'user' / 'hunter.save').read_bytes(), b'unique-save')
             self.assertFalse(list(install.glob('.bbport-update-undo-*')))
 
+    def test_killed_before_ready_marker_discards_only_staging_even_with_invalid_manifest(self):
+        from bbport_update_recovery import recover_pending_portable_updates
+        for manifest_bytes in (None, b'', b'{"version": 1, "entries": [',
+                               b'not json', b'{"version": 999}'):
+            with self.subTest(manifest=manifest_bytes), tempfile.TemporaryDirectory() as folder:
+                install = Path(folder)
+                (install / 'BLauncher.exe').write_bytes(b'unmodified-executable')
+                (install / 'user').mkdir()
+                (install / 'user' / 'hunter.save').write_bytes(b'private-user-save')
+                undo = install / '.bbport-update-undo-incomplete'
+                (undo / 'payload').mkdir(parents=True)
+                (undo / 'originals').mkdir()
+                (undo / 'payload' / '0').write_bytes(b'unpublished-new')
+                (undo / 'originals' / '0').write_bytes(b'old-image')
+                if manifest_bytes is not None:
+                    (undo / 'manifest.json').write_bytes(manifest_bytes)
+                # None of the installed files can have changed before ready.
+                self.assertEqual(recover_pending_portable_updates(install), 1)
+                self.assertFalse(undo.exists())
+                self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'unmodified-executable')
+                self.assertEqual((install / 'user' / 'hunter.save').read_bytes(), b'private-user-save')
+                self.assertEqual(recover_pending_portable_updates(install), 0)
+
+    def test_malformed_ready_journal_must_not_be_auto_deleted_or_treated_as_pre_ready(self):
+        from bbport_update_recovery import recover_pending_portable_updates
+
+        with tempfile.TemporaryDirectory() as folder:
+            install = Path(folder)
+            (install / 'BLauncher.exe').write_bytes(b'potentially-updated')
+            undo = install / '.bbport-update-undo-recovery-required'
+            undo.mkdir()
+            (undo / 'ready').write_bytes(b'1')
+            (undo / 'manifest.json').write_bytes(b'{"truncated":')
+            with self.assertRaises(ValueError):
+                recover_pending_portable_updates(install)
+            self.assertTrue(undo.exists())
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'potentially-updated')
+
     def test_failed_payload_or_backup_fsync_never_publishes_ready_journal(self):
         from bbport_update_zip import copy_portable_update
 
