@@ -38,7 +38,7 @@ class CopiedProfileTests(unittest.TestCase):
 
 
     def test_malformed_existing_profile_is_never_silently_overwritten_by_identity_migration(self):
-        damaged = (b'', b'{', b'[]', b'\\xff', b'{"account": ',
+        damaged = (b'', b'{', b'[]', b'\xff', b'{"account": ',
                    b' ' * (coop.MAX_COOP_JSON_BYTES + 1))
         for original in damaged:
             with self.subTest(size=len(original), head=original[:8]), tempfile.TemporaryDirectory() as folder:
@@ -64,7 +64,7 @@ class CopiedProfileTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.write_bytes(b'{damaged profile')
             (root / 'settings.bat').write_text(
-                'set "NPID=Kaniel"\\nset "PASS=old-secret"\\n', encoding='utf-8')
+                'set "NPID=Kaniel"\nset "PASS=old-secret"\n', encoding='utf-8')
             with mock.patch.object(coop, 'this_machine', return_value='machine-a'):
                 loaded = coop.load_settings(root)
             self.assertEqual((loaded['account'], loaded['password']), ('Kaniel', 'old-secret'))
