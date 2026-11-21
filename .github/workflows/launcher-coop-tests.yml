@@ -6,6 +6,7 @@ on:
     paths:
       - 'bbport/launcher/**'
       - 'bbport/tests/test_coop_launcher.py'
+      - 'bbport/tests/test_launcher_lag.py'
       - '.github/workflows/launcher-coop-tests.yml'
   workflow_dispatch:
 
@@ -28,3 +29,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m unittest discover -s bbport/tests -p test_coop_launcher.py -v
+      - name: Windows launcher worker lifecycle regressions
+        if: runner.os == 'Windows'
+        run: python -m unittest discover -s bbport/tests -p test_launcher_lag.py -k WorkerLifecycleTests -v
