@@ -153,6 +153,13 @@ def shard_address(shard):
     host, _, port = str(shard.get('address', '')).rpartition(':')
     if not valid_ip(host) or not port.isdigit() or not 0 < int(port) < 65536:
         return None
+    address = ipaddress.IPv4Address(host)
+    # The region directory is a remote untrusted routing hint. Never send
+    # gameplay traffic to a multicast, broadcast, unspecified, this-network
+    # or link-local target; keep ordinary public/private unicast addresses.
+    if (address.is_multicast or address.is_unspecified or address.is_reserved or
+            address.is_link_local or address.packed[0] == 0):
+        return None
     return host, int(port)
 
 
