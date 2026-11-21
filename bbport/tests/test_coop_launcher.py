@@ -37,6 +37,39 @@ class CopiedProfileTests(unittest.TestCase):
 
 
 
+    def test_malformed_existing_profile_is_never_silently_overwritten_by_identity_migration(self):
+        damaged = (b'', b'{', b'[]', b'\\xff', b'{"account": ',
+                   b' ' * (coop.MAX_COOP_JSON_BYTES + 1))
+        for original in damaged:
+            with self.subTest(size=len(original), head=original[:8]), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                path = coop.settings_path(root)
+                path.parent.mkdir(parents=True)
+                path.write_bytes(original)
+                with mock.patch.object(coop, 'this_machine', return_value='machine-a'):
+                    # Defaults/legacy answers are still usable in memory, but
+                    # no background worker may replace an unreadable profile.
+                    loaded = coop.load_settings(root)
+                self.assertTrue(coop.valid_name(loaded['account']))
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(list(path.parent.glob('.coop-*.tmp')), [])
+                with self.assertRaisesRegex(OSError, 'preserve it for recovery'):
+                    coop.save_settings(root, loaded)
+                self.assertEqual(path.read_bytes(), original)
+
+    def test_legacy_answers_can_be_read_without_destroying_a_broken_coop_json(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path = coop.settings_path(root)
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b'{damaged profile')
+            (root / 'settings.bat').write_text(
+                'set "NPID=Kaniel"\\nset "PASS=old-secret"\\n', encoding='utf-8')
+            with mock.patch.object(coop, 'this_machine', return_value='machine-a'):
+                loaded = coop.load_settings(root)
+            self.assertEqual((loaded['account'], loaded['password']), ('Kaniel', 'old-secret'))
+            self.assertEqual(path.read_bytes(), b'{damaged profile')
+
     def test_atomic_settings_commit_does_not_publish_unflushed_temp(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
