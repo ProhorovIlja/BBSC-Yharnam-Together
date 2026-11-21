@@ -727,6 +727,24 @@ bool FailedArchiveCompletionMarkerKeepsRetrying() {
     return true;
 }
 
+// A 64-bit integer that fits from_chars may overflow the serialized
+// 32-bit flag/block domain. Never let corrupt sidecar values wrap to an
+// unrelated progression flag. Preserve the boundary values of valid saves.
+bool WorldFlagsParserRejectsNarrowingAndKeepsValidBoundaries() {
+    CHECK(!ParseWorldFlags("blocks\n4294967296\non\n8\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n-1\non\n8\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n1\non\n2147483648\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n1\non\n-2147483649\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n18446744073709551616\non\n8\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n1\non\n9223372036854775807\nend\n"));
+    const auto valid = ParseWorldFlags(
+        "blocks\n0\n4294967295\non\n-2147483648\n0\n2147483647\nend\n");
+    CHECK(valid.has_value());
+    CHECK(valid->blocks == (std::vector<u32>{0, 4294967295u}));
+    CHECK(valid->on == (std::vector<s32>{INT32_MIN, 0, INT32_MAX}));
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -760,8 +778,9 @@ int main() {
                       NgPlusKeepsLastPersonalSnapshotUntilHomeProvenanceRecovers,
                       LegacyHostArchiveExhaustionPersistsIntentAndRetries,
                       ArchivedBeforeMarkerClearResumesAfterRestart,
-                      FailedArchiveCompletionMarkerKeepsRetrying}) if (!test()) ++failed;
+                      FailedArchiveCompletionMarkerKeepsRetrying,
+                      WorldFlagsParserRejectsNarrowingAndKeepsValidBoundaries}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (29 - failed) << "/29 passed\n";
+    std::cout << "World preservation scenarios: " << (30 - failed) << "/30 passed\n";
     return failed ? 1 : 0;
 }
