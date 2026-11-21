@@ -2828,6 +2828,26 @@ std::optional<HomeWorlds> ReadHomeWorlds(int slot) {
     return ParseHomeWorlds(ReadWholeFile(HomeWorldFile(slot)));
 }
 
+bool HomeWorldRecordReadableOrAbsent(int slot) {
+    const auto path = HomeWorldFile(slot);
+    std::error_code error;
+    const bool existing = std::filesystem::exists(path, error);
+    if (error) {
+        LOG_ERROR(Debug, "Co-op team world: cannot inspect slot {} home record: {}",
+                  slot, error.message());
+        return false;
+    }
+    if (existing && !ReadHomeWorlds(slot)) {
+        // Absence is allowed for legacy saves; an existing corrupted or
+        // unreadable home record must NEVER be interpreted as a blank world
+        // and replaced automatically by a new host or guest transition.
+        LOG_ERROR(Debug, "Co-op team world: slot {} home record unreadable; keep it for recovery",
+                  slot);
+        return false;
+    }
+    return true;
+}
+
 // The save's own world is a team's from now on (it made the team's world): the one kept aside
 // from before is over. Out of the way, never deleted (the launcher's save backups take it too).
 // Preserve every previous personal-world archive and never destroy a live
@@ -3120,6 +3140,9 @@ void ApplyTeamWorldOnLoad(bool trip) {
         // Alone again: this save's own world back where a team's was in it, block by block as
         // the loads bring them; the file keeps the blocks still to come.
         std::scoped_lock lock{team_mutex};
+        if (!HomeWorldRecordReadableOrAbsent(slot)) {
+            return; // no implicit migration over an unreadable home record
+        }
         // Noted with its home worlds: its next hunt as their host goes on from this save
         // (HowToTakeTeamWorld).
         if (auto home = ReadHomeWorlds(slot); home && !home->worlds.empty() && !home->alone) {
@@ -3176,6 +3199,9 @@ void ApplyTeamWorldOnLoad(bool trip) {
         return; // the next call (the flags readable, the slot known)
     }
     std::scoped_lock lock{team_mutex};
+    if (!HomeWorldRecordReadableOrAbsent(slot)) {
+        return; // preserve malformed or oversized home metadata until recovery
+    }
     const std::string world_id{WorldIdOfParty(team_party)};
     if (!world->exists()) {
         if (!team_world_taken) {
