@@ -172,16 +172,24 @@ def recover_pending_portable_updates(target):
         if committed.exists() and not ready.exists():
             raise ValueError('Impossible portable transaction marker order')
         if ready.exists() and not committed.exists():
+            # Validate *all* recovery inputs before changing any installed
+            # file. A missing second backup or a linked originals directory
+            # must not leave a half-rolled-back executable tree.
+            originals = undo / 'originals'
+            _regular(originals, directory=True)
+            for index, dest, existed in entries:
+                if existed:
+                    old = originals / str(index)
+                    _regular(old)
+                    _regular(dest.parent, directory=True)
+                elif dest.exists():
+                    _regular(dest)
+                    _regular(dest.parent, directory=True)
             # The install may have stopped after any individual file replace.
             for index, dest, existed in reversed(entries):
                 if existed:
-                    old = undo / 'originals' / str(index)
-                    _regular(old)
-                    if not dest.parent.is_dir():
-                        raise ValueError('Updater recovery parent disappeared')
-                    _restore(old, dest)
+                    _restore(originals / str(index), dest)
                 elif dest.exists():
-                    _regular(dest)
                     dest.unlink()
             # Only directories recorded absent before the update may go away.
             # Never delete an already existing empty install directory.

@@ -393,6 +393,64 @@ class PortableUpdateZipTests(unittest.TestCase):
             self.assertEqual((install / 'user' / 'hunter.save').read_bytes(), b'keep-unchanged')
             self.assertTrue(journal.exists())  # Preserve evidence; no unsafe deletion.
 
+    def test_missing_late_backup_rejects_before_any_rollback_mutation(self):
+        import json
+        from bbport_update_recovery import recover_pending_portable_updates
+
+        with tempfile.TemporaryDirectory() as scratch:
+            install = Path(scratch) / 'install'
+            install.mkdir()
+            for name in ('BLauncher.exe', 'engine.dll'):
+                (install / name).write_bytes(b'new-version')
+            undo = install / '.bbport-update-undo-guarded'
+            originals = undo / 'originals'
+            originals.mkdir(parents=True)
+            # Reverse iteration would restore engine.dll before discovering
+            # missing original #0. Both must remain untouched on preflight.
+            (originals / '1').write_bytes(b'old-engine')
+            (undo / 'manifest.json').write_text(json.dumps({
+                'version': 1, 'entries': [
+                    {'path': 'BLauncher.exe', 'old': True},
+                    {'path': 'engine.dll', 'old': True},
+                ], 'dirs': [],
+            }), encoding='utf-8')
+            (undo / 'ready').write_bytes(b'1')
+            with self.assertRaises(FileNotFoundError):
+                recover_pending_portable_updates(install)
+            for name in ('BLauncher.exe', 'engine.dll'):
+                self.assertEqual((install / name).read_bytes(), b'new-version')
+            self.assertTrue(undo.exists())
+
+    def test_linked_originals_directory_rejects_before_replacing_binary(self):
+        import json
+        from bbport_update_recovery import recover_pending_portable_updates
+
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            install = root / 'install'
+            install.mkdir()
+            (install / 'BLauncher.exe').write_bytes(b'new-version')
+            elsewhere = root / 'elsewhere'
+            elsewhere.mkdir()
+            (elsewhere / '0').write_bytes(b'foreign-original')
+            undo = install / '.bbport-update-undo-linked'
+            undo.mkdir()
+            try:
+                (undo / 'originals').symlink_to(elsewhere, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest('directory symlinks need privileges on this runner')
+            (undo / 'manifest.json').write_text(json.dumps({
+                'version': 1,
+                'entries': [{'path': 'BLauncher.exe', 'old': True}],
+                'dirs': [],
+            }), encoding='utf-8')
+            (undo / 'ready').write_bytes(b'1')
+            with self.assertRaises(ValueError):
+                recover_pending_portable_updates(install)
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'new-version')
+            self.assertEqual((elsewhere / '0').read_bytes(), b'foreign-original')
+            self.assertTrue(undo.exists())
+
     def test_expanded_budget_is_checked_before_staging(self):
         with mock.patch('bbport_update_zip.MAX_EXPANDED_BYTES', 1):
             self.stage(['BLauncher.exe'])
