@@ -1,0 +1,167 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#pragma once
+
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace Core::Bloodborne::RewardSafety {
+
+struct Owner {
+    int slot;
+    std::uint64_t generation;
+    bool Valid() const { return slot >= 0 && generation != 0; }
+    bool operator==(const Owner&) const = default;
+};
+
+// Native AddTradeItems is void. While delivery is ambiguous, do not issue the
+// same goods request on every tick (or on a rapid rejoin).
+class ReturnAttempts {
+public:
+    bool Begin(std::int32_t goods) {
+        if (std::ranges::find(requested, goods) != requested.end()) {
+            return false;
+        }
+        requested.push_back(goods);
+        return true;
+    }
+    void Reset() { requested.clear(); }
+
+private:
+    std::vector<std::int32_t> requested;
+};
+
+using Time = std::chrono::steady_clock::time_point;
+
+template <typename T>
+struct Pending {
+    T value;
+    Time due;
+    Owner owner;
+};
+
+template <typename T>
+bool HasDue(const std::vector<Pending<T>>& queue, Owner owner, Time now) {
+    return owner.Valid() && std::ranges::any_of(queue, [&](const Pending<T>& item) {
+        return item.owner == owner && item.due <= now;
+    });
+}
+
+// Call only when native item delivery is ready. A mismatched entry is never granted.
+template <typename T>
+std::vector<T> TakeDue(std::vector<Pending<T>>& queue, Owner owner, Time now) {
+    std::vector<T> result;
+    if (!owner.Valid()) {
+        return result;
+    }
+    std::erase_if(queue, [&](const Pending<T>& item) {
+        if (item.owner != owner) {
+            return true;
+        }
+        if (item.due > now) {
+            return false;
+        }
+        result.push_back(item.value);
+        return true;
+    });
+    return result;
+}
+
+// Adapted to the live ledger from the bounded journal reader in PR #139.
+inline constexpr std::size_t MaxLedgerBytes = 64 * 1024;
+
+inline std::optional<std::string> ReadLedger(const std::filesystem::path& path) {
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(path, error);
+    if (status.type() == std::filesystem::file_type::not_found &&
+        (!error || error == std::errc::no_such_file_or_directory)) {
+        return std::string{};
+    }
+    if (error || !std::filesystem::is_regular_file(status)) {
+        return std::nullopt;
+    }
+    const auto size = std::filesystem::file_size(path, error);
+    if (error || size > MaxLedgerBytes) {
+        return std::nullopt;
+    }
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return std::nullopt;
+    }
+    std::string text(static_cast<std::size_t>(size), '\0');
+    if (!in.read(text.data(), static_cast<std::streamsize>(size)) ||
+        in.peek() != std::char_traits<char>::eof() || !in.eof() || in.bad()) {
+        return std::nullopt;
+    }
+    return text;
+}
+
+// A committed ledger is not authoritative while an interrupted replacement
+// exists. Do not seed the live ledger from stale or missing data in that case.
+inline bool LedgerStagingClear(const std::filesystem::path& path) {
+    auto staging = path;
+    staging += ".tmp";
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(staging, error);
+    return status.type() == std::filesystem::file_type::not_found &&
+           (!error || error == std::errc::no_such_file_or_directory);
+}
+
+inline std::optional<std::string> ReadLiveLedger(const std::filesystem::path& path) {
+    return LedgerStagingClear(path) ? ReadLedger(path) : std::nullopt;
+}
+
+// Single writer (game thread). Reserve a fresh staging directory before
+// opening a file, never truncate a preexisting .tmp symlink or hard link.
+// A stale staging path blocks replacement until inspected. This is not fsync
+// or savedata acknowledgement.
+inline bool WriteLedger(const std::filesystem::path& path, std::string_view encoded) {
+    if (encoded.size() > MaxLedgerBytes) {
+        return false;
+    }
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(path, error);
+    const bool absent = status.type() == std::filesystem::file_type::not_found &&
+                        (!error || error == std::errc::no_such_file_or_directory);
+    if (!absent && (error || !std::filesystem::is_regular_file(status))) {
+        return false;
+    }
+    error.clear();
+    auto staging = path;
+    staging += ".tmp";
+    if (!std::filesystem::create_directory(staging, error) || error) {
+        return false;
+    }
+    if (encoded.empty()) {
+        // An acknowledgement may not erase the committed ledger while an
+        // interrupted staging operation is still unresolved.
+        std::filesystem::remove(path, error);
+        const bool removed = !error;
+        std::filesystem::remove(staging, error);
+        return removed;
+    }
+    const auto temp = staging / "ledger";
+    bool replaced = false;
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        if (out) {
+            out << encoded;
+            out.close();
+            if (out) {
+                std::filesystem::rename(temp, path, error);
+                replaced = !error;
+            }
+        }
+    }
+    std::filesystem::remove(temp, error);
+    std::filesystem::remove(staging, error);
+    return replaced;
+}
+
+} // namespace Core::Bloodborne::RewardSafety

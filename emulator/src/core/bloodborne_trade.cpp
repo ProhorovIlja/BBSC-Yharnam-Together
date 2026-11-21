@@ -493,6 +493,14 @@ bool TradeItemsCanBeAdded() {
     return trade_sites.load();
 }
 
+bool TradeItemsReadyToGive() {
+    if (!trade_sites.load()) {
+        return false;
+    }
+    const u64 manager = ReadValue<u64>(image_base + MapItemManPointerOffset, 0);
+    return manager != 0 && HasVtable(manager, MapItemManVtable, "phantom goods readiness");
+}
+
 // Puts the items in as a pickup does: goods up to the max held, the rest to the storage box,
 // each with the game's popup unless Silent; echoes through AddSouls (the game's thread).
 void AddTradeItems(std::span<const TradeItem> items, ItemPopup popup) {

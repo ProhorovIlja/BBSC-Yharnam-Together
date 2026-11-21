@@ -7,6 +7,7 @@
 // on the title until then (TeamGate): a member's Continue or Load Game is its Ready, the leader's
 // is the team's Start.
 #pragma once
+#include <functional>
 
 #include <array>
 #include <functional>
@@ -443,6 +444,8 @@ std::vector<HeldGoods> OwedKeyItemsToGive(std::span<const OwedKeyItem> owed,
 // left out.
 std::string EncodeOwedKeyItems(std::span<const OwedKeyItem> owed);
 std::vector<OwedKeyItem> ParseOwedKeyItems(std::string_view text);
+// Live recovery requires the entire file to validate; the tolerant parser is for inspection.
+std::optional<std::vector<OwedKeyItem>> ValidateOwedKeyItems(std::string_view text);
 // The looks at a guest's key item lists, and what they owe its own list.
 class PhantomKeyItemLedger {
 public:
@@ -452,11 +455,14 @@ public:
     // it, the guest's own key items and the ones owed from an earlier phantom's list, each as
     // many as it lacks.
     std::vector<HeldGoods> LookAtPhantom(u64 list, std::vector<HeldGoods> held);
+    // A known readable list can be observed even while native grants are unavailable.
+    void ObserveKnownPhantom(u64 list, std::vector<HeldGoods> held);
     // A look at the list of a guest that is no phantom. While that is still the phantom's list
-    // nothing; else what to give it back, none when it holds all it is owed (GaveBack once
-    // given).
+    // nothing; else what to give it back, empty when it holds all it is owed.
     std::optional<std::vector<HeldGoods>> LookAtOwn(u64 list, std::vector<HeldGoods> held);
-    void GaveBack();
+    // Retire only when the last observed own inventory covers the debt; not a disk save ACK.
+    [[nodiscard]] bool AcknowledgeObservedReturn(
+        const std::function<bool()>& clear_sidecar = [] { return true; });
     // What the slot's file must hold now.
     std::vector<OwedKeyItem> Owed() const;
 

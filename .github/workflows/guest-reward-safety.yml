@@ -1,0 +1,35 @@
+name: Guest reward safety
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_*'
+      - 'emulator/tests/bloodborne/test_guest_reward_safety.cpp'
+      - 'tools/re/tests/emit_phantom_ledger_fixture.py'
+      - '.github/workflows/guest-reward-safety.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reward-safety:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and test queue ownership and ledger replacement
+        shell: bash
+        run: |
+          dir="$(mktemp -d)"
+          cxx=clang++
+          if [[ "$RUNNER_OS" == Linux || "$RUNNER_OS" == Windows ]]; then cxx=g++; fi
+          "$cxx" -std=c++20 -Wall -Wextra -Werror -Iemulator/src \
+            emulator/tests/bloodborne/test_guest_reward_safety.cpp -o "$dir/reward-tests.exe"
+          "$dir/reward-tests.exe" "$dir"
+          python tools/re/tests/emit_phantom_ledger_fixture.py "$dir/ledger.cpp"
+          "$cxx" -std=c++20 -Wall -Wextra -Werror "$dir/ledger.cpp" -o "$dir/ledger-tests.exe"
+          "$dir/ledger-tests.exe"
