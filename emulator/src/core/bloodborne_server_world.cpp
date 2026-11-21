@@ -3125,6 +3125,14 @@ void ApplyTeamWorldOnLoad(bool trip) {
         if (!store || slot < 0) {
             return; // the next call (the flags readable, the slot known)
         }
+        // NG+ is allowed to retire the previous game's sidecar, but it must
+        // not destroy a recoverable personal snapshot while the source home
+        // provenance is corrupt, missing permissions, or redirected. Repair
+        // that provenance first; the next playthrough remains pending.
+        if (!HomeWorldRecordReadableOrAbsent(slot) ||
+            !PlainWorldFileOrMissing(PersonalWorldFile(slot))) {
+            return;
+        }
         std::error_code error;
         std::filesystem::remove(PersonalWorldFile(slot), error);
         if (error) {

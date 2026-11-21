@@ -613,6 +613,32 @@ bool FailedPartialPersonalRestoreDoesNotRegisterNewHostWorld() {
     return true;
 }
 
+
+// NG+ must not bypass the home provenance validation introduced for regular
+// host/guest/solo loads and discard the last prior playthrough backup. After
+// explicit repair, the queued NG+ transition should retire the old snapshot.
+bool NgPlusKeepsLastPersonalSnapshotUntilHomeProvenanceRecovers() {
+    Reset(true, false);
+    const auto home = HomeWorldFile(0);
+    const auto own = PersonalWorldFile(0);
+    { std::ofstream file{home}; file << "unreadable home state"; }
+    CHECK(WriteWholeFile(own, FormatWorldFlags({{8}, {1}})));
+    const auto original = ReadWholeFile(own);
+    next_playthrough_due = true;
+    personal_world_due = true;
+    ApplyTeamWorldOnLoad(false);
+    CHECK(next_playthrough_due && personal_world_due);
+    CHECK(ReadWholeFile(own) == original);
+    CHECK(ReadWholeFile(home) == "unreadable home state");
+    // The player restores home provenance explicitly; only now may NG+ drop
+    // the old snapshot and advance to the new playthrough.
+    std::filesystem::remove(home);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!next_playthrough_due && !personal_world_due);
+    CHECK(!std::filesystem::exists(own));
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -642,8 +668,9 @@ int main() {
                       DamagedHomeMetadataIsNotReplacedOnHostOrGuestJoin,
                       DamagedHomeMetadataDefersPersonalRestoreWithoutLosingBackup,
                       LinkedSidecarsAndScratchFilesNeverTruncateOutsideWorldData,
-                      FailedPartialPersonalRestoreDoesNotRegisterNewHostWorld}) if (!test()) ++failed;
+                      FailedPartialPersonalRestoreDoesNotRegisterNewHostWorld,
+                      NgPlusKeepsLastPersonalSnapshotUntilHomeProvenanceRecovers}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (25 - failed) << "/25 passed\n";
+    std::cout << "World preservation scenarios: " << (26 - failed) << "/26 passed\n";
     return failed ? 1 : 0;
 }
