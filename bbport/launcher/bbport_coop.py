@@ -666,10 +666,10 @@ def move_old_rules(install):
     ones the player set there since); coop.json is written again without them. True when it moved any."""
     path = settings_path(install)
     try:
-        saved = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+        saved = _read_coop_document(path)
+    except OSError:
         return False
-    if not isinstance(saved, dict) or not any(key in saved for key in OLD_RULE_KEYS):
+    if not any(key in saved for key in OLD_RULE_KEYS):
         return False
     line = old_rules_line(saved)
     rules = path.parent / TEAM_RULES_FILE
@@ -687,6 +687,28 @@ def move_old_rules(install):
 
 def settings_path(install):
     return Path(install) / 'user' / 'coop.json'
+
+
+MAX_COOP_JSON_BYTES = 1 << 20
+
+
+def _read_coop_document(path):
+    """Read one bounded, intact profile; reject instead of overwriting damage.
+
+    Missing is different from corrupt. An existing malformed profile may
+    contain the only recoverable account identity or pinned server keys.
+    """
+    with Path(path).open('rb') as source:
+        data = source.read(MAX_COOP_JSON_BYTES + 1)
+    if not data or len(data) > MAX_COOP_JSON_BYTES:
+        raise OSError('Existing coop.json is empty or too large; preserve it for recovery')
+    try:
+        saved = json.loads(data.decode('utf-8'))
+    except (UnicodeError, ValueError, RecursionError):
+        raise OSError('Existing coop.json is malformed; preserve it for recovery') from None
+    if not isinstance(saved, dict):
+        raise OSError('Existing coop.json must be an object; preserve it for recovery')
+    return saved
 
 
 def from_settings_bat(path):
@@ -728,9 +750,7 @@ COOP_SWITCHES = frozenset({
 def read_settings(install):
     path = settings_path(install)
     try:
-        saved = json.loads(path.read_text(encoding='utf-8'))
-        if not isinstance(saved, dict):
-            raise ValueError('coop.json must contain an object')
+        saved = _read_coop_document(path)
         settings = dict(DEFAULTS)
         for key, default in DEFAULTS.items():
             value = saved.get(key, default)
@@ -763,9 +783,11 @@ def save_settings(install, settings):
     # A failed migration must not lose the source rules during an unrelated
     # automatic identity save. Successful migration already removed them.
     try:
-        previous = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+        previous = _read_coop_document(path)
+    except FileNotFoundError:
         previous = None
+    # Any other OSError (including invalid/oversized existing JSON) is
+    # fatal to this save: never replace a recoverable but damaged profile.
     if isinstance(previous, dict):
         saved.update({key: previous[key] for key in OLD_RULE_KEYS if key in previous})
     if settings.get('server_ids'):  # only once a server refused the id: older files stay as they were
