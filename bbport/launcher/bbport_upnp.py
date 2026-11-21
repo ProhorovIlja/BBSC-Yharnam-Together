@@ -47,7 +47,12 @@ def is_public(address):
         ip = ipaddress.IPv4Address(address)
     except ValueError:
         return False
-    return not any(ip in network for network in NOT_PUBLIC) and not ip.is_loopback and not ip.is_multicast
+    # Reserved, documentation-only and broadcast IPv4 are not reachable
+    # WAN endpoints, even if they are outside RFC1918 and CGNAT ranges.
+    # ipaddress.is_global covers the complete IANA special-use table as
+    # understood by this Python runtime; multicast is explicitly excluded.
+    return ip.is_global and not ip.is_multicast and not ip.is_reserved and not any(
+        ip in network for network in NOT_PUBLIC)
 
 
 # Adapters a router is never behind: VPNs (Radmin VPN 26.0.0.0/8, Tailscale 100.64.0.0/10), link-local.
