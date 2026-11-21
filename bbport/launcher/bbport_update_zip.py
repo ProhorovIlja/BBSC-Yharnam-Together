@@ -7,6 +7,8 @@ import stat
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
+from bbport_update_recovery import (mark_journal, prepare_journal,
+                                    recover_pending_portable_updates)
 
 MAX_DOWNLOAD_BYTES = 2 << 30
 MAX_ENTRIES = 30_000
@@ -98,14 +100,12 @@ def _check_install_path(path, directory, *, required=False):
 
 
 def copy_portable_update(source, target, ignore):
-    """Preflight then replace a package as one recoverable *in-process* transaction.
+    """Replace the whole portable package with backup, rollback and a recovery journal.
 
-    Keep the previous content of every modified file until all replacements
-    succeed. If a later replacement fails, restore already replaced files in
-    reverse order, including deleting new files and their empty directories.
-    This is not a power-loss journal: a killed updater can still leave a mixed
-    installation; the lock, staged backup and an explicit recovery mechanism
-    are needed before claiming crash-durable transactions.
+    On a later attempt recover incomplete operations first. Journal files are
+    prepared and flushed before installed binaries are changed. A killed
+    updater may still require an explicit new update attempt to recover; power
+    loss and durability of directory metadata remain platform-dependent.
     """
     source, target = Path(source), Path(target)
     if not target.is_dir():
@@ -117,6 +117,10 @@ def copy_portable_update(source, target, ignore):
             target_real in source_real.parents):
         raise ValueError('Update staging and installation must be separate trees')
 
+    # The caller (launcher install_update) holds the cross-process install lock.
+    # Reject unknown leftover state instead of silently discarding old bytes.
+    recover_pending_portable_updates(target)
+
     planned = []
 
     def preflight(src, dst):
@@ -125,8 +129,6 @@ def copy_portable_update(source, target, ignore):
         for item in entries:
             if item.name in skipped:
                 continue
-            # A package must never replace our persistent inter-process lock or
-            # transaction state. Even a symlink-free ZIP may contain these names.
             if (item.name.casefold() == '.bbport-update.lock' or
                     item.name.casefold().startswith('.bbport-update-undo-')):
                 raise ValueError('Update archive contains internal updater state')
@@ -143,26 +145,24 @@ def copy_portable_update(source, target, ignore):
     if not planned:
         raise ValueError('No files to update')
 
-    # Backups and new payloads must be on the same volume as the installation
-    # so os.replace of each file is atomic. A separate new scratch directory
-    # inside target is only created after the full path and type preflight.
     undo = Path(tempfile.mkdtemp(prefix='.bbport-update-undo-', dir=target))
     payload, originals = undo / 'payload', undo / 'originals'
     payload.mkdir()
     originals.mkdir()
-    created_directories = []
-    replaced = []
     cleanup = True
     try:
-        # Prepare every new payload and old-file backup before touching a
-        # single installed binary, including the files late in the update.
         for index, (src, dst, existed) in enumerate(planned):
             shutil.copyfile(src, payload / str(index))
             if existed:
                 shutil.copyfile(dst, originals / str(index))
 
+        prepare_journal(undo, target, planned)
+        mark_journal(undo, 'ready')
+        # After the ready marker, only recovery is allowed to discard backups.
+        # BaseException / forced termination must leave the journal intact.
+        cleanup = False
         try:
-            for index, (_, dst, existed) in enumerate(planned):
+            for index, (_, dst, _) in enumerate(planned):
                 missing = []
                 parent = dst.parent
                 while parent != target and not parent.exists():
@@ -171,34 +171,27 @@ def copy_portable_update(source, target, ignore):
                 for folder in reversed(missing):
                     _check_install_path(folder.parent, True, required=True)
                     folder.mkdir()
-                    created_directories.append(folder)
-                # The old bytes remain in the undo directory until every
-                # replacement succeeds, not only until this file succeeds.
                 os.replace(payload / str(index), dst)
-                replaced.append((index, dst, existed))
+            mark_journal(undo, 'committed')
         except Exception as apply_error:
-            restore_errors = []
-            for index, dst, existed in reversed(replaced):
-                try:
-                    if existed:
-                        os.replace(originals / str(index), dst)
-                    else:
-                        dst.unlink()
-                except OSError as rollback_error:
-                    restore_errors.append(f'{dst}: {rollback_error}')
-            for folder in reversed(created_directories):
-                try:
-                    folder.rmdir()  # Never remove user data or nonempty folders.
-                except OSError:
-                    pass
-            if restore_errors:
-                # Do not discard the only intact old bytes when rollback fails.
-                cleanup = False
+            # A partially written "committed" marker may exist if flushing it
+            # failed. No commit was accepted: restore the prior installation.
+            committed = undo / 'committed'
+            if committed.exists():
+                committed.unlink()
+            try:
+                recover_pending_portable_updates(target)
+            except Exception as rollback_error:
                 raise RuntimeError(
-                    'Portable update rollback incomplete; backups retained at '
-                    f'{undo}; failures: {"; ".join(restore_errors)}'
+                    f'Portable update rollback incomplete; backups retained at {undo}: '
+                    f'{rollback_error}'
                 ) from apply_error
             raise
+        else:
+            # This journal now describes a successfully applied update. If
+            # cleanup is interrupted, the next updater removes its old backups
+            # without reverting installed new files.
+            cleanup = True
     finally:
         if cleanup:
             shutil.rmtree(undo, ignore_errors=True)
