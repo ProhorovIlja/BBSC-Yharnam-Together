@@ -4,6 +4,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <map>
@@ -235,11 +236,12 @@ public:
         return frames;
     }
 
-    // A frame for an older local process cannot update this stream. A zero
-    // target is the initial discovery frame, before the sender knows our run.
-    // This is a target check only, not authentication of the remote instance.
+    // Exclude frames from remembered retired remote runs *before* the
+    // caller inspects chunk bounds; stale fragments cannot break an active
+    // reassembly, advance ACKs or resurrect a previous peer instance.
     bool CanAffectReceiveState(const GameFrame& frame) const {
-        return frame.peer_instance == 0 || frame.peer_instance == instance;
+        return (frame.peer_instance == 0 || frame.peer_instance == instance) &&
+               !IsRetired(frame.instance);
     }
 
     // A frame from the member: the packets for the game, in order.
@@ -250,6 +252,11 @@ public:
             ack_owed = true; // advertise this run for discovery
             return {};
         }
+        // Instance IDs are opaque, not monotone. A delayed datagram for a
+        // known retired run cannot change liveness, ACKs, or the active run.
+        if (IsRetired(frame.instance)) {
+            return {};
+        }
         if (was_quiet) {
             heard_since_quiet = true;
         }
@@ -257,6 +264,8 @@ public:
         last_heard_ms = now_ms;
         if (!peer_instance || *peer_instance != frame.instance) {
             if (peer_instance) {
+                retired_instances[retired_cursor] = *peer_instance;
+                retired_cursor = (retired_cursor + 1) % retired_instances.size();
                 RestartStreams(heard_before);
             }
             peer_instance = frame.instance;
@@ -312,6 +321,15 @@ public:
     }
 
 private:
+    // Bounded history: rejects delayed datagrams from the most recent eight
+    // superseded remote runs. This is not authenticated, permanent replay
+    // protection; the transport must still authenticate the sender.
+    bool IsRetired(u32 remote) const {
+        return peer_instance && remote != *peer_instance &&
+               std::ranges::find(retired_instances, std::optional<u32>{remote}) !=
+                   retired_instances.end();
+    }
+
     struct Outgoing {
         PacketClass packet_class;
         u32 seq;
@@ -419,6 +437,8 @@ private:
     u32 instance;
     Settings settings;
     std::optional<u32> peer_instance;
+    std::array<std::optional<u32>, 8> retired_instances{};
+    size_t retired_cursor = 0;
     std::optional<s64> last_heard_ms;
 
     u32 next_reliable = 0;

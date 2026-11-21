@@ -151,6 +151,63 @@ static bool InvalidCoopFragmentsCannotPoisonReliableReceive() {
     return true;
 }
 
+// Once a newer remote run has been accepted, delayed old-run frames are not
+// another restart, even when carrying a zero-target discovery header.
+static bool DelayedRetiredRunsCannotResetTheActiveStream() {
+    GameLinkPeer host{"host", 1};
+    host.Receive(GameFrame{"guest", 90, 1, 0, {}}, 100);
+    host.Receive(GameFrame{"guest", 70, 1, 0, {}}, 101);
+    host.Receive(GameFrame{"guest", 3, 1, 0, {}}, 102);
+    host.Send(PacketClass::Reliable, Packet(7, 1), 103);
+    host.Flush(103);
+    CHECK(host.Receive(GameFrame{"guest", 3, 1, 0,
+                                  {{PacketClass::Reliable, 1, Packet(7, 12)}}}, 104).empty());
+    for (u32 retired : {90u, 70u}) {
+        for (u32 target : {0u, 1u}) {
+            const GameFrame stale{"guest", retired, target, 1,
+                                  {{PacketClass::Reliable, 0, Packet(7, 99)}}};
+            CHECK(host.Receive(stale, 200).empty());
+            CHECK(host.Restarts() == 2);
+            CHECK(host.Unacked() == 1);
+            CHECK(host.SilentFor(210) == 106);
+        }
+    }
+    const auto delivered = host.Receive(GameFrame{"guest", 3, 1, 1,
+                                  {{PacketClass::Reliable, 0, Packet(7, 11)}}}, 211);
+    CHECK(delivered == (std::vector<std::vector<u8>>{Packet(7, 11), Packet(7, 12)}));
+    CHECK(host.Unacked() == 0);
+    return true;
+}
+
+// A stale, oversize fragment from a retired remote game must not poison a
+// partially reassembled message from the new game, while the new run's own
+// over-limit fragment still fails closed.
+static bool RetiredChunksCannotBreakNewCoopMessage() {
+    CoopStream receiver{"server", 1, {.message_bytes = 2048, .chunk_bytes = 1001}};
+    receiver.Receive(EncodeGameFrame(GameFrame{"game", 9, 1, 0, {}}), 0);
+    CoopStream sender{"game", 10};
+    const std::vector<u8> message(1500, 0x42);
+    sender.Send(message, 1);
+    const auto chunks = sender.Flush(1);
+    CHECK(chunks.size() == 2);
+    CHECK(receiver.Receive(chunks[0], 1).empty());
+    CHECK(receiver.TakeRestarted());
+    CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+    std::vector<u8> oversized(1002, 0);
+    for (const GameFrame& stale : {
+            GameFrame{"game", 9, 1, 0, {{PacketClass::Reliable, 0, oversized}}},
+            GameFrame{"game", 10, 99, 0, {{PacketClass::Reliable, 0, oversized}}}}) {
+        CHECK(receiver.Receive(EncodeGameFrame(stale), 2).empty());
+        CHECK(!receiver.Broken() && !receiver.TakeRestarted());
+        CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+    }
+    CHECK(receiver.Receive(chunks[1], 3) == std::vector<std::vector<u8>>{message});
+    const GameFrame active{"game", 10, 1, 0, {{PacketClass::Reliable, 2, oversized}}};
+    CHECK(receiver.Receive(EncodeGameFrame(active), 4).empty());
+    CHECK(receiver.Broken());
+    return true;
+}
+
 int main() {
     unsigned failed = 0;
     for (auto test : {WrongRecipientCannotResetOrAcknowledgeTheCurrentStream,
@@ -158,9 +215,11 @@ int main() {
                       RejectedFrameCannotDiscardAPartialCoopMessage,
                       ARejectedOldTargetStillAdvertisesTheNewLocalRun,
                       StaleOversizedFragmentCannotBreakActiveMessage,
-                      InvalidCoopFragmentsCannotPoisonReliableReceive}) {
+                      InvalidCoopFragmentsCannotPoisonReliableReceive,
+                      DelayedRetiredRunsCannotResetTheActiveStream,
+                      RetiredChunksCannotBreakNewCoopMessage}) {
         if (!test()) ++failed;
     }
-    std::cout << "Game-link restart and fragment scenarios: " << (6 - failed) << "/4 passed\n";
+    std::cout << "Game-link restart and fragment scenarios: " << (8 - failed) << "/8 passed\n";
     return failed ? 1 : 0;
 }
