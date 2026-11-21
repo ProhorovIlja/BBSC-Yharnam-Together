@@ -19,6 +19,13 @@ Snapshot date: **2026-11-22**. This is a non-exhaustive, actionable index of exi
 4. Mark actual duplicates with a pointer to the canonical tracker; do not delete issue history and do not publish private evidence. If no safe reproduction exists, retain the issue with precise blockers rather than claiming fixed.
 5. Never deploy production, edit player saves or expose private archival sources as a side effect of issue triage.
 
+## Current source-only updates (2026-11-22)
+
+- **Personal save #22:** [#353](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/353) merged a strict signed/unsigned 32-bit range check for serialized world flags and block IDs, preventing a malformed 64-bit number from wrapping into a different value; three-OS world and reward CI passed. [#356](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/356) merged a cross-character slot and unknown-slot interrupted archive regression; the production-world synthetic fixture now has 31 cases. Both are **source-tested**, not real native save or crash-consistent filesystem evidence. Keep broad #22 open.
+- **Region #3/#80:** [#342](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/342) merged after real Qt/CMake region test and server Docker success. Strict endpoint/typed shard load filtering is tested, but actual live multi-region affinity, direct encrypted P2P, NAT relay fallback and 2/3/5 hunter reconnect remain unverified.
+- **Tracker closure:** narrow legacy archive #349 was closed only after its idempotent source recovery #350; source-level closure does not fulfill full P0 #22. The owner's older private 2026-11-14 register lists B01–B56 and suggestions; newer public imported tickets (for example #162, #167, #225) already cover separately described symptoms. Do not create duplicates or publish private messages. Exact build and disposable-game acceptance are required before marking any of them fixed.
+- **Server TCP candidate:** [#355](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/355) bounds a Qt socket read to 16 KiB and includes an 8 MiB synthetic byte-order/abort test; pending latest-head Docker acceptance, **not** in main at this snapshot.
+
 ## Near-term verification checklist
 
 - Windows packaged launcher: PLAY versus OPEN LAUNCHER parity, Cyrillic/Greek/CJK paths, Unicode shortcut, update and rollback, offline mode.
