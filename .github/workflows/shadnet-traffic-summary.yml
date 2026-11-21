@@ -23,7 +23,7 @@ jobs:
           persist-credentials: false
       - name: Install Qt6 development headers
         run: sudo apt-get update -qq && sudo apt-get install -y qt6-base-dev pkg-config
-      - name: Real server link contracts: traffic summaries off/on and refusals always present
+      - name: Real server link traffic summary and refusal contracts
         shell: bash
         run: |
           set -euo pipefail
