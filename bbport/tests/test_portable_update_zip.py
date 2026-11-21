@@ -389,6 +389,56 @@ class PortableUpdateZipTests(unittest.TestCase):
                 copy_portable_update(stage, install, lambda *_: ())
             self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'old')
 
+    def test_unicode_install_paths_preserve_personal_files_during_interrupted_and_normal_update(self):
+        from bbport_update_zip import copy_portable_update
+        from bbport_update_recovery import recover_pending_portable_updates
+        import shutil
+
+        with tempfile.TemporaryDirectory(prefix='bbsc-unicode-') as base:
+            root = Path(base) / 'Игры 游戏 и пробелы'
+            stage, install = root / 'Новая версия 更新', root / 'Bloodborne Охотник'
+            (stage / 'bin').mkdir(parents=True)
+            (install / 'bin').mkdir(parents=True)
+            (install / 'user' / 'Сохранения').mkdir(parents=True)
+            (install / 'mods').mkdir()
+            (install / 'user' / 'Сохранения' / '猎人 save.dat').write_bytes(b'precious-save')
+            (install / 'mods' / 'плащ 中文.txt').write_bytes(b'personal-mod')
+            (stage / 'BLauncher.exe').write_bytes(b'new-launcher')
+            (stage / 'bin' / 'core.dll').write_bytes(b'new-engine')
+            (install / 'BLauncher.exe').write_bytes(b'old-launcher')
+            (install / 'bin' / 'core.dll').write_bytes(b'old-engine')
+            # Shipping package must never substitute its own save/mod files.
+            (stage / 'user').mkdir()
+            (stage / 'user' / 'hunter.save').write_bytes(b'new-blank-save')
+            (stage / 'mods').mkdir()
+            (stage / 'mods' / 'bad.txt').write_bytes(b'new-mod')
+            ignore = shutil.ignore_patterns('user', 'mods')
+            original_replace = os.replace
+            counter = 0
+
+            def exit_after_first_file(src, dst):
+                nonlocal counter
+                counter += 1
+                if counter == 2:
+                    raise SystemExit('simulated portable updater process termination')
+                return original_replace(src, dst)
+
+            with mock.patch('bbport_update_zip.os.replace', side_effect=exit_after_first_file):
+                with self.assertRaises(SystemExit):
+                    copy_portable_update(stage, install, ignore)
+            self.assertEqual(recover_pending_portable_updates(install), 1)
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'old-launcher')
+            self.assertEqual((install / 'bin' / 'core.dll').read_bytes(), b'old-engine')
+            self.assertFalse(list(install.glob('.bbport-update-undo-*')))
+            copy_portable_update(stage, install, ignore)
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'new-launcher')
+            self.assertEqual((install / 'bin' / 'core.dll').read_bytes(), b'new-engine')
+            self.assertEqual((install / 'user' / 'Сохранения' / '猎人 save.dat').read_bytes(), b'precious-save')
+            self.assertEqual((install / 'mods' / 'плащ 中文.txt').read_bytes(), b'personal-mod')
+            self.assertFalse((install / 'user' / 'hunter.save').exists())
+            self.assertFalse((install / 'mods' / 'bad.txt').exists())
+            self.assertFalse(list(install.glob('.bbport-update-undo-*')))
+
     def test_restart_after_interrupted_second_file_recovers_prior_install(self):
         from bbport_update_zip import copy_portable_update
         from bbport_update_recovery import recover_pending_portable_updates
