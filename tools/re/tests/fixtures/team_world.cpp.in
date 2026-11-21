@@ -432,6 +432,29 @@ bool HostVersionNoteRetriesAndNeverCrossesCharacterSlots() {
     return true;
 }
 
+
+// A void-returning native flag setter may silently reject one of the team's
+// changes while a level is loading. Keep both the personal snapshot and the
+// uncommitted team-world blocks available for a later successful retry.
+bool RejectedNativeTeamFlagWriteDoesNotAcknowledgeWorldTakeover() {
+    Reset(false, true);
+    ignored_flag = 9; // Native setter refuses the team's lamp/quest flag.
+    ApplyTeamWorldOnLoad(false);
+    ignored_flag = -1;
+    CHECK(!team_world_taken);
+    CHECK(team_world_blocks.empty());
+    CHECK(!EventFlagOn(9));
+    const auto own = ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)));
+    CHECK(own && own->on == std::vector<s32>{8});
+    ApplyTeamWorldOnLoad(false);
+    CHECK(team_world_taken);
+    CHECK(team_world_blocks.contains(1));
+    CHECK(EventFlagOn(9) && !EventFlagOn(8));
+    const auto after = ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)));
+    CHECK(after && after->on == std::vector<s32>{8});
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -455,8 +478,9 @@ int main() {
                       FailedAloneMarkerWriteKeepsOwnWorldForRetry,
                       FailedRejoinMarkerWriteDefersTeamFlagsAndDecision,
                       FailedNextPlaythroughSidecarRemovalKeepsPendingTransition,
-                      HostVersionNoteRetriesAndNeverCrossesCharacterSlots}) if (!test()) ++failed;
+                      HostVersionNoteRetriesAndNeverCrossesCharacterSlots,
+                      RejectedNativeTeamFlagWriteDoesNotAcknowledgeWorldTakeover}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (19 - failed) << "/19 passed\n";
+    std::cout << "World preservation scenarios: " << (20 - failed) << "/20 passed\n";
     return failed ? 1 : 0;
 }

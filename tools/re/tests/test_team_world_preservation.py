@@ -63,7 +63,7 @@ class TeamWorldPreservationTests(unittest.TestCase):
             self.assertEqual(build.returncode, 0, build.stdout + build.stderr)
             result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn('World preservation scenarios: 19/19 passed', result.stdout)
+            self.assertIn('World preservation scenarios: 20/20 passed', result.stdout)
 
 
 if __name__ == '__main__':
