@@ -3372,6 +3372,32 @@ std::vector<s32> TeamWorldFlagsOnForGuest() {
     return WorldFlagsOf(*team_world).on;
 }
 
+// Called with team_mutex held. The version cache is an optimization, not
+// proof that metadata was written: never advance it until the sidecar has
+// actually been committed. Include the character slot in the cache key so
+// switching saves in one process cannot suppress another slot's home version.
+void NoteHomeWorldVersionIfChanged(int slot, std::string_view world_id, u64 version) {
+    struct LastCommitted {
+        int slot = -1;
+        std::string world;
+        u64 version = 0;
+    };
+    static LastCommitted last;
+    if (slot < 0 || world_id.empty() ||
+        (last.slot == slot && last.world == world_id && last.version == version)) {
+        return;
+    }
+    auto home = ReadHomeWorlds(slot);
+    if (!home || !home->Has(world_id)) {
+        return; // absent/unreadable metadata is never a successful commit
+    }
+    if (home->NoteVersion(world_id, version) &&
+        !WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home))) {
+        return; // unchanged cache ensures retry on the next world tick
+    }
+    last = {slot, std::string{world_id}, version};
+}
+
 void TickTeamWorld(s64 now_ms) {
     if (!team_switch) {
         return;
@@ -3382,19 +3408,9 @@ void TickTeamWorld(s64 now_ms) {
         // as it stands is this save's (its own reports', or taken at this session's loads). Kept
         // with the list, so its next session knows the server's copy for its own
         // (HowToTakeTeamWorld).
-        static u64 noted_version = 0;
-        static std::string noted_world;
         if (team_host && team_world_taken && team_world && team_world->exists()) {
-            const std::string world_id{WorldIdOfParty(team_party)};
-            const int slot = character_slot.load();
-            if (slot >= 0 && (team_world->version() != noted_version || world_id != noted_world)) {
-                noted_version = team_world->version();
-                noted_world = world_id;
-                if (auto home = ReadHomeWorlds(slot);
-                    home && home->NoteVersion(world_id, noted_version)) {
-                    WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home));
-                }
-            }
+            NoteHomeWorldVersionIfChanged(
+                character_slot.load(), WorldIdOfParty(team_party), team_world->version());
         }
         if (!team_host || team_party.empty() || !team_world_taken || !team_world ||
             now_ms - team_world_reported_ms < TeamWorldReportMs) {
