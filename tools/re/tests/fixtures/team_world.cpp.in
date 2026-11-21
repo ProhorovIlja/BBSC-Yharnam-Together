@@ -455,6 +455,29 @@ bool RejectedNativeTeamFlagWriteDoesNotAcknowledgeWorldTakeover() {
     return true;
 }
 
+
+// An oversized or corrupted personal sidecar is not an empty solo world.
+// Refuse to allocate unbounded memory or apply team flags while the only
+// original snapshot has not been recovered by the player.
+bool OversizedOwnWorldNeverLoadsOrGetsOverwritten() {
+    Reset(false, true);
+    const auto own = PersonalWorldFile(0);
+    { std::ofstream file{own, std::ios::binary}; file << 'x'; }
+    std::filesystem::resize_file(own, MaxWorldSidecarBytes + 1);
+    CHECK(ReadWholeFile(own).empty());
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!team_world_taken);
+    CHECK(EventFlagOn(8) && !EventFlagOn(9));
+    CHECK(std::filesystem::file_size(own) == MaxWorldSidecarBytes + 1);
+    // Only an explicit test recovery may replace the damaged original.
+    std::filesystem::remove(own);
+    CHECK(WriteWholeFile(own, FormatWorldFlags({{8}, {1}})));
+    ApplyTeamWorldOnLoad(false);
+    CHECK(team_world_taken && !EventFlagOn(8) && EventFlagOn(9));
+    CHECK(ParseWorldFlags(ReadWholeFile(own))->on == std::vector<s32>{8});
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -479,8 +502,9 @@ int main() {
                       FailedRejoinMarkerWriteDefersTeamFlagsAndDecision,
                       FailedNextPlaythroughSidecarRemovalKeepsPendingTransition,
                       HostVersionNoteRetriesAndNeverCrossesCharacterSlots,
-                      RejectedNativeTeamFlagWriteDoesNotAcknowledgeWorldTakeover}) if (!test()) ++failed;
+                      RejectedNativeTeamFlagWriteDoesNotAcknowledgeWorldTakeover,
+                      OversizedOwnWorldNeverLoadsOrGetsOverwritten}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (20 - failed) << "/20 passed\n";
+    std::cout << "World preservation scenarios: " << (21 - failed) << "/21 passed\n";
     return failed ? 1 : 0;
 }
