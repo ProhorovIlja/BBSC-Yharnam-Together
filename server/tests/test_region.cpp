@@ -513,6 +513,57 @@ int TheDirectorysAnswerIsRead() {
   return 0;
 }
 
+// A malformed shard roster must not turn invalid counts or unroutable
+// endpoints into a privileged "least loaded" redirect. Valid local test
+// endpoints and private IPv4 shard ranges remain supported.
+int MalformedDirectoryShardCannotRedirect() {
+  const QString key = QString::fromStdString(LinkAuth::HexOf(Filled(0x21)));
+  const auto shard = [&](QString name, QString addr, QJsonValue players,
+                         QJsonValue capacity, QJsonValue draining) {
+    return QJsonObject{{"name", name}, {"address", addr}, {"key", key},
+                       {"players", players}, {"capacity", capacity},
+                       {"draining", draining}};
+  };
+  const QJsonObject answer{
+      {"shards", QJsonArray{
+          shard("good", "10.2.0.1:31314", 10, 100, false),
+          shard("negative", "10.2.0.2:31314", -1, 100, false),
+          shard("string", "10.2.0.3:31314", QString("0"), 100, false),
+          shard("fraction", "10.2.0.4:31314", 0.5, 100, false),
+          shard("zero-cap", "10.2.0.5:31314", 0, 0, false),
+          shard("wrong-drain", "10.2.0.6:31314", 0, 100, QString("false")),
+          shard("multicast", "239.4.5.6:31314", 0, 100, false),
+          shard("linklocal", "169.254.20.30:31314", 0, 100, false),
+          shard("zero-net", "0.1.2.3:31314", 0, 100, false),
+          shard("reserved", "240.2.3.4:31314", 0, 100, false),
+          shard("empty", "10.2.0.7:31314", 0, 100, false)}}};
+  QJsonObject legacy = shard("legacy", "10.2.0.8:31314", 60, 100, false);
+  legacy.remove("draining"); // older compatible directory omitted false
+  QJsonObject with_legacy = answer;
+  QJsonArray rows = answer.value("shards").toArray();
+  rows.append(legacy);
+  with_legacy.insert("shards", rows);
+  const auto view = Region::ViewOf(with_legacy);
+  CHECK(view.shards.size() == 3);
+  CHECK(view.Find("good") && view.Find("empty") && view.Find("legacy"));
+  CHECK(!view.Find("negative") && !view.Find("string") &&
+        !view.Find("fraction") && !view.Find("zero-cap") &&
+        !view.Find("wrong-drain") && !view.Find("multicast") &&
+        !view.Find("linklocal") && !view.Find("zero-net") &&
+        !view.Find("reserved"));
+  CHECK(Region::PlaceHello(view, "full", 100, 100, false)->name == "empty");
+  CHECK(Region::EndpointOf("127.0.0.1:31314").has_value()); // local integration test
+  CHECK(Region::EndpointOf("192.168.4.1:31314").has_value());
+  CHECK(!Region::EndpointOf("224.0.0.1:31314") &&
+        !Region::EndpointOf("169.254.1.1:31314") &&
+        !Region::EndpointOf("0.0.0.1:31314") &&
+        !Region::EndpointOf("255.255.255.255:31314"));
+  auto synthetic = Region::View{};
+  synthetic.shards = {ShardOf("negative", -12, 100), ShardOf("valid", 8, 100)};
+  CHECK(Region::PlaceHello(synthetic, "full", 100, 100, false)->name == "valid");
+  return 0;
+}
+
 } // namespace
 
 int main() {
@@ -528,6 +579,7 @@ int main() {
   failed |= AWorldHeldElsewhereMovesItsTeam();
   failed |= ATeamMadeAgainKeepsItsCode();
   failed |= TheDirectorysAnswerIsRead();
+  failed |= MalformedDirectoryShardCannotRedirect();
   if (failed == 0) {
     std::cout << "region: all checks passed\n";
   }

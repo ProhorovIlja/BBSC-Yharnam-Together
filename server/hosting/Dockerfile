@@ -101,6 +101,58 @@ RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
 COPY server/hosting/collect-runtime.sh /usr/local/bin/
 RUN sh /usr/local/bin/collect-runtime.sh /bin-out/shadnet /opt/qt /out
 
+# CI-only server region parser/protocol integration fixture. The default
+# runtime image still builds only shadnet and is unchanged; this stage builds
+# and executes the actual Qt/CMake test_region target after protobuf generation.
+FROM build AS region-verify
+ARG BUILD_JOBS=0
+RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
+    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/opt/qt \
+    && cmake --build build --target test_region $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
+    && ./build/test_region
+
+# Simulated players (loadtest/bbload.cpp) for smoke tests against a deployed shard:
+#   docker build --target loadtest -t yharnam-bbload:local -f server/hosting/Dockerfile .
+FROM build AS loadtest-build
+ARG BUILD_JOBS=0
+RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
+    cmake --build build --target bbload $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
+    && strip -o /bin-out/bbload build/bbload \
+    && sh /usr/local/bin/collect-runtime.sh /bin-out/bbload /opt/qt /out-bbload
+
+FROM ubuntu:24.04 AS loadtest
+COPY --from=loadtest-build /out-bbload/ /opt/shadnet/
+ENV LD_LIBRARY_PATH=/opt/shadnet/lib QT_PLUGIN_PATH=/opt/shadnet/plugins
+USER 10001
+ENTRYPOINT ["/opt/shadnet/bbload"]
+
+# --- runtime (the default target) ----------------------------------------------------------------
+FROM ubuntu:24.04 AS runtime
+ARG SHADNET_UID=10001
+RUN groupadd --system --gid "${SHADNET_UID}" shadnet \
+    && useradd --system --uid "${SHADNET_UID}" --gid "${SHADNET_UID}" --home-dir /data \
+        --shell /usr/sbin/nologin shadnet \
+    && mkdir -p /data && chown shadnet:shadnet /data && chmod 0750 /data
+COPY --from=build /usr/bin/tini /usr/bin/tini
+COPY --from=build /out/ /opt/shadnet/
+COPY server/worlds.cfg server/scoreboards.cfg server/data/common-passwords.txt /opt/shadnet/defaults/
+COPY server/hosting/entrypoint.sh server/hosting/healthcheck.sh /opt/shadnet/
+ENV LD_LIBRARY_PATH=/opt/shadnet/lib QT_PLUGIN_PATH=/opt/shadnet/plugins SHADNET_HOME=/data \
+    LANG=C.UTF-8 \
+    PATH=/opt/shadnet:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+VOLUME /data
+WORKDIR /data
+USER ${SHADNET_UID}:${SHADNET_UID}
+# 31314/udp the games' link (public). 20443/tcp the game's services and 31315/tcp summons/WebAPI
+# (public, plain HTTP; the games call them at their link's address). 31313/tcp stays on 127.0.0.1
+# (TcpLocalOnly: the games' calls come through the link). 31320 stats: keep private.
+EXPOSE 31314/udp 20443/tcp 31315/tcp
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD ["/opt/shadnet/healthcheck.sh"]
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/shadnet/entrypoint.sh"]
+
+
 # Simulated players (loadtest/bbload.cpp) for smoke tests against a deployed shard:
 #   docker build --target loadtest -t yharnam-bbload:local -f server/hosting/Dockerfile .
 FROM build AS loadtest-build

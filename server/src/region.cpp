@@ -38,7 +38,12 @@ std::optional<ServerLink::Endpoint> EndpointOf(const QString& text) {
     const quint32 address = QHostAddress(text.left(colon)).toIPv4Address(&ipv4);
     bool number = false;
     const uint port = text.mid(colon + 1).toUInt(&number);
-    if (!ipv4 || !number || port == 0 || port > 0xFFFF) {
+    // Never direct a hunter to non-unicast/reserved shard endpoints.
+    // 127/8 remains supported for explicit local multi-shard smoke tests.
+    const quint32 first = address >> 24;
+    if (!ipv4 || !number || port == 0 || port > 0xFFFF ||
+        first == 0 || first >= 224 || (address & 0xFFFF0000u) == 0xA9FE0000u ||
+        address == 0xFFFFFFFFu) {
         return std::nullopt;
     }
     return ServerLink::Endpoint{address, static_cast<quint16>(port)};
@@ -50,12 +55,25 @@ View ViewOf(const QJsonObject& answer, std::vector<Invite>* inbox) {
         const QJsonObject row = value.toObject();
         const auto address = EndpointOf(row.value("address").toString());
         const auto key = LinkAuth::KeyFromHex(Text(row.value("key")));
-        if (!address || !key || Text(row.value("name")).empty()) {
+        const QString name = row.value("name").toString();
+        const auto players_value = row.value("players");
+        const auto capacity_value = row.value("capacity");
+        // Qt's default toInt() silently maps malformed numbers/text to zero,
+        // making a forged shard appear empty and the best redirect target.
+        if (!address || !key || name.isEmpty() || name.size() > 128 ||
+            !players_value.isDouble() || !capacity_value.isDouble()) {
             continue;
         }
-        view.shards.push_back({Text(row.value("name")), *address, *key,
-                               row.value("players").toInt(), row.value("capacity").toInt(),
-                               row.value("draining").toBool()});
+        const int players = players_value.toInt(-1);
+        const int capacity = capacity_value.toInt(-1);
+        const auto draining_value = row.value("draining");
+        // Older directory versions may omit "draining" (false by default).
+        if (players < 0 || capacity <= 0 ||
+            (!draining_value.isUndefined() && !draining_value.isBool())) {
+            continue;
+        }
+        view.shards.push_back({name.toStdString(), *address, *key,
+                               players, capacity, draining_value.toBool()});
     }
     for (const QJsonValue& value : answer.value("players").toArray()) {
         const QJsonObject row = value.toObject();
@@ -151,7 +169,7 @@ const Shard* PlaceHello(const View& view, const std::string& self, int players, 
     const Shard* best = nullptr;
     double best_share = RoomShare;
     for (const Shard& shard : view.shards) {
-        if (shard.name == self || shard.draining || shard.capacity <= 0) {
+        if (shard.name == self || shard.draining || shard.capacity <= 0 || shard.players < 0) {
             continue;
         }
         const double share = static_cast<double>(shard.players) / shard.capacity;

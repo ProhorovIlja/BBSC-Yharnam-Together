@@ -1,0 +1,35 @@
+name: Region directory and redirect validation
+
+on:
+  pull_request:
+    paths:
+      - 'server/src/region.cpp'
+      - 'server/src/region.h'
+      - 'server/tests/test_region.cpp'
+      - 'server/hosting/Dockerfile'
+      - '.github/workflows/region-directory-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qt-region:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Initialize protobuf source
+        run: git submodule update --init --depth 1 server/externals/protobuf
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and execute real Qt test_region
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/hosting/Dockerfile
+          target: region-verify
+          push: false
+          cache-from: type=gha,scope=shadnet
+          cache-to: type=gha,scope=shadnet-region,mode=max
