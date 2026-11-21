@@ -16,6 +16,27 @@ import bbport_coop as coop  # noqa: E402
 
 
 class CopiedProfileTests(unittest.TestCase):
+    def test_malformed_values_do_not_become_paths_or_credentials(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path = coop.settings_path(root)
+            path.parent.mkdir(parents=True)
+            saved = dict(game=['wrong'], update='bad\0path', host_ip={}, password=None,
+                         account='hunter', p2p_port=12345, confirmed=True, discord_show_area=False,
+                         global_name=None, discord_name='legacy')
+            path.write_text(json.dumps(saved), encoding='utf-8')
+            actual = coop.read_settings(root)
+            for key in ('game', 'update', 'host_ip', 'password'):
+                self.assertEqual(actual[key], coop.DEFAULTS[key])
+            self.assertEqual(actual['account'], 'hunter')
+            self.assertEqual(actual['p2p_port'], '12345')
+            self.assertEqual(actual['confirmed'], '1')
+            self.assertEqual(actual['discord_show_area'], '')
+            self.assertEqual(actual['global_name'], 'legacy')
+            self.assertEqual(json.loads(path.read_text(encoding='utf-8')), saved)
+
+
+
     def test_failed_rules_migration_survives_automatic_identity_save_and_retries(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -1527,6 +1548,56 @@ class ConsoleTextTests(unittest.TestCase):
                 self.assertTrue(coop.firewall_ready(install, False))
             with mock.patch.object(coop.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=b'\x98\xff')):
                 self.assertFalse(coop.firewall_ready(install, False))
+
+    def test_firewall_probe_shares_deadline_between_host_rules(self):
+        install = Path('C:/Games/Yharnam Together')
+        game = mock.Mock(returncode=0, stdout=f'Program: {install / "bin" / "bb-probe.exe"}\n')
+        with (mock.patch.object(coop.sys, 'platform', 'win32'),
+              mock.patch.object(coop.time, 'monotonic', side_effect=[0, 0, 4.5, 5.0]),
+              mock.patch.object(coop.subprocess, 'run', return_value=game) as run):
+            self.assertFalse(coop.firewall_ready(install, True))
+            self.assertEqual([call.kwargs['timeout'] for call in run.call_args_list], [5.0, 0.5])
+
+    def test_firewall_polling_stops_at_deadline(self):
+        clock = [0.0]
+
+        def check(_install, _host, *, timeout_s):
+            clock[0] += timeout_s
+            return False
+
+        def sleep(delay):
+            clock[0] += delay
+
+        with (mock.patch.object(coop.time, 'monotonic', side_effect=lambda: clock[0]),
+              mock.patch.object(coop.time, 'sleep', side_effect=sleep),
+              mock.patch.object(coop, 'firewall_ready', side_effect=check) as probe):
+            self.assertFalse(coop.wait_for_firewall(Path('unused'), True, timeout_s=3.0))
+            self.assertEqual([call.kwargs['timeout_s'] for call in probe.call_args_list], [2.0, 0.5])
+            self.assertEqual(clock[0], 3.0)
+
+    def test_firewall_requires_the_exact_application_field(self):
+        install = Path('C:/Games/Yharnam Together')
+        app = str(install / 'bin' / 'bb-probe.exe')
+        with mock.patch.object(coop.sys, 'platform', 'win32'):
+            for raw, expected in (
+                (None, False), (b'', False),
+                (f'Program: {app}.bak\r\n'.encode(), False),
+                (f'Program: "{app}"\r\n'.encode('utf-8-sig'), True),
+                (f'Программа: {app}\r\n'.encode('utf-16'), True),
+            ):
+                with self.subTest(raw=raw), mock.patch.object(
+                    coop.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=raw)
+                ):
+                    self.assertEqual(coop.firewall_ready(install, False), expected)
+
+    def test_host_firewall_does_not_accept_an_empty_rule_response(self):
+        install = Path('C:/Games/Yharnam Together')
+        game = mock.Mock(returncode=0, stdout=f'Program: {install / "bin" / "bb-probe.exe"}\n')
+        empty = mock.Mock(returncode=0, stdout=None)
+        with mock.patch.object(coop.sys, 'platform', 'win32'), mock.patch.object(
+            coop.subprocess, 'run', side_effect=[game, empty]
+        ):
+            self.assertFalse(coop.firewall_ready(install, True))
 
     def test_no_windows_firewall_elsewhere(self):
         # Linux and the rest have no Windows Firewall to ask (their own, ufw or firewalld, the player
