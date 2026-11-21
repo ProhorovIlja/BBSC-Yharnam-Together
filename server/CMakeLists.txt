@@ -267,6 +267,13 @@ if(BUILD_TESTING)
     target_include_directories(test_request_address PRIVATE src)
     add_test(NAME request_address COMMAND test_request_address)
 
+    add_executable(test_bounded_socket_drain EXCLUDE_FROM_ALL
+        tests/test_bounded_socket_drain.cpp
+    )
+    target_include_directories(test_bounded_socket_drain PRIVATE src)
+    target_link_libraries(test_bounded_socket_drain PRIVATE Qt6::Core)
+    add_test(NAME bounded_socket_drain COMMAND test_bounded_socket_drain)
+
     add_executable(test_stream_extractor EXCLUDE_FROM_ALL
         tests/test_stream_extractor.cpp
     )
