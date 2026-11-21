@@ -1,0 +1,60 @@
+name: RPC session retirement
+
+on:
+  pull_request:
+    paths:
+      - 'server/src/link_server.*'
+      - 'server/src/rpc_backend_errors.h'
+      - 'server/src/rpc_retirement.h'
+      - 'server/tests/test_rpc_retirement.cpp'
+      - 'server/tests/test_rpc_retired_socket.cpp'
+      - '.github/workflows/rpc-retirement.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retirement-logic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Portable C++ retirement contract
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ -std=c++20 -Wall -Wextra -Werror -pedantic server/tests/test_rpc_retirement.cpp -o "$RUNNER_TEMP/rpc-retire"
+          "$RUNNER_TEMP/rpc-retire"
+      - name: Windows C++ retirement contract
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cl /nologo /std:c++20 /W4 /WX /EHsc server\tests\test_rpc_retirement.cpp /Fe:%RUNNER_TEMP%\rpc-retire.exe
+          if errorlevel 1 exit /b 1
+          %RUNNER_TEMP%\rpc-retire.exe
+
+  qt-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Qt6 network development headers
+        run: sudo apt-get update -qq && sudo apt-get install -y qt6-base-dev pkg-config
+      - name: Socket drain and superseded backend abort
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic server/tests/test_rpc_retired_socket.cpp $(pkg-config --cflags --libs Qt6Network) -o "$RUNNER_TEMP/rpc-retired-socket"
+          "$RUNNER_TEMP/rpc-retired-socket"
