@@ -276,6 +276,11 @@ struct HomeWorlds {
     // The save was loaded alone since its last load in a team: what it holds may be ahead of the
     // server's copy (what it did alone), never only behind it.
     bool alone = false;
+    // A legacy world's home record has been written but its old private
+    // snapshot still needs archiving. This persistent marker is cleared only
+    // after an idempotent rename, so a crash cannot make that snapshot look
+    // like a guest-world backup on the next load.
+    bool archive_pending = false;
     bool operator==(const HomeWorlds&) const = default;
 
     bool Has(std::string_view id) const;
