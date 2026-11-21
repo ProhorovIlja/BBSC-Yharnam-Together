@@ -693,8 +693,7 @@ def load_settings(install):
 
 
 COOP_SWITCHES = frozenset({
-    'hide_glow', 'confirmed', 'discord_status', 'discord_show_area', 'discord_show_level',
-    'discord_show_build', 'discord_show_boss', 'discord_reference_layout', 'public_asked',
+    'hide_glow', 'confirmed', 'discord_status', 'public_asked',
 })
 
 
@@ -1723,8 +1722,10 @@ def console_text(data):
         return ''
     if isinstance(data, str):
         return data
+    if data.startswith((b'\xff\xfe', b'\xfe\xff')):
+        return data.decode('utf-16', 'replace')
     try:
-        return data.decode('utf-8')
+        return data.decode('utf-8-sig')
     except UnicodeDecodeError:
         pass
     for codec in ('oem', 'mbcs'):  # Windows only; elsewhere the lookup fails and the next one is tried
