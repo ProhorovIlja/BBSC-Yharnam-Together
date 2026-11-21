@@ -537,9 +537,15 @@ int MalformedDirectoryShardCannotRedirect() {
           shard("zero-net", "0.1.2.3:31314", 0, 100, false),
           shard("reserved", "240.2.3.4:31314", 0, 100, false),
           shard("empty", "10.2.0.7:31314", 0, 100, false)}}};
-  const auto view = Region::ViewOf(answer);
-  CHECK(view.shards.size() == 2);
-  CHECK(view.Find("good") && view.Find("empty"));
+  QJsonObject legacy = shard("legacy", "10.2.0.8:31314", 60, 100, false);
+  legacy.remove("draining"); // older compatible directory omitted false
+  QJsonObject with_legacy = answer;
+  QJsonArray rows = answer.value("shards").toArray();
+  rows.append(legacy);
+  with_legacy.insert("shards", rows);
+  const auto view = Region::ViewOf(with_legacy);
+  CHECK(view.shards.size() == 3);
+  CHECK(view.Find("good") && view.Find("empty") && view.Find("legacy"));
   CHECK(!view.Find("negative") && !view.Find("string") &&
         !view.Find("fraction") && !view.Find("zero-cap") &&
         !view.Find("wrong-drain") && !view.Find("multicast") &&
