@@ -929,18 +929,41 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
         }
     });
     connect(socket, &QTcpSocket::readyRead, this, [this, socket, mine] {
-        const QByteArray data = socket->readAll();
         RpcEnd* at = mine();
-        if (!at)
+        if (!at) {
+            // A gracefully draining old backend no longer owns a tunnel.
+            // Discard its responses in bounded slices without touching the
+            // new session or allocating an unbounded QByteArray.
+            while (socket->bytesAvailable() > 0 &&
+                   !socket->read(static_cast<qint64>(ShadNetRpc::MaxTunnelReadSlice)).isEmpty()) {}
             return;
-        at->tunnel->Write(std::span{reinterpret_cast<const u8*>(data.constData()),
-                                    static_cast<size_t>(data.size())},
-                          m_clock.elapsed());
-        // A game that does not ack what shadNet answers: its connection ends, not the server's
-        // memory.
-        if (at->tunnel->UnackedBytes() > MaxRpcUnackedBytes) {
-            CloseRpc(*at);
-            at->tunnel->Close(m_clock.elapsed());
+        }
+        while (socket->bytesAvailable() > 0) {
+            const qint64 available = socket->bytesAvailable();
+            const qint64 size = available < static_cast<qint64>(ShadNetRpc::MaxTunnelReadSlice)
+                                    ? available
+                                    : static_cast<qint64>(ShadNetRpc::MaxTunnelReadSlice);
+            // Preflight the entire 1,000-byte fragment cost BEFORE copying
+            // Qt's read buffer into the reliable retry queue. Also reserve
+            // space for a final RPC Close, even if all ACKs stop.
+            if (!ShadNetRpc::FitsTunnelReadBudget(
+                    at->tunnel->UnackedBytes(), static_cast<size_t>(size),
+                    MaxRpcUnackedBytes)) {
+                CloseRpc(*at, true);
+                at->tunnel->Close(m_clock.elapsed());
+                FlushRpc(*at);
+                return;
+            }
+            const QByteArray data = socket->read(size);
+            if (data.isEmpty()) {
+                CloseRpc(*at, true);
+                at->tunnel->Close(m_clock.elapsed());
+                FlushRpc(*at);
+                return;
+            }
+            at->tunnel->Write(
+                std::span{reinterpret_cast<const u8*>(data.constData()),
+                          static_cast<size_t>(data.size())}, m_clock.elapsed());
         }
         FlushRpc(*at);
     });
