@@ -21,7 +21,12 @@ class FailClosedWorldWriter(unittest.TestCase):
         source = WORLD.read_text(encoding="utf-8")
         start = source.index("bool WriteWholeFile(")
         end = source.index("// The worlds this slot's save made", start)
-        production_writer = source[start:end]
+        # The writer now calls the same production file-type guard as
+        # the real game; compile that helper too, not a fake stub.
+        guard_start = source.index("bool PlainWorldFileOrMissing(")
+        guard_end = source.index("std::string ReadWholeFile(", guard_start)
+        production_writer = source[guard_start:guard_end] + source[start:end]
+        self.assertIn("PlainWorldFileOrMissing", production_writer)
         self.assertIn("file.flush();", production_writer)
         self.assertIn("file.close();", production_writer)
         with tempfile.TemporaryDirectory(prefix="bbsc-write-fail-") as directory:
