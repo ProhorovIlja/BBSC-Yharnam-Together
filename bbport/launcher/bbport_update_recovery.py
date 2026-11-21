@@ -139,6 +139,11 @@ def _restore(backup, dest):
     os.close(fd)
     try:
         shutil.copyfile(backup, name)
+        # A rollback must not publish newly restored bytes that have not been
+        # flushed; keep the durable original copy in the undo journal until
+        # all restoration succeeds.
+        with open(name, 'r+b') as restored:
+            os.fsync(restored.fileno())
         os.replace(name, dest)
     finally:
         try:
