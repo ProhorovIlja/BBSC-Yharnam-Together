@@ -33,4 +33,23 @@ int main() {
         end.open = false;
     }) == 1);
     assert(ends.empty());
+
+    // An unchanged endpoint keeps the active tunnel. An authenticated new
+    // endpoint first aborts the former one and then gets a fresh slot.
+    auto active = std::make_unique<End>(End{Endpoint{30}});
+    int aborts = 0;
+    auto abort = [&](End& end) {
+        assert(active && end.open);
+        ++aborts;
+        end.open = false;
+    };
+    assert(!ShadNetRpc::RetireIfEndpointChanged(active, Endpoint{30}, abort));
+    assert(active && active->open && aborts == 0);
+    assert(ShadNetRpc::RetireIfEndpointChanged(active, Endpoint{31}, abort));
+    assert(!active && aborts == 1);
+    assert(!ShadNetRpc::RetireIfEndpointChanged(active, Endpoint{31}, abort));
+    assert(aborts == 1);
+    active = std::make_unique<End>(End{Endpoint{31}});
+    assert(active && active->open);
 }
+
