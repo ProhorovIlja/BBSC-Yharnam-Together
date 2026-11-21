@@ -27,7 +27,7 @@ def _regular(path, *, directory=False):
         raise ValueError(f'Unsafe updater state path: {path}')
 
 
-def _child(target, relative):
+def _child(target, relative, *, directory=False):
     if not isinstance(relative, str) or len(relative) > 1024:
         raise ValueError('Invalid updater recovery path')
     parts = PurePosixPath(relative).parts
@@ -50,7 +50,7 @@ def _child(target, relative):
             continue
     dest = target.joinpath(*parts)
     try:
-        _regular(dest)
+        _regular(dest, directory=directory)
     except FileNotFoundError:
         pass
     return dest
@@ -59,6 +59,7 @@ def _child(target, relative):
 def prepare_journal(undo, target, planned):
     """Write and flush a manifest only after all old/new files were copied."""
     entries = []
+    created_directories = set()
     seen = set()
     for _, dest, existed in planned:
         relative = dest.relative_to(target).as_posix()
@@ -68,9 +69,15 @@ def prepare_journal(undo, target, planned):
             raise ValueError('Duplicate updater recovery destination')
         seen.add(key)
         entries.append({'path': relative, 'old': bool(existed)})
+        parent = dest.parent
+        while parent != target:
+            if not parent.exists():
+                created_directories.add(parent.relative_to(target).as_posix())
+            parent = parent.parent
     if not entries or len(entries) > MAX_MANIFEST_ENTRIES:
         raise ValueError('Invalid updater recovery manifest length')
-    data = json.dumps({'version': 1, 'entries': entries}, ensure_ascii=False).encode('utf-8')
+    data = json.dumps({'version': 1, 'entries': entries,
+                       'dirs': sorted(created_directories)}, ensure_ascii=False).encode('utf-8')
     if len(data) > MAX_MANIFEST_BYTES:
         raise ValueError('Updater recovery manifest too large')
     with (undo / 'manifest.json').open('xb') as out:
@@ -111,7 +118,18 @@ def _entries(undo, target):
             raise ValueError('Duplicate updater journal destinations')
         seen.add(key)
         parsed.append((index, dst, value['old']))
-    return parsed
+    dirs = data.get('dirs')
+    if not isinstance(dirs, list) or len(dirs) > MAX_MANIFEST_ENTRIES:
+        raise ValueError('Invalid updater journal directory list')
+    seen_dirs = set()
+    validated_dirs = []
+    for relative in dirs:
+        _child(target, relative, directory=True)
+        if relative.casefold() in seen_dirs:
+            raise ValueError('Duplicate updater journal directory')
+        seen_dirs.add(relative.casefold())
+        validated_dirs.append(target.joinpath(*PurePosixPath(relative).parts))
+    return parsed, validated_dirs
 
 
 def _restore(backup, dest):
@@ -143,7 +161,7 @@ def recover_pending_portable_updates(target):
         if not undo.name.casefold().startswith(TX_PREFIX):
             continue
         _regular(undo, directory=True)
-        entries = _entries(undo, target)  # An unknown legacy state is not deleted.
+        entries, created_dirs = _entries(undo, target)  # Unknown legacy state is not deleted.
         ready = undo / 'ready'
         committed = undo / 'committed'
         for marker in (ready, committed):
@@ -165,18 +183,16 @@ def recover_pending_portable_updates(target):
                 elif dest.exists():
                     _regular(dest)
                     dest.unlink()
-            # Safe to remove only empty directories introduced by this update.
-            for _, dest, existed in sorted(entries, key=lambda x: len(x[1].parts), reverse=True):
-                if existed:
-                    continue
-                current = dest.parent
-                while current != target:
-                    try:
-                        _regular(current, directory=True)
-                        current.rmdir()
-                    except OSError:
-                        break
-                    current = current.parent
+            # Only directories recorded absent before the update may go away.
+            # Never delete an already existing empty install directory.
+            for directory in sorted(created_dirs, key=lambda p: len(p.parts), reverse=True):
+                try:
+                    _regular(directory, directory=True)
+                    directory.rmdir()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
         shutil.rmtree(undo)
         handled += 1
     return handled
