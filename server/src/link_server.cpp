@@ -356,24 +356,20 @@ bool LinkServer::Start(const QHostAddress& addr, uint16_t port) {
 }
 
 void LinkServer::OnReadyRead() {
-    QElapsedTimer busy;
-    busy.start();
-    while (m_socket->hasPendingDatagrams()) {
-        QByteArray raw;
-        raw.resize(static_cast<int>(m_socket->pendingDatagramSize()));
-        QHostAddress sender;
-        uint16_t senderPort = 0;
-        m_socket->readDatagram(raw.data(), raw.size(), &sender, &senderPort);
-
-        if (raw.isEmpty())
-            continue;
-
-        // The games' link only (phase 9: no STUN, nothing else on this port).
-        if (ServerLink::KindOf(raw)) {
-            HandleLink(raw, sender, senderPort);
-        }
-    }
-    Busy(busy);
+    // Drain only a bounded slice per Qt event-loop turn, so sustained game
+    // traffic cannot indefinitely starve world/link ticks or admin work.
+    // Keep the old Hosted-mode 16 KiB datagram admission limit and leave
+    // non-hosted sizing unchanged; oversized Hosted datagrams are discarded
+    // before allocating their full advertised length.
+    m_udpDrain.Run(
+        *this, *m_socket, m_hosted.enabled ? 16384 : 0,
+        [this](const QByteArray& raw, const QHostAddress& sender, quint16 port) {
+            if (!raw.isEmpty() && ServerLink::KindOf(raw))
+                HandleLink(raw, sender, port);
+        },
+        [this](const QElapsedTimer& busy, const ShadNetUdp::SliceStats&) {
+            Busy(busy);
+        });
 }
 
 void LinkServer::HandleLink(const QByteArray& datagram, const QHostAddress& sender,
