@@ -2,9 +2,10 @@
 #include <QBuffer>
 #include <QByteArray>
 #include <algorithm>
-#include <cassert>
+#include <cstdlib>
 #include <iostream>
 #include "bounded_socket_drain.h"
+#define CHECK(condition) do { if (!(condition)) { std::cerr << __LINE__ << ": " << #condition << "\n"; std::abort(); } } while (false)
 
 int main() {
     QByteArray payload(8 * 1024 * 1024 + 777, 'z');
@@ -12,7 +13,7 @@ int main() {
     payload[16384] = 'B';
     payload[payload.size() - 1] = 'C';
     QBuffer device{&payload};
-    assert(device.open(QIODevice::ReadOnly));
+    CHECK(device.open(QIODevice::ReadOnly));
     QByteArray actual;
     int calls = 0;
     qint64 largest = 0;
@@ -22,15 +23,15 @@ int main() {
             largest = std::max(largest, static_cast<qint64>(chunk.size()));
             actual.append(chunk);
         }, [] { return true; });
-    assert(actual == payload);
-    assert(largest == ShadNet::ClientReadChunkBytes);
-    assert(calls >= 512);
-    assert(device.bytesAvailable() == 0);
+    CHECK(actual == payload);
+    CHECK(largest == ShadNet::ClientReadChunkBytes);
+    CHECK(calls >= 512);
+    CHECK(device.bytesAvailable() == 0);
     ShadNet::DrainClientSocket(device,
-        [&](const QByteArray&) { assert(false && "empty QIODevice"); },
+        [&](const QByteArray&) { CHECK(false && "empty QIODevice"); },
         [] { return true; });
     QBuffer interrupted{&payload};
-    assert(interrupted.open(QIODevice::ReadOnly));
+    CHECK(interrupted.open(QIODevice::ReadOnly));
     QByteArray resumed;
     bool connected = true;
     ShadNet::DrainClientSocket(interrupted,
@@ -38,13 +39,13 @@ int main() {
             resumed.append(part);
             connected = false;
         }, [&] { return connected; });
-    assert(resumed.size() == ShadNet::ClientReadChunkBytes);
-    assert(interrupted.pos() == ShadNet::ClientReadChunkBytes);
-    assert(interrupted.bytesAvailable() == payload.size() - ShadNet::ClientReadChunkBytes);
+    CHECK(resumed.size() == ShadNet::ClientReadChunkBytes);
+    CHECK(interrupted.pos() == ShadNet::ClientReadChunkBytes);
+    CHECK(interrupted.bytesAvailable() == payload.size() - ShadNet::ClientReadChunkBytes);
     connected = true;
     ShadNet::DrainClientSocket(interrupted,
         [&](const QByteArray& part) { resumed.append(part); },
         [&] { return connected; });
-    assert(resumed == payload);
+    CHECK(resumed == payload);
     std::cout << "Qt bounded client ingress: 8MiB ordered, 16KiB max, disconnect stop passed\n";
 }
