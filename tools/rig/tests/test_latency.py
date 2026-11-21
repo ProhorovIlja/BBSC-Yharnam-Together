@@ -62,8 +62,11 @@ class ProxyTest(unittest.TestCase):
         except OSError:
             return
         with connection:
-            while data := connection.recv(4096):
-                connection.sendall(data)
+            try:
+                while data := connection.recv(4096):
+                    connection.sendall(data)
+            except OSError:
+                pass  # cancellation can reset a live echo socket
 
     def round_trip(self, port: int, payload: bytes) -> tuple[bytes, float]:
         with socket.create_connection(("127.0.0.1", port), timeout=5) as client:
@@ -71,7 +74,10 @@ class ProxyTest(unittest.TestCase):
             client.sendall(payload)
             received = b""
             while len(received) < len(payload):
-                received += client.recv(4096)
+                chunk = client.recv(4096)
+                if not chunk:
+                    raise EOFError("proxy closed before the complete echo")
+                received += chunk
             return received, time.perf_counter() - started
 
     def test_the_proxy_passes_everything_on_a_ping_later(self):
@@ -130,6 +136,49 @@ class ProxyTest(unittest.TestCase):
                     self.assertEqual(client.recv(1), b'')
                 except ConnectionResetError:
                     pass # Closing a live TCP peer may report reset instead of EOF.
+        finally:
+            proxy.stop()
+
+    def test_outage_can_extend_while_data_is_waiting(self):
+        proxy = latency.DelayProxy(0, self.target, (0, 0))
+        proxy.start()
+        try:
+            with socket.create_connection(("127.0.0.1", proxy.port), timeout=3) as client:
+                client.sendall(b"ready")
+                self.assertEqual(client.recv(5), b"ready")
+                proxy.outage(0.15)
+                client.sendall(b"pending")
+                time.sleep(0.05)
+                started = time.monotonic()
+                proxy.outage(0.30)
+                proxy.outage(0.01)  # cannot shorten the active blackout
+                self.assertEqual(client.recv(7), b"pending")
+                self.assertGreaterEqual(time.monotonic() - started, 0.28)
+        finally:
+            proxy.stop()
+
+    def test_bounded_queue_preserves_data_and_releases_half_closed_pair(self):
+        proxy = latency.DelayProxy(0, self.target, (4, 4))
+        proxy.QUEUE_CHUNKS = 2
+        proxy.CHUNK_BYTES = 128
+        proxy.start()
+        try:
+            with socket.create_connection(("127.0.0.1", proxy.port), timeout=4) as client:
+                payload = bytes(range(256)) * 32
+                client.sendall(payload)
+                client.shutdown(socket.SHUT_WR)
+                received = bytearray()
+                while chunk := client.recv(4096):
+                    received.extend(chunk)
+                self.assertEqual(received, payload)
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                with proxy.lock:
+                    if not proxy.sockets:
+                        break
+                time.sleep(0.01)
+            with proxy.lock:
+                self.assertEqual(proxy.sockets, [])
         finally:
             proxy.stop()
 

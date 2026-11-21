@@ -10,6 +10,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "coop/coop_types.h"
@@ -181,12 +182,22 @@ public:
             for (auto& [seq, out] : unacked) out.emitted_flush = 0;
             flush_serial = 1;
         }
-        std::vector<GameFrameEntry> entries;
-        entries.reserve(fresh.size());
+        std::vector<GameFrame> frames;
+        size_t bytes = 0;
+        const auto append = [&](PacketClass packet_class, u32 seq, auto&& packet) {
+            const size_t size = GameLinkDetail::EntryHeaderBytes + packet.size();
+            if (frames.empty() || bytes + size > settings.frame_bytes) {
+                frames.push_back(Header());
+                bytes = GameLinkDetail::FrameHeaderBytes;
+            }
+            frames.back().entries.push_back(
+                {packet_class, seq, std::forward<decltype(packet)>(packet)});
+            bytes += size;
+        };
         for (Outgoing& out : fresh) {
             if (out.packet_class == PacketClass::Reliable) {
                 // Keep the original payload until ACKed; the wire frame needs its own copy.
-                entries.push_back({out.packet_class, out.seq, out.packet});
+                append(out.packet_class, out.seq, out.packet);
                 // Queued sequence numbers have not necessarily been sent yet.
                 sent_reliable_end = out.seq + 1;
                 out.sent_ms = now_ms;
@@ -198,7 +209,7 @@ public:
             } else {
                 // Unreliable payloads have no retry owner. Transfer the queued allocation
                 // to the frame instead of copying every visual/enemy update before clear().
-                entries.push_back({out.packet_class, out.seq, std::move(out.packet)});
+                append(out.packet_class, out.seq, std::move(out.packet));
             }
         }
         fresh.clear();
@@ -227,18 +238,7 @@ public:
             out.wait_ms = (std::min)(out.wait_ms * 2, settings.max_resend_ms);
             ++resends;
             ++resent;
-            entries.push_back({out.packet_class, out.seq, out.packet});
-        }
-        std::vector<GameFrame> frames;
-        size_t bytes = 0;
-        for (GameFrameEntry& entry : entries) {
-            const size_t size = GameLinkDetail::EntryHeaderBytes + entry.packet.size();
-            if (frames.empty() || bytes + size > settings.frame_bytes) {
-                frames.push_back(Header());
-                bytes = GameLinkDetail::FrameHeaderBytes;
-            }
-            frames.back().entries.push_back(std::move(entry));
-            bytes += size;
+            append(out.packet_class, out.seq, out.packet);
         }
         if (frames.empty() && (ack_owed || now_ms - last_frame_ms >= settings.keepalive_ms)) {
             frames.push_back(Header());

@@ -68,14 +68,16 @@ class DelayProxy:
         self.port = self.listener.getsockname()[1]
         self.stopping = threading.Event()
         self.sockets: list[socket.socket] = []
-        self.lock = threading.Lock()
+        self.lock = threading.Condition()
         self.held_until = 0.0  # an outage (outage()): nothing passes before this (monotonic)
         self.accept_thread: threading.Thread | None = None
 
     def outage(self, seconds: float):
         """Nothing gets through for `seconds` (players' links dropped for 15-31 s): what is sent
         meanwhile arrives after it, in order, as TCP sends it again."""
-        self.held_until = time.monotonic() + seconds
+        with self.lock:
+            self.held_until = max(self.held_until, time.monotonic() + seconds)
+            self.lock.notify_all()
 
     def start(self):
         self.accept_thread = threading.Thread(target=self.accept_all, daemon=True)
@@ -89,6 +91,7 @@ class DelayProxy:
             for sock in self.sockets:
                 close(sock)
             self.sockets.clear()
+            self.lock.notify_all()
         if self.accept_thread is not None and self.accept_thread is not threading.current_thread():
             self.accept_thread.join(timeout=1)
 
@@ -112,48 +115,84 @@ class DelayProxy:
                     close(server)
                     return
                 self.sockets += [client, server]
-            self.pass_on(client, server)
-            self.pass_on(server, client)
+            remaining = [2]
+            failed = threading.Event()
 
-    def pass_on(self, source: socket.socket, sink: socket.socket):
-        """One direction: a reader that stamps each chunk with when it is due, and a writer that
-        sends it then."""
+            def finish(client=client, server=server, remaining=remaining):
+                with self.lock:
+                    remaining[0] -= 1
+                    if remaining[0] == 0:
+                        for sock in (client, server):
+                            if sock in self.sockets:
+                                self.sockets.remove(sock)
+                            close(sock)
+
+            self.pass_on(client, server, failed, finish)
+            self.pass_on(server, client, failed, finish)
+
+    # A slow or suspended receiver pushes back to TCP rather than consuming unlimited RAM.
+    CHUNK_BYTES = 64 * 1024
+    QUEUE_CHUNKS = 32
+
+    def pass_on(self, source, sink, failed, finish):
+        """Delay a direction, preserving TCP order and half-close semantics."""
         line = DelayLine(self.delay_ms)
         queue: deque[tuple[float, bytes]] = deque()
-        ready = threading.Condition()
+
+        def cancelled():
+            return self.stopping.is_set() or failed.is_set()
+
+        def abort():
+            with self.lock:
+                failed.set()
+                self.lock.notify_all()
+            close(source)
+            close(sink)
 
         def read():
             while True:
+                with self.lock:
+                    self.lock.wait_for(lambda: cancelled() or len(queue) < self.QUEUE_CHUNKS)
+                    if cancelled():
+                        return
                 try:
-                    data = source.recv(65536)
+                    data = source.recv(self.CHUNK_BYTES)
                 except OSError:
-                    data = b""
-                with ready:
+                    abort()
+                    return
+                with self.lock:
+                    if cancelled():
+                        return
                     queue.append((line.due_at(time.monotonic()), data))
-                    ready.notify()
+                    self.lock.notify_all()
                 if not data:
                     return
 
         def write():
-            while True:
-                with ready:
-                    while not queue:
-                        ready.wait()
-                    due, data = queue.popleft()
-                wait = max(due, self.held_until) - time.monotonic()
-                if wait > 0 and self.stopping.wait(wait):
-                    return
-                if not data:  # the other side closed: so does this one, after what came before
-                    try:
+            try:
+                while True:
+                    with self.lock:
+                        while not cancelled():
+                            if not queue:
+                                self.lock.wait()
+                                continue
+                            due, data = queue[0]
+                            wait = max(due, self.held_until) - time.monotonic()
+                            if wait <= 0:
+                                break
+                            self.lock.wait(wait)  # recheck if a new outage extends the deadline
+                        else:
+                            return
+                        queue.popleft()
+                        self.lock.notify_all()
+                    if not data:
                         sink.shutdown(socket.SHUT_WR)
-                    except OSError:
-                        pass
-                    return
-                try:
+                        return
                     sink.sendall(data)
-                except OSError:
-                    close(source)
-                    return
+            except OSError:
+                abort()
+            finally:
+                finish()
 
         threading.Thread(target=read, daemon=True).start()
         threading.Thread(target=write, daemon=True).start()
