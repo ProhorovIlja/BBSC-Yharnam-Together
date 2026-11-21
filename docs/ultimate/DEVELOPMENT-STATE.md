@@ -92,7 +92,7 @@ The current main now includes four additional source-tested protections after #3
 
 ## Priority queue
 
-Read [ISSUE-TRIAGE.md](ISSUE-TRIAGE.md) for issue ownership/duplication/closure gates. Start with P0 data integrity: own-world progression, private save slot and guest rewards; then player visibility/hot join/AI, authenticated networking and disconnect, launcher start/update/TLS, and benchmark-driven performance. Use representative upstream repos (Amanises YT, droogie bbhost, deadinside/Supermedo bbport, shadPS4, Nightwatch, LanternEngine) for compatible evidence, never blindly mix engines, wire formats, licenses, or proprietary assets.
+Read [ISSUE-TRIAGE.md](ISSUE-TRIAGE.md) for issue ownership/duplication/closure gates and [PLAYABLE-ACCEPTANCE-MATRIX.md](PLAYABLE-ACCEPTANCE-MATRIX.md) for the required 1.09 five-hunter, save, networking and Windows-installer test evidence before declaring gameplay or release ready. Start with P0 data integrity: own-world progression, private save slot and guest rewards; then player visibility/hot join/AI, authenticated networking and disconnect, launcher start/update/TLS, and benchmark-driven performance. Use representative upstream repos (Amanises YT, droogie bbhost, deadinside/Supermedo bbport, shadPS4, Nightwatch, LanternEngine) for compatible evidence, never blindly mix engines, wire formats, licenses, or proprietary assets.
 
 ## Continuity
 
