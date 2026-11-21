@@ -8,6 +8,7 @@ on:
       - 'emulator/src/core/bloodborne_travel.cpp'
       - 'tools/re/tests/fixtures/team_world.cpp.in'
       - 'tools/re/tests/test_team_world_preservation.py'
+      - 'tools/re/tests/test_personal_world_partial_write.py'
       - '.github/workflows/personal-world-save-io.yml'
   workflow_dispatch:
 
@@ -37,6 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m unittest discover -s tools/re/tests -p 'test_team_world_preservation.py' -v
+          python -m unittest discover -s tools/re/tests -p 'test_personal_world_partial_write.py' -v
       - name: Compile real world-load source fragments with synthetic memory (Windows)
         if: runner.os == 'Windows'
         shell: cmd
