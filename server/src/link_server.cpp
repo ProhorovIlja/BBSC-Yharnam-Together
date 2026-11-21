@@ -19,6 +19,8 @@
 #include "config.h"
 #include "coop/build_fingerprint.h"
 #include "link_server.h"
+#include "rpc_backend_errors.h"
+#include "rpc_retirement.h"
 #include "signed_accounts.h"
 
 namespace {
@@ -855,7 +857,7 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
                                             "bytes")
                                  .arg(QString::fromLatin1(online_id.toHex()))
                                  .arg(MaxRpcMessageBytes);
-        CloseRpc(end);
+        CloseRpc(end, true);
         m_rpc.erase(online_id);
         return;
     }
@@ -888,7 +890,7 @@ void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& onlin
 }
 
 void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
-    CloseRpc(end);
+    CloseRpc(end, true);
     QTcpSocket* socket = new QTcpSocket(this);
     end.socket = socket;
     // The game's end, while this socket is still its connection (it may be gone by then).
@@ -929,11 +931,21 @@ void LinkServer::OpenRpc(const QByteArray& online_id, RpcEnd& end) {
     socket->connectToHost(QHostAddress::LocalHost, m_tcpPort);
 }
 
-void LinkServer::CloseRpc(RpcEnd& end) {
+void LinkServer::CloseRpc(RpcEnd& end, bool abort) {
     end.pending.clear();
+    if (abort || end.socket) {
+        // Detach before abort emits synchronous signals. Never let an old
+        // graceful drain send requests into a replacement backend session.
+        ShadNetRpc::AbortRetiredBackend(end.draining);
+    }
     if (QTcpSocket* socket = std::exchange(end.socket, nullptr)) {
-        // Its disconnected signal finds it no longer the game's connection, and deletes it.
-        socket->disconnectFromHost();
+        if (abort) {
+            socket->abort();
+        } else {
+            ShadNetRpc::DrainAndCloseBackend(*socket);
+            if (socket->state() == QAbstractSocket::ClosingState)
+                end.draining = socket;
+        }
         if (socket->state() == QAbstractSocket::UnconnectedState)
             socket->deleteLater();
     }
@@ -970,14 +982,8 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
         m_guard.Forget(gone.Key());
         m_shared->httpGate.Gone(gone.Key());
         // A game gone (or moved to another address): its connection to the TCP port is over.
-        for (auto it = m_rpc.begin(); it != m_rpc.end();) {
-            if (it->second->to == gone) {
-                CloseRpc(*it->second);
-                it = m_rpc.erase(it);
-            } else {
-                ++it;
-            }
-        }
+        ShadNetRpc::RetireByEndpoint(m_rpc, gone,
+                                    [this](RpcEnd& end) { CloseRpc(end, true); });
     }
     // Phase 7: a linked game's address for the rooms and signaling is its virtual one, known from
     // its hello.
@@ -997,12 +1003,10 @@ void LinkServer::Apply(const ServerLink::Hub::Result& result) {
     // and the game is told when it is back (its client signs in again by itself).
     for (const auto& lost : result.lost) {
         Apply(m_world.LinkLost(lost));
-        for (auto& [id, end] : m_rpc) {
-            if (end->to == lost && end->socket) {
-                CloseRpc(*end);
-                end->tunnel->Close(m_clock.elapsed());
-            }
-        }
+        // A timed-out signed-in session is not resumable: discard its TCP
+        // stream and unacknowledged data before a new endpoint can reuse the ID.
+        ShadNetRpc::RetireByEndpoint(m_rpc, lost,
+                                    [this](RpcEnd& end) { CloseRpc(end, true); });
     }
     for (const auto& coop : result.coop)
         Apply(m_world.Receive(coop.from, coop.online_id, coop.body,
