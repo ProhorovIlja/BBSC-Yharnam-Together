@@ -98,14 +98,94 @@ static bool ARejectedOldTargetStillAdvertisesTheNewLocalRun() {
     return true;
 }
 
+static bool DelayedRetiredRunsCannotResetTheActiveStream() {
+    GameLinkPeer host{"host", 1};
+    host.Receive(GameFrame{"guest", 90, 1, 0, {}}, 100);
+    host.Receive(GameFrame{"guest", 70, 1, 0, {}}, 101);
+    host.Receive(GameFrame{"guest", 3, 1, 0, {}}, 102);
+    host.Send(PacketClass::Reliable, Packet(7, 1), 103);
+    host.Flush(103);
+    CHECK(host.Receive(GameFrame{"guest", 3, 1, 0,
+                                  {{PacketClass::Reliable, 1, Packet(7, 12)}}}, 104).empty());
+    for (u32 retired : {90u, 70u}) {
+        for (u32 target : {0u, 1u}) {
+            const GameFrame stale{"guest", retired, target, 1,
+                                  {{PacketClass::Reliable, 0, Packet(7, 99)}}};
+            CHECK(host.Receive(stale, 200).empty());
+            CHECK(host.Restarts() == 2);
+            CHECK(host.Unacked() == 1);
+            CHECK(host.SilentFor(210) == 106);
+        }
+    }
+    const auto delivered = host.Receive(GameFrame{"guest", 3, 1, 1,
+                                  {{PacketClass::Reliable, 0, Packet(7, 11)}}}, 211);
+    const std::vector<std::vector<u8>> expected{Packet(7, 11), Packet(7, 12)};
+    CHECK(delivered == expected);
+    CHECK(host.Unacked() == 0);
+    return true;
+}
+
+static bool StaleChunksCannotBreakTheCurrentCoopStream() {
+    CoopStream receiver{"server", 1, {.message_bytes = 2048, .chunk_bytes = 1001}};
+    receiver.Receive(EncodeGameFrame(GameFrame{"game", 9, 1, 0, {}}), 0);
+    CoopStream sender{"game", 10};
+    std::vector<u8> message(1500, 0x42);
+    sender.Send(message, 1);
+    const auto chunks = sender.Flush(1);
+    CHECK(chunks.size() == 2);
+    CHECK(receiver.Receive(chunks[0], 1).empty());
+    CHECK(receiver.TakeRestarted());
+    CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+
+    const std::vector<u8> oversized(1002, 0);
+    for (const auto& stale : {GameFrame{"game", 9, 1, 0, {{PacketClass::Reliable, 0, oversized}}},
+                             GameFrame{"game", 10, 99, 0, {{PacketClass::Reliable, 0, oversized}}}}) {
+        CHECK(receiver.Receive(EncodeGameFrame(stale), 2).empty());
+        CHECK(!receiver.Broken() && !receiver.TakeRestarted());
+        CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+    }
+    CHECK(receiver.Receive(chunks[1], 3) == std::vector<std::vector<u8>>{message});
+    const GameFrame active{"game", 10, 1, 0, {{PacketClass::Reliable, 2, oversized}}};
+    CHECK(receiver.Receive(EncodeGameFrame(active), 4).empty());
+    CHECK(receiver.Broken());
+    return true;
+}
+
+static bool MalformedChunksCannotAdvanceOrPolluteReassembly() {
+    CoopStream sender{"game", 10}, receiver{"server", 1};
+    const std::vector<u8> message(1500, 0x42);
+    sender.Send(message, 0);
+    const auto chunks = sender.Flush(0);
+    CHECK(chunks.size() == 2);
+    CHECK(receiver.Receive(chunks[0], 0).empty());
+    CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+    const std::vector<GameFrameEntry> invalid{
+        {PacketClass::Unreliable, 1, {CoopStream::LastChunk, 99}},
+        {PacketClass::Reliable, 1, {}},
+        {PacketClass::Reliable, 1, {3, 99}},
+        {PacketClass::Reliable, 1, {0}},
+    };
+    for (const auto& entry : invalid) {
+        CHECK(receiver.Receive(EncodeGameFrame(GameFrame{"game", 10, 1, 0, {entry}}), 1).empty());
+        CHECK(receiver.HeldBytes() == CoopStream::ChunkBytes);
+        CHECK(receiver.SilentFor(2) == 2);
+        CHECK(!receiver.Broken() && !receiver.TakeRestarted());
+    }
+    CHECK(receiver.Receive(chunks[1], 3) == std::vector<std::vector<u8>>{message});
+    return true;
+}
+
 int main() {
     unsigned failed = 0;
     for (auto test : {WrongRecipientCannotResetOrAcknowledgeTheCurrentStream,
                       OldQueuedVisualsCannotPoisonTheNewSequenceSpace,
                       RejectedFrameCannotDiscardAPartialCoopMessage,
-                      ARejectedOldTargetStillAdvertisesTheNewLocalRun}) {
+                      ARejectedOldTargetStillAdvertisesTheNewLocalRun,
+                      DelayedRetiredRunsCannotResetTheActiveStream,
+                      StaleChunksCannotBreakTheCurrentCoopStream,
+                      MalformedChunksCannotAdvanceOrPolluteReassembly}) {
         if (!test()) ++failed;
     }
-    std::cout << "Game-link restart scenarios: " << (4 - failed) << "/4 passed\n";
+    std::cout << "Game-link restart scenarios: " << (7 - failed) << "/7 passed\n";
     return failed ? 1 : 0;
 }

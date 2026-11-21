@@ -38,6 +38,7 @@ public:
         size_t chunk_bytes = SIZE_MAX;   // one chunk with its byte (ChunkBytes + 1 from a Send)
         size_t held_bytes = SIZE_MAX;    // chunks held out of order (GameLinkPeer::Settings)
         size_t unreliable_channels = SIZE_MAX;
+        size_t max_reliable_in_flight = SIZE_MAX;
     };
 
     CoopStream(std::string self, u32 instance) : CoopStream(std::move(self), instance, Limits{}) {}
@@ -73,9 +74,9 @@ public:
     }
 
     // The frames to send now (each one datagram's body): chunks, resends and acks.
-    std::vector<std::vector<u8>> Flush(s64 now_ms) {
+    std::vector<std::vector<u8>> Flush(s64 now_ms, size_t max_fresh = SIZE_MAX) {
         std::vector<std::vector<u8>> bodies;
-        const auto frames = peer.Flush(now_ms);
+        const auto frames = peer.Flush(now_ms, max_fresh);
         bodies.reserve(frames.size());
         for (const GameFrame& frame : frames) {
             bodies.push_back(EncodeGameFrame(frame));
@@ -93,11 +94,22 @@ public:
         if (!frame) {
             return messages;
         }
-        if (std::ranges::any_of(frame->entries, [&](const GameFrameEntry& entry) {
-                return entry.packet.size() > limits.chunk_bytes;
-            })) {
-            Break();
-            return messages;
+        if (peer.CanAffectReceiveState(*frame)) {
+            if (std::ranges::any_of(frame->entries, [&](const GameFrameEntry& entry) {
+                    return entry.packet.size() > limits.chunk_bytes;
+                })) {
+                Break();
+                return messages;
+            }
+            // This channel carries only Send's reliable fragments. Don't let
+            // invalid framing contribute bytes, advance ACKs, or change runs.
+            if (std::ranges::any_of(frame->entries, [](const GameFrameEntry& entry) {
+                    return entry.packet_class != PacketClass::Reliable || entry.packet.empty() ||
+                           (entry.packet[0] != 0 && entry.packet[0] != LastChunk) ||
+                           (entry.packet[0] == 0 && entry.packet.size() == 1);
+                })) {
+                return messages;
+            }
         }
         const u64 restarts = peer.Restarts();
         std::vector<std::vector<u8>> chunks = peer.Receive(std::move(*frame), now_ms);
@@ -160,6 +172,7 @@ private:
         settings.keepalive_ms = 1000;
         settings.held_bytes = limits.held_bytes;
         settings.unreliable_channels = limits.unreliable_channels;
+        settings.max_reliable_in_flight = limits.max_reliable_in_flight;
         return settings;
     }
 
