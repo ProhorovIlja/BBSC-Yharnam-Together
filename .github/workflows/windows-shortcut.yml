@@ -1,0 +1,31 @@
+name: Windows Unicode desktop shortcut
+
+on:
+  pull_request:
+    paths:
+      - 'bbport/launcher/bbport_shortcut_win.py'
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/tests/test_launcher_shortcut_win.py'
+      - '.github/workflows/windows-shortcut.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unicode-link:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile launcher modules
+        shell: pwsh
+        run: python -m py_compile bbport/launcher/bbport_shortcut_win.py bbport/launcher/bbport_launcher_win.py
+      - name: Create real Unicode Shell Link
+        shell: pwsh
+        run: python -m unittest discover -s bbport/tests -p test_launcher_shortcut_win.py -v
