@@ -3111,7 +3111,11 @@ void ApplyTeamWorldOnLoad(bool trip) {
             if (old == OldSaveWorld::Made) {
                 HomeWorlds home;
                 home.Add(hint);
-                WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(home));
+                // A failed home record must not discard/retire the only
+                // personal-world sidecar. Retry the migration on next load.
+                if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(home))) {
+                    return;
+                }
                 RetireOwnWorld(slot);
                 personal_world_due = false;
                 LOG_INFO(Debug,
@@ -3176,7 +3180,11 @@ void ApplyTeamWorldOnLoad(bool trip) {
             // It is this save's home world from here: alone, the save keeps it.
             HomeWorlds home = ReadHomeWorlds(slot).value_or(HomeWorlds{});
             if (home.Add(world_id)) {
-                WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(home));
+                // Do not claim this newly created world is durably registered
+                // if its home metadata could not be written.
+                if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(home))) {
+                    return;
+                }
                 LOG_INFO(Debug,
                          "Co-op team world: world {} is made from slot {}'s save: its home "
                          "world ({} in all)",
@@ -3193,7 +3201,11 @@ void ApplyTeamWorldOnLoad(bool trip) {
         if (!home && team_host && !lobby_name.empty() && world->character() == lobby_name) {
             home.emplace();
             if (home->Add(world_id)) {
-                WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home));
+                // The legacy personal backup must outlive a failed home
+                // registration. Leave team_take unset so a load retries.
+                if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home))) {
+                    return;
+                }
                 RetireOwnWorld(slot);
                 LOG_INFO(Debug,
                          "Co-op team world: world {} is slot {}'s home world (its character "
