@@ -98,14 +98,69 @@ static bool ARejectedOldTargetStillAdvertisesTheNewLocalRun() {
     return true;
 }
 
+// A stale sender targeting a former local game must not break an active
+// fragment stream merely by carrying an over-limit chunk.
+static bool StaleOversizedFragmentCannotBreakActiveMessage() {
+    CoopStream game{"game", 1};
+    CoopStream server{"server", 2, {.message_bytes = 2048, .chunk_bytes = 1001}};
+    std::vector<u8> message(1500);
+    for (size_t i = 0; i < message.size(); ++i) message[i] = static_cast<u8>(i);
+    game.Send(message, 0);
+    const auto frames = game.Flush(0);
+    CHECK(frames.size() == 2);
+    CHECK(server.Receive(frames[0], 0).empty());
+    CHECK(server.HeldBytes() == 1000);
+    std::vector<u8> oversized(1002, 42);
+    oversized[0] = 0;
+    const GameFrame stale{"game", 99, 777, 0,
+                          {{PacketClass::Reliable, 0, oversized}}};
+    CHECK(server.Receive(EncodeGameFrame(stale), 1).empty());
+    CHECK(!server.Broken());
+    CHECK(!server.TakeRestarted());
+    CHECK(server.HeldBytes() == 1000);
+    CHECK(server.Receive(frames[1], 2) == std::vector<std::vector<u8>>{message});
+    CHECK(!server.Broken());
+    return true;
+}
+
+// Unreliable packets, unknown fragment flags and empty non-final chunks must
+// not contribute to messages or mutate the stream's sequence/liveness state.
+static bool InvalidCoopFragmentsCannotPoisonReliableReceive() {
+    const std::vector<std::vector<u8>> invalid = {{}, {0}, {2, 42}, {3, 42}};
+    for (const auto& bytes : invalid) {
+        CoopStream receiver{"server", 2};
+        const GameFrame bad{"game", 1, 2, 0,
+                            {{PacketClass::Reliable, 0, bytes}}};
+        CHECK(receiver.Receive(EncodeGameFrame(bad), 1).empty());
+        CHECK(!receiver.SilentFor(1));
+        CHECK(!receiver.Broken());
+        const GameFrame valid{"game", 1, 2, 0,
+                              {{PacketClass::Reliable, 0, {CoopStream::LastChunk, 42}}}};
+        CHECK(receiver.Receive(EncodeGameFrame(valid), 2) ==
+              (std::vector<std::vector<u8>>{{42}}));
+    }
+    CoopStream receiver{"server", 2};
+    const GameFrame unreliable{"game", 1, 2, 0,
+                               {{PacketClass::Unreliable, 0, {CoopStream::LastChunk, 90}}}};
+    CHECK(receiver.Receive(EncodeGameFrame(unreliable), 1).empty());
+    CHECK(!receiver.SilentFor(1));
+    const GameFrame valid{"game", 1, 2, 0,
+                          {{PacketClass::Reliable, 0, {CoopStream::LastChunk, 91}}}};
+    CHECK(receiver.Receive(EncodeGameFrame(valid), 2) ==
+          (std::vector<std::vector<u8>>{{91}}));
+    return true;
+}
+
 int main() {
     unsigned failed = 0;
     for (auto test : {WrongRecipientCannotResetOrAcknowledgeTheCurrentStream,
                       OldQueuedVisualsCannotPoisonTheNewSequenceSpace,
                       RejectedFrameCannotDiscardAPartialCoopMessage,
-                      ARejectedOldTargetStillAdvertisesTheNewLocalRun}) {
+                      ARejectedOldTargetStillAdvertisesTheNewLocalRun,
+                      StaleOversizedFragmentCannotBreakActiveMessage,
+                      InvalidCoopFragmentsCannotPoisonReliableReceive}) {
         if (!test()) ++failed;
     }
-    std::cout << "Game-link restart scenarios: " << (4 - failed) << "/4 passed\n";
+    std::cout << "Game-link restart and fragment scenarios: " << (6 - failed) << "/4 passed\n";
     return failed ? 1 : 0;
 }

@@ -232,6 +232,13 @@ public:
         return frames;
     }
 
+    // A frame for an older local process cannot update this stream. A zero
+    // target is the initial discovery frame, before the sender knows our run.
+    // This is a target check only, not authentication of the remote instance.
+    bool CanAffectReceiveState(const GameFrame& frame) const {
+        return frame.peer_instance == 0 || frame.peer_instance == instance;
+    }
+
     // A frame from the member: the packets for the game, in order.
     std::vector<std::vector<u8>> Receive(const GameFrame& frame, s64 now_ms) {
         // A delayed packet for the previous local run must not refresh liveness
