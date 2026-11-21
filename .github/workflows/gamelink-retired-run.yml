@@ -1,0 +1,42 @@
+name: Shared GameLink retired-run isolation
+
+on:
+  pull_request:
+    paths:
+      - 'server/coop/game_link.h'
+      - 'server/tests/test_game_link_restart.cpp'
+      - '.github/workflows/gamelink-retired-run.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retired-run:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Production GameLink and CoopStream test (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-missing-field-initializers -pedantic \
+            -Iserver server/tests/test_game_link_restart.cpp -o "$RUNNER_TEMP/gamelink-restart"
+          "$RUNNER_TEMP/gamelink-restart"
+      - name: Production GameLink and CoopStream test (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cl /nologo /std:c++20 /W4 /WX /EHsc /Iserver server\tests\test_game_link_restart.cpp /Fe:%RUNNER_TEMP%\gamelink-restart.exe
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\gamelink-restart.exe"
