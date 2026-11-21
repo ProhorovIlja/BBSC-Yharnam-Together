@@ -614,7 +614,7 @@ int ALongSilenceEndsTheSignIn() {
   return 0;
 }
 
-int Liveness() {
+int Liveness(bool verbose_traffic) {
   Net hub;
   hub.Receive(Kaniel, HelloFrom("Kaniel"), 0);
   hub.Receive(Ada, HelloFrom("Ada"), 0);
@@ -662,6 +662,9 @@ int Liveness() {
 
   // The counters every 10 s.
   Net counted;
+  if (verbose_traffic) {
+    counted->SetTrafficSummaryLogging(true);
+  }
   counted.Receive(Kaniel, HelloFrom("Kaniel"), 0);
   counted.Receive(Ada, HelloFrom("Ada"), 0);
   counted.Receive(Kaniel, Encode(Data{VirtualEndpointOf("Ada"), GameFrame}), 1);
@@ -669,9 +672,11 @@ int Liveness() {
   counted.Receive(Ada, Encode(Kind::Ping, Ping{1, 1}), 9000);
   CHECK(counted.Tick(9999).log.isEmpty());
   const auto counters = counted.Tick(10000).log;
-  CHECK(counters.size() == 2);
-  CHECK(counters.join('\n').contains("Kaniel") &&
-        counters.join('\n').contains("Ada"));
+  CHECK(counters.size() == (verbose_traffic ? 2 : 0));
+  if (verbose_traffic) {
+    CHECK(counters.join('\n').contains("Kaniel") &&
+          counters.join('\n').contains("Ada"));
+  }
   CHECK(hub.unopened == 0);
   std::cout << "server link liveness: ok\n";
   return 0;
@@ -868,6 +873,7 @@ int RoutesGamePackets() {
   const QString counters = hub.Tick(10000).log.join('\n');
   CHECK(counters.contains("refused") && counters.contains("0x6: 2") &&
         counters.contains("0x31: 1"));
+  CHECK(counters.split('\n').size() == 1); // Only senders with refusals are logged.
   CHECK(hub.unopened == 0);
   std::cout << "server link routes game packets: ok\n";
   return 0;
@@ -1378,7 +1384,7 @@ int TwoPCsOneId() {
 
 int main() {
   if (Contracts() != 0 || HelloAndBuilds() != 0 || BuildChecks() != 0 ||
-      Relays() != 0 || Liveness() != 0 || TeamOnly() != 0 ||
+      Relays() != 0 || Liveness(false) != 0 || Liveness(true) != 0 || TeamOnly() != 0 ||
       VirtualMembers() != 0 || RoutesGamePackets() != 0 || SignsIn() != 0 ||
       ALongSilenceEndsTheSignIn() != 0 || TwoPCsOneId() != 0 || Crypto() != 0 ||
       Noise() != 0 || Handshake() != 0 || KeyFile() != 0 || SignupWork() != 0 ||

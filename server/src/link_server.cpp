@@ -70,6 +70,9 @@ LinkServer::LinkServer(SharedState* shared, const QString& db_path, quint16 tcp_
     // This listener is Internet-facing in Seamless Hunt: lobby/world identities come only from
     // the account authenticated by the server-link hello, never from a later client field.
     m_world.RequireAuthenticatedIdentity();
+    // Avoid formatting one mostly routine traffic line per hunter every 10s.
+    // Operators may explicitly opt in to the previous detailed summaries.
+    m_link.SetTrafficSummaryLogging(qgetenv("SHADNET_LINK_TRAFFIC_LOG") == "1");
     if (!m_db.Open(db_path))
         qCritical() << "Link: the accounts did not open:" << m_db.lastError();
     else
