@@ -1,0 +1,266 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Complete production functions are inserted below. Only external boundaries are adapters.
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <charconv>
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <iterator>
+#include <map>
+#include <mutex>
+#include <optional>
+#include <set>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+using u8 = uint8_t; using u32 = uint32_t; using u64 = uint64_t;
+using s32 = int32_t; using s64 = int64_t;
+#define LOG_INFO(...) ((void)0)
+#define LOG_WARNING(...) ((void)0)
+#define LOG_ERROR(...) ((void)0)
+#define PS4_SYSV_ABI
+#define CHECK(value) do { if (!(value)) { std::cerr << __func__ << ':' << __LINE__ << ": " << #value << '\n'; return false; } } while (false)
+// PRODUCTION_TYPES
+namespace bbcoop {
+struct TeamWorld {
+    bool present = false;
+    WorldFlags flags;
+    bool exists() const { return present; }
+    u64 version() const { return 1; }
+    std::string character() const { return "host"; }
+    const auto& on() const { return flags.on; }
+    const auto& blocks() const { return flags.blocks; }
+};
+struct LobbyState {};
+}
+WorldFlags CaptureWorldFlags(u32, std::span<const FlagBlockBits>, bool = false);
+std::vector<std::pair<s32, bool>> WorldFlagChanges(u32, std::span<const FlagBlockBits>, const WorldFlags&, bool = false);
+bool IsWorldFlag(s32) { return true; } // Synthetic flags, no retail classification assertion.
+// PRODUCTION_HELPERS
+std::filesystem::path test_root;
+namespace Common::FS {
+enum class PathType { UserDir };
+std::filesystem::path GetUserPath(PathType) { return test_root; }
+}
+namespace fmt {
+template<class... Args> std::string format(std::string_view, Args&&...) { return {}; }
+}
+std::string SlotFileName(std::string_view name, int slot) { return std::string(name) + std::to_string(slot); }
+std::map<u32, std::array<u8, 1>> memory;
+struct FlagStore {
+    bool whole = true;
+    u32 flags_per_block = 8;
+    struct Block { u32 id; std::span<const u8> bytes; };
+    std::vector<Block> blocks;
+};
+using FlagBlock = FlagStore::Block;
+FlagStore ReadFlagStore() {
+    FlagStore store;
+    for (auto& [id, bytes] : memory) store.blocks.push_back({id, bytes});
+    return store;
+}
+bool EventFlagOn(s32 flag) { return (memory[u32(flag) / 8][0] & (0x80 >> (u32(flag) % 8))) != 0; }
+void SetGameFlag(u64, s32 flag, bool on) {
+    auto& byte = memory[u32(flag) / 8][0];
+    const u8 mask = static_cast<u8>(0x80 >> (u32(flag) % 8));
+    byte = on ? static_cast<u8>(byte | mask) : static_cast<u8>(byte & ~mask);
+}
+u64 image_base = reinterpret_cast<u64>(&SetGameFlag);
+constexpr u64 PartyGhostSetEventFlagOffset = 0, GameDataManPointerOffset = 0;
+template<class T> T ReadValue(u64, u64) { return T{}; }
+template<class T> std::optional<T> TryRead(u64, u64) { return std::nullopt; }
+bool personal_world_due = false, team_switch = true, team_host = false;
+bool next_playthrough_due = false, team_world_due = true, team_world_taken = false;
+std::atomic<int> character_slot{0};
+std::mutex team_mutex;
+std::optional<bbcoop::TeamWorld> team_world;
+std::optional<TeamWorldTake> team_take;
+std::set<u32> team_world_blocks;
+WorldFlags team_world_reported, team_story_followed;
+std::string team_party = "world:test", lobby_name = "guest";
+struct { bool NextPlaythrough(int, s32) { return false; } } playthroughs;
+struct { std::optional<bbcoop::LobbyState> Lobby() { return std::nullopt; } } team_gate;
+enum class OldSaveWorld { Made, Visited, Unknown };
+OldSaveWorld OldSavesWorld(const bbcoop::LobbyState*, std::string_view, std::string_view) { return OldSaveWorld::Unknown; }
+std::string ReadTeamWorldHint(int) { return {}; }
+s64 SteadyMilliseconds() { return 6000; }
+void RestoreInvasionHomeOnLoad() {}
+bool Invading() { return false; }
+u32 GetCurrentPackedMap() { return 0; }
+std::vector<s32> TeamLampFlagsToSet(const WorldFlags& target, const std::function<bool(s32)>& on) {
+    return std::binary_search(target.on.begin(), target.on.end(), 9) && !on(9)
+        ? std::vector<s32>{9} : std::vector<s32>{};
+}
+std::vector<s32> TeamWorldLamps(u32, std::span<const u32>, const WorldFlags&) { return {}; }
+void ListLamps(const std::vector<s32>&) {}
+// PRODUCTION_FILES
+// PRODUCTION_LOAD
+// PRODUCTION_OWN_FLAGS
+std::atomic<bool> kept_lamps_reset{false};
+std::mutex relit_lamps_mutex;
+std::set<s32> relit_lamps;
+bool IsPartyGuestRole() { return !team_host; }
+bool InPartySession() { return true; }
+std::vector<s32> LitHeadstoneLamps(const std::function<bool(s32)>& on) {
+    std::vector<s32> lamps;
+    for (s32 flag : {8, 9}) if (on(flag)) lamps.push_back(flag);
+    return lamps;
+}
+std::optional<s32> LampOfActiveFlag(s32 flag) { return flag == 8 || flag == 9 ? std::optional{flag} : std::nullopt; }
+std::vector<s32> LampsToRelight(const std::set<s32>& kept, std::span<const s32> team,
+                             const std::function<bool(s32)>& on) {
+    std::set<s32> flags = kept;
+    flags.insert(team.begin(), team.end());
+    std::vector<s32> result;
+    for (s32 flag : flags) if (LampOfActiveFlag(flag) && !on(flag)) result.push_back(flag);
+    return result;
+}
+// PRODUCTION_LAMPS
+
+void Reset(bool host = false, bool exists = false) {
+    for (const auto& entry : std::filesystem::directory_iterator(test_root)) std::filesystem::remove_all(entry.path());
+    memory = {{1, {0x80}}}; // Own flag 8 on, host lamp 9 off.
+    team_host = host; team_world_taken = false; personal_world_due = false;
+    team_world_due = true; team_take.reset(); team_world_blocks.clear(); character_slot = 0;
+    kept_lamps_reset = true; relit_lamps.clear();
+    team_world = bbcoop::TeamWorld{exists, {{9}, {1}}};
+}
+bool GuestEnteringANewWorldKeepsOwnProgressBeforeTheHostReports() {
+    Reset();
+    ApplyTeamWorldOnLoad(false);
+    const auto own = ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)));
+    CHECK(own && own->on == std::vector<s32>{8});
+    CHECK(ReadHomeWorlds(0).has_value());
+    SetGameFlag(0, 8, false); SetGameFlag(0, 9, true); // What the guest later saved in the visit.
+    team_world_due = false; personal_world_due = true;
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8)); CHECK(!EventFlagOn(9));
+    CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+    return true;
+}
+bool ExistingWorldLampsNeverPolluteTheOwnBackup() {
+    Reset(false, true);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(9)); CHECK(!EventFlagOn(8));
+    const auto own = ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)));
+    CHECK(own && own->on == std::vector<s32>{8});
+    return true;
+}
+bool BecomingANewHostRestoresOwnBlocksBeforeRegisteringHome() {
+    Reset(true);
+    WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds({}));
+    WriteWholeFile(PersonalWorldFile(0), FormatWorldFlags({{8, 16}, {1, 2}}));
+    memory[1][0] = 0x40; // Previously visited host's flags in the save.
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8)); CHECK(!EventFlagOn(9));
+    CHECK(ReadHomeWorlds(0)->Has("test"));
+    auto remaining = ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)));
+    CHECK(remaining && remaining->blocks == std::vector<u32>{2});
+    memory[2] = {0}; team_world_blocks.clear();
+    ApplyTeamWorldOnLoad(true);
+    CHECK(EventFlagOn(16));
+    CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+    return true;
+}
+bool ARepeatLoadKeepsTheOriginalBackup() {
+    Reset(false, true);
+    ApplyTeamWorldOnLoad(false);
+    const auto original = ReadWholeFile(PersonalWorldFile(0));
+    ApplyTeamWorldOnLoad(true);
+    CHECK(ReadWholeFile(PersonalWorldFile(0)) == original);
+    return true;
+}
+bool OwnFlagsFollowTheSlotAndDisappearWithTheBackup() {
+    Reset();
+    WriteWholeFile(PersonalWorldFile(0), FormatWorldFlags({{8}, {1}}));
+    WriteWholeFile(PersonalWorldFile(1), FormatWorldFlags({{16}, {2}}));
+    CHECK(OwnWorldAsideFlagsOn() == std::vector<s32>{8});
+    character_slot = 1;
+    CHECK(OwnWorldAsideFlagsOn() == std::vector<s32>{16});
+    std::filesystem::remove(PersonalWorldFile(1));
+    CHECK(OwnWorldAsideFlagsOn().empty());
+    return true;
+}
+bool TitleJoinRelightsOwnAndTeamLampsFromTheirSeparateSources() {
+    Reset(false, true);
+    WriteWholeFile(PersonalWorldFile(0), FormatWorldFlags({{8}, {1}}));
+    memory[1][0] = 0; // No prior solo tick; the guest started at the title.
+    KeepGuestLampsLit();
+    CHECK(EventFlagOn(8)); CHECK(EventFlagOn(9));
+    CHECK(relit_lamps == (std::set<s32>{8, 9}));
+    CHECK(ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)))->on == std::vector<s32>{8});
+    return true;
+}
+bool FailedBackupDefersExistingWorldAndCanRetry() {
+    Reset(false, true);
+    auto partial = PersonalWorldFile(0); partial += ".part";
+    std::filesystem::create_directory(partial);
+    std::ofstream{partial / "blocker"} << "fixture";
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8)); CHECK(!EventFlagOn(9)); CHECK(!team_world_taken);
+    CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+    std::filesystem::remove_all(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!EventFlagOn(8)); CHECK(EventFlagOn(9)); CHECK(team_world_taken);
+    CHECK(ParseWorldFlags(ReadWholeFile(PersonalWorldFile(0)))->on == std::vector<s32>{8});
+    return true;
+}
+bool FailedBackupDefersAnUncreatedWorld() {
+    Reset();
+    auto partial = HomeWorldFile(0); partial += ".part";
+    std::filesystem::create_directory(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8)); CHECK(!EventFlagOn(9)); CHECK(!team_world_taken);
+    CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+    return true;
+}
+bool MalformedOrUnreadableBackupNeverBecomesAnEmptyOwnWorld() {
+    for (bool directory : {false, true}) {
+        Reset(false, true);
+        if (directory) std::filesystem::create_directory(PersonalWorldFile(0));
+        else std::ofstream{PersonalWorldFile(0)} << "broken-backup";
+        ApplyTeamWorldOnLoad(false);
+        CHECK(EventFlagOn(8)); CHECK(!EventFlagOn(9)); CHECK(!team_world_taken);
+        if (!directory) CHECK(ReadWholeFile(PersonalWorldFile(0)) == "broken-backup");
+    }
+    return true;
+}
+bool FailedBackupExtensionPreservesThePreviousCompleteBackup() {
+    Reset(false, true);
+    WriteWholeFile(PersonalWorldFile(0), FormatWorldFlags({{8}, {1}}));
+    const std::string before = ReadWholeFile(PersonalWorldFile(0));
+    memory[2] = {0x80}; team_world->flags = {{9, 17}, {1, 2}};
+    auto partial = PersonalWorldFile(0); partial += ".part";
+    std::filesystem::create_directory(partial);
+    ApplyTeamWorldOnLoad(false);
+    CHECK(EventFlagOn(8)); CHECK(EventFlagOn(16));
+    CHECK(!EventFlagOn(9)); CHECK(!EventFlagOn(17)); CHECK(!team_world_taken);
+    CHECK(ReadWholeFile(PersonalWorldFile(0)) == before);
+    return true;
+}
+int main() {
+    test_root = std::filesystem::temp_directory_path() /
+        ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(test_root);
+    unsigned failed = 0;
+    for (auto test : {GuestEnteringANewWorldKeepsOwnProgressBeforeTheHostReports,
+                      ExistingWorldLampsNeverPolluteTheOwnBackup,
+                      BecomingANewHostRestoresOwnBlocksBeforeRegisteringHome,
+                      ARepeatLoadKeepsTheOriginalBackup,
+                      OwnFlagsFollowTheSlotAndDisappearWithTheBackup,
+                      TitleJoinRelightsOwnAndTeamLampsFromTheirSeparateSources,
+                      FailedBackupDefersExistingWorldAndCanRetry,
+                      FailedBackupDefersAnUncreatedWorld,
+                      MalformedOrUnreadableBackupNeverBecomesAnEmptyOwnWorld,
+                      FailedBackupExtensionPreservesThePreviousCompleteBackup}) if (!test()) ++failed;
+    std::filesystem::remove_all(test_root);
+    std::cout << "World preservation scenarios: " << (10 - failed) << "/10 passed\n";
+    return failed ? 1 : 0;
+}
