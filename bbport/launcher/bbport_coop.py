@@ -776,6 +776,11 @@ def write_json_atomic(path, text):
                                          prefix='.coop-', suffix='.tmp', delete=False) as out:
             pending = Path(out.name)
             out.write(text)
+            # A successful close is not a durable write on sudden power loss.
+            # Flush the complete settings before publishing the replacement;
+            # on failure the old file stays untouched and the temp is removed.
+            out.flush()
+            os.fsync(out.fileno())
         os.replace(pending, path)
     finally:
         if pending is not None:
