@@ -294,6 +294,44 @@ bool RetireOwnWorldArchiveExhaustionNeverDeletesBackup() {
     return true;
 }
 
+// A legacy host must keep its only personal-world sidecar when the home
+// metadata destination is unwritable (simulated by a directory at the path).
+// Once the filesystem recovers, the next load must retry the registration.
+bool FailedLegacyHomeWriteKeepsPersonalSnapshotAndRetries() {
+    Reset(true, true);
+    const auto old_name = lobby_name;
+    lobby_name = "host";
+    const auto live = PersonalWorldFile(0);
+    const auto archived = test_root / SlotFileName("personal_world_before_home", 0);
+    { std::ofstream file{live}; file << "legacy-private-world"; }
+    std::filesystem::create_directory(HomeWorldFile(0));
+    ApplyTeamWorldOnLoad(false);
+    CHECK(ReadWholeFile(live) == "legacy-private-world");
+    CHECK(!std::filesystem::exists(archived));
+    CHECK(!team_take.has_value());
+    std::filesystem::remove_all(HomeWorldFile(0));
+    ApplyTeamWorldOnLoad(false);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->Has("test"));
+    CHECK(!std::filesystem::exists(live));
+    CHECK(ReadWholeFile(archived) == "legacy-private-world");
+    lobby_name = old_name;
+    return true;
+}
+
+// A new host must not mark the team's first world taken if home metadata
+// could not be committed. Retry after repairing the target path.
+bool FailedNewHostHomeWriteDoesNotClaimRegisteredWorld() {
+    Reset(true, false);
+    std::filesystem::create_directory(HomeWorldFile(0));
+    ApplyTeamWorldOnLoad(false);
+    CHECK(!team_world_taken);
+    std::filesystem::remove_all(HomeWorldFile(0));
+    ApplyTeamWorldOnLoad(false);
+    CHECK(team_world_taken);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->Has("test"));
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -311,8 +349,10 @@ int main() {
                       FailedBackupExtensionPreservesThePreviousCompleteBackup,
                       FailedNativeRestoreKeepsBackupAndBlocksHomeRegistration,
                       RetireOwnWorldPreservesOldArchivesAndLiveSnapshot,
-                      RetireOwnWorldArchiveExhaustionNeverDeletesBackup}) if (!test()) ++failed;
+                      RetireOwnWorldArchiveExhaustionNeverDeletesBackup,
+                      FailedLegacyHomeWriteKeepsPersonalSnapshotAndRetries,
+                      FailedNewHostHomeWriteDoesNotClaimRegisteredWorld}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (13 - failed) << "/13 passed\n";
+    std::cout << "World preservation scenarios: " << (15 - failed) << "/15 passed\n";
     return failed ? 1 : 0;
 }
