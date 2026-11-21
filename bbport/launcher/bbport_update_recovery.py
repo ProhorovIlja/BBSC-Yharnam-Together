@@ -166,7 +166,6 @@ def recover_pending_portable_updates(target):
         if not undo.name.casefold().startswith(TX_PREFIX):
             continue
         _regular(undo, directory=True)
-        entries, created_dirs = _entries(undo, target)  # Unknown legacy state is not deleted.
         ready = undo / 'ready'
         committed = undo / 'committed'
         for marker in (ready, committed):
@@ -176,7 +175,21 @@ def recover_pending_portable_updates(target):
                 pass
         if committed.exists() and not ready.exists():
             raise ValueError('Impossible portable transaction marker order')
-        if ready.exists() and not committed.exists():
+        if not ready.exists():
+            # The updater stages all payloads/originals and writes the whole
+            # manifest *before* publishing ready. No installed file changes
+            # until ready returns. A process killed halfway through manifest
+            # serialization leaves incomplete JSON and must not permanently
+            # block launch or the next update. Only our own uncommitted
+            # scratch tree is deleted, never installed user/game files.
+            shutil.rmtree(undo)
+            handled += 1
+            continue
+        # Once ready exists the install might have changed: parse and verify
+        # all journal entries before touching any installed files, and keep
+        # malformed state for manual recovery rather than guessing paths.
+        entries, created_dirs = _entries(undo, target)
+        if not committed.exists():
             # Validate *all* recovery inputs before changing any installed
             # file. A missing second backup or a linked originals directory
             # must not leave a half-rolled-back executable tree.
