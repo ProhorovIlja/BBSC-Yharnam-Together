@@ -784,29 +784,46 @@ def write_json_atomic(path, text):
 
 # --- the game ---------------------------------------------------------------------------------
 
+MAX_SFO_BYTES = 1 << 20  # Metadata only: reject oversized or corrupted descriptors.
+
+
 def read_sfo(path):
-    """A PS4 param.sfo's text and number values ({} when there is none)."""
+    """Bounded PS4 param.sfo text/integer metadata; malformed tables are unknown."""
     try:
-        data = Path(path).read_bytes()
+        with Path(path).open('rb') as source:
+            data = source.read(MAX_SFO_BYTES + 1)
     except OSError:
         return {}
-    if len(data) < 20 or data[:4] != b'\0PSF':
+    if not 20 <= len(data) <= MAX_SFO_BYTES or data[:4] != b'\0PSF':
         return {}
     keys_at, data_at, count = struct.unpack_from('<III', data, 8)
+    # The index table must be complete, and both sections must be in the file.
+    if count > 256 or not 20 + 16 * count <= keys_at <= data_at <= len(data):
+        return {}
     values = {}
-    for index in range(min(count, 256)):
+    for index in range(count):
         entry = 20 + 16 * index
-        if entry + 16 > len(data):
-            break
-        key_offset, fmt, length, _maximum, value_offset = struct.unpack_from('<HHIII', data, entry)
+        key_offset, fmt, length, maximum, value_offset = struct.unpack_from('<HHIII', data, entry)
         key_start = keys_at + key_offset
-        key_end = data.find(b'\0', key_start)
-        key = data[key_start:key_end].decode('ascii', 'replace')
+        if key_start >= data_at:
+            return {}
+        key_end = data.find(b'\0', key_start, data_at)
+        if key_end < 0 or key_end == key_start:
+            return {}
+        key_bytes = data[key_start:key_end]
+        if not key_bytes.isascii():
+            return {}
+        key = key_bytes.decode('ascii')
         at = data_at + value_offset
+        if length > maximum or at > len(data) or length > len(data) - at:
+            return {}
         if fmt == 0x0404:
-            values[key] = struct.unpack_from('<I', data, at)[0] if at + 4 <= len(data) else 0
-        else:
+            if length != 4:
+                return {}
+            values[key] = struct.unpack_from('<I', data, at)[0]
+        elif fmt in (0x0004, 0x0204):
             values[key] = data[at:at + length].rstrip(b'\0').decode('utf-8', 'replace')
+        # Unknown SFO value formats are not trusted as strings.
     return values
 
 

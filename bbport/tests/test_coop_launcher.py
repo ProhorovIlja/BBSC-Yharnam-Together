@@ -592,6 +592,44 @@ class AnswersTests(unittest.TestCase):
 
 
 class FindGameTests(unittest.TestCase):
+    def test_malformed_sfo_cannot_supply_truncated_or_unbounded_game_metadata(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            path = root / 'sce_sys' / 'param.sfo'
+            write_sfo(path, {'TITLE_ID': 'CUSA03173', 'APP_VER': '01.09'})
+            original = path.read_bytes()
+            self.assertEqual(coop.game_version(root), ('CUSA03173', '01.09'))
+
+            cases = []
+            def change(offset, fmt, number):
+                broken = bytearray(original)
+                struct.pack_into(fmt, broken, offset, number)
+                return broken
+            cases.append(change(8, '<I', len(original) + 2))  # key index outside file
+            cases.append(change(12, '<I', len(original) + 2)) # data section outside
+            cases.append(change(16, '<I', 258))              # unbounded table count
+            cases.append(change(20, '<H', 0xffff))           # key beyond key section
+            cases.append(change(20 + 8, '<I', 1))           # shorter capacity than value
+            cases.append(change(20 + 12, '<I', 0xffffffff)) # value pointer outside
+            cases.append(change(20 + 4, '<I', 0xffffffff))  # value length outside
+            cases.append(bytearray(original[:21]))          # truncated index table
+            cases.append(bytearray(original) + bytearray(coop.MAX_SFO_BYTES))
+            # Missing termination inside the dedicated key section.
+            without_keys = bytearray(original)
+            keys_at = struct.unpack_from('<I', original, 8)[0]
+            data_at = struct.unpack_from('<I', original, 12)[0]
+            for i in range(keys_at, data_at):
+                if without_keys[i] == 0:
+                    without_keys[i] = ord('Q')
+            cases.append(without_keys)
+            for index, broken in enumerate(cases):
+                with self.subTest(case=index):
+                    path.write_bytes(broken)
+                    self.assertEqual(coop.read_sfo(path), {})
+                    self.assertIsNone(coop.game_version(root))
+            path.write_bytes(original)
+            self.assertEqual(coop.game_version(root), ('CUSA03173', '01.09'))
+
     def test_a_game_folder_is_found_inside_the_one_picked(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
