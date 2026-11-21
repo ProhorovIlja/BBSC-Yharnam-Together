@@ -144,5 +144,107 @@ class SearchAroundTheInstallTests(unittest.TestCase):
             self.assertIsNone(bbport_coop.search_game(install, drives=[], homes=[]))
 
 
+@unittest.skipUnless(sys.platform == 'win32', 'requires the Windows launcher')
+class WorkerLifecycleTests(unittest.TestCase):
+    def fake_window(self):
+        from types import SimpleNamespace
+        import queue
+
+        state = SimpleNamespace(
+            server_checking=False, server_starting=False, server_stopping=False,
+            server_stop_pending=False, server_status_epoch=0, coop_upnp=None,
+            coop_help=None, coop={'host_ip': '192.0.2.20'},
+            coop_server_line=mock.Mock(), messagebox=mock.Mock(),
+            ui_calls=queue.Queue(), coop_say=mock.Mock(),
+            coop_firewall=mock.Mock(return_value=True),
+            coop_open_router=mock.Mock(return_value=''),
+            coop_help_refresh_public=mock.Mock(),
+        )
+        state.coop_stop_servers = lambda: launcher.Launcher.coop_stop_servers(state)
+        return state
+
+    def test_start_stop_serialized_even_when_stop_clicked_during_start(self):
+        state = self.fake_window()
+        tasks = []
+
+        class DeferredThread:
+            def __init__(self, *, target, daemon, **_):
+                self.target = target
+
+            def start(self):
+                tasks.append(self.target)
+
+        with (mock.patch.object(launcher.threading, 'Thread', DeferredThread),
+              mock.patch.object(launcher.bbport_coop, 'valid_ip', return_value=True),
+              mock.patch.object(launcher.bbport_coop, 'is_this_pc', return_value=True),
+              mock.patch.object(launcher.bbport_coop, 'start_servers', return_value=['started']) as start,
+              mock.patch.object(launcher.bbport_coop, 'stop_servers', return_value='done') as stop,
+              mock.patch.object(launcher.bbport_coop, 'server_state', return_value='running'),
+              mock.patch.object(launcher.bbport_coop, 'wants_router', return_value=False)):
+            launcher.Launcher.coop_start_servers(state)
+            launcher.Launcher.coop_start_servers(state)
+            self.assertEqual(len(tasks), 1)
+            launcher.Launcher.coop_stop_servers(state)
+            self.assertTrue(state.server_stop_pending)
+            self.assertEqual(len(tasks), 1)
+            tasks.pop(0)()
+            state.ui_calls.get_nowait()()
+            self.assertFalse(state.server_stop_pending)
+            self.assertTrue(state.server_stopping)
+            self.assertEqual(len(tasks), 1)
+            tasks.pop(0)()
+            state.ui_calls.get_nowait()()
+            self.assertFalse(state.server_starting or state.server_stopping)
+            self.assertEqual(state.server_status_epoch, 2)
+            start.assert_called_once()
+            stop.assert_called_once()
+
+    def test_start_and_stop_thread_failure_resets_status(self):
+        state = self.fake_window()
+        with (mock.patch.object(launcher.bbport_coop, 'valid_ip', return_value=True),
+              mock.patch.object(launcher.bbport_coop, 'is_this_pc', return_value=True),
+              mock.patch.object(launcher.threading, 'Thread') as thread):
+            thread.return_value.start.side_effect = RuntimeError('no worker')
+            launcher.Launcher.coop_start_servers(state)
+            self.assertFalse(state.server_starting)
+            self.assertIn('no worker', state.coop_server_line.configure.call_args.kwargs['text'])
+            launcher.Launcher.coop_stop_servers(state)
+            self.assertFalse(state.server_stopping)
+            self.assertIn('no worker', state.coop_server_line.configure.call_args.kwargs['text'])
+
+    def test_stale_probe_failure_does_not_replace_active_server_status(self):
+        state = self.fake_window()
+        state.server_checking = True
+        state.server_starting = True
+        state.server_status_epoch = 2
+        with mock.patch.object(launcher.bbport_coop, 'server_state', side_effect=OSError('probe failed')):
+            launcher.Launcher.coop_check_server(state, 1)
+        state.ui_calls.get_nowait()()
+        self.assertFalse(state.server_checking)
+        state.coop_server_line.configure.assert_not_called()
+
+    def test_play_thread_start_failure_returns_to_idle(self):
+        state = self.fake_window()
+        state.coop_busy = False
+        state.coop_changed = mock.Mock()
+        state.coop_ready = mock.Mock(return_value=False)
+        state.collect = mock.Mock()
+        state.open_coop = mock.Mock()
+        state.play_button = mock.Mock()
+        state.set_running = mock.Mock()
+        state.status = mock.Mock()
+        state.coop_prepare_and_play = mock.Mock()
+        state.coop_start_game = lambda *args: launcher.Launcher.coop_start_game(state, *args)
+        with (mock.patch.object(launcher.bbport_coop, 'missing', return_value=False),
+              mock.patch.object(launcher.bbport_coop, 'played_settings', return_value={}),
+              mock.patch.object(launcher.threading, 'Thread') as thread):
+            thread.return_value.start.side_effect = RuntimeError('cannot start thread')
+            launcher.Launcher.play_coop(state)
+        self.assertFalse(state.coop_busy)
+        self.assertEqual(state.play_button.configure.call_args.kwargs['state'], 'normal')
+        state.messagebox.showerror.assert_called_once()
+        self.assertIn('cannot start thread', state.messagebox.showerror.call_args.args[1])
+
+
 if __name__ == '__main__':
     unittest.main()
