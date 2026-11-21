@@ -108,7 +108,7 @@ FROM build AS region-verify
 ARG BUILD_JOBS=0
 RUN --mount=type=cache,id=shadnet-build,target=/src/server/build \
     cmake --build build --target test_region $( [ "$BUILD_JOBS" -gt 0 ] && echo -j"$BUILD_JOBS" ) \
-    && ctest --test-dir build --output-on-failure -R region
+    && ./build/test_region
 
 # Simulated players (loadtest/bbload.cpp) for smoke tests against a deployed shard:
 #   docker build --target loadtest -t yharnam-bbload:local -f server/hosting/Dockerfile .
