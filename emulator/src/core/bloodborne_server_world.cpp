@@ -2754,7 +2754,25 @@ std::filesystem::path PersonalWorldFile(int slot) {
 // reject excess data *without touching or deleting the original file*.
 constexpr size_t MaxWorldSidecarBytes = 16u << 20;
 
+// Do not read or write redirected world records (.part included). A broken
+// symlink is NOT a missing legacy file. Preserve unknown filesystem objects
+// for explicit recovery rather than following links to other saves/files.
+bool PlainWorldFileOrMissing(const std::filesystem::path& path) {
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(path, error);
+    if (error && error != std::errc::no_such_file_or_directory) {
+        LOG_ERROR(Debug, "Co-op team world: could not inspect sidecar {}: {}",
+                  path.string(), error.message());
+        return false;
+    }
+    return status.type() == std::filesystem::file_type::not_found ||
+           status.type() == std::filesystem::file_type::regular;
+}
+
 std::string ReadWholeFile(const std::filesystem::path& path) {
+    if (!PlainWorldFileOrMissing(path)) {
+        return {};
+    }
     std::ifstream file{path, std::ios::binary};
     if (!file) {
         return {};
@@ -2789,6 +2807,12 @@ std::string ReadWholeFile(const std::filesystem::path& path) {
 bool WriteWholeFile(const std::filesystem::path& path, const std::string& text) {
     std::filesystem::path partial = path;
     partial += ".part";
+    // Opening .part with truncation would otherwise follow a symlink to a
+    // different character's save or arbitrary external file. Also reject a
+    // redirected destination, including an old broken link.
+    if (!PlainWorldFileOrMissing(path) || !PlainWorldFileOrMissing(partial)) {
+        return false;
+    }
     {
         std::ofstream file{partial, std::ios::binary | std::ios::trunc};
         if (!file) {
@@ -2856,6 +2880,9 @@ bool HomeWorldRecordReadableOrAbsent(int slot) {
 void RetireOwnWorld(int slot) {
     std::error_code error;
     const auto source = PersonalWorldFile(slot);
+    if (!PlainWorldFileOrMissing(source)) {
+        return;
+    }
     const bool exists = std::filesystem::exists(source, error);
     if (error) {
         LOG_ERROR(Debug, "Co-op team world: cannot inspect slot {}'s own world: {}", slot,
