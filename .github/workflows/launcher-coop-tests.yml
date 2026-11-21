@@ -30,6 +30,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m unittest discover -s bbport/tests -p test_coop_launcher.py -v
+      - name: Mock UPnP gateway, public unicast and reserved-WAN refusal
+        run: python -m unittest discover -s bbport/tests -p test_launcher_upnp.py -v
       - name: HTTPS account integration and refusal regressions
         if: runner.os == 'Linux'
         run: python -m unittest discover -s bbport/tests -p test_launcher_auth.py -v
