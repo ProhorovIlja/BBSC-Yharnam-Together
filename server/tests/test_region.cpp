@@ -552,8 +552,8 @@ int MalformedDirectoryShardCannotRedirect() {
         !view.Find("linklocal") && !view.Find("zero-net") &&
         !view.Find("reserved"));
   CHECK(Region::PlaceHello(view, "full", 100, 100, false)->name == "empty");
-  CHECK(Region::EndpointOf("127.0.0.1:31314")); // local integration test
-  CHECK(Region::EndpointOf("192.168.4.1:31314"));
+  CHECK(Region::EndpointOf("127.0.0.1:31314").has_value()); // local integration test
+  CHECK(Region::EndpointOf("192.168.4.1:31314").has_value());
   CHECK(!Region::EndpointOf("224.0.0.1:31314") &&
         !Region::EndpointOf("169.254.1.1:31314") &&
         !Region::EndpointOf("0.0.0.1:31314") &&
