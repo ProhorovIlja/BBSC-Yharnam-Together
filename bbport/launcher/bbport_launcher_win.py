@@ -15,7 +15,7 @@ so a packaged port needs no Python installation.
 """
 import collections
 import ctypes
-from bbport_shortcut_win import write_shortcut
+import http.client
 import json
 import math
 import os
@@ -36,6 +36,11 @@ import urllib.parse
 import urllib.request
 import webbrowser
 import zipfile
+import zlib
+
+from bbport_shortcut_win import write_shortcut
+from bbport_update_zip import (copy_portable_update, download_update, extract_update,
+                               lock_portable_install, make_portable_stage)
 
 FROZEN = getattr(sys, 'frozen', False)
 EXE = '.exe' if sys.platform == 'win32' else ''  # the port's own programs; Linux: no suffix
@@ -6484,7 +6489,7 @@ class Launcher:
 
     # ---- game process ------------------------------------------------------------------------
     def play(self):
-        if self.process or self.installing:
+        if self.process or self.installing or self.updating:
             return
         if COOP_INSTALL:
             self.play_coop()
@@ -7244,6 +7249,8 @@ class Launcher:
             self.status.configure(text=text, fg=GOLD)
 
     def install_update(self, version, url, page):
+        if self.updating or self.installing:
+            return
         if self.process:
             self.messagebox.showinfo('Bloodborne', _('Close the game before updating.', 'Закройте игру перед обновлением.'))
             return
@@ -7255,6 +7262,8 @@ class Launcher:
                 'Установить версию {} сейчас? Лаунчер закроется, установит её и откроется снова. Сохранения и '
                 'настройки останутся.').format(version)):
             return
+        self.updating = True
+        self.play_button.configure(state='disabled')
         self.update_button.configure(state='disabled')
         self.update_bar.pack(side='left', padx=(self.px(12), 0), before=self.update_button.canvas)
 
@@ -7263,39 +7272,41 @@ class Launcher:
                 version, percent))
             self.update_bar.set(percent / 100)
 
+        def failed(error):
+            self.updating = False
+            self.play_button.configure(state='normal')
+            self.update_button.configure(state='normal')
+            self.update_bar.pack_forget()
+            self.update_label.configure(text=_('Version {} is available.', 'Доступна версия {}.').format(version))
+            self.messagebox.showerror('Bloodborne', _('Update failed: {}', 'Не удалось обновить: {}').format(error))
+
         def work():
+            stage = None
+            handed_off = False
             try:
-                shutil.rmtree(UPDATE_DIR, ignore_errors=True)
-                UPDATE_DIR.mkdir(parents=True, exist_ok=True)
-                archive = UPDATE_DIR / 'update.zip'
+                stage = make_portable_stage()
+                archive = stage / 'update.zip'
                 request = urllib.request.Request(url, headers={'User-Agent': 'bbport-launcher'})
                 with urllib.request.urlopen(request, timeout=60) as response, open(archive, 'wb') as out:
-                    total, done, shown = int(response.headers.get('Content-Length') or 0), 0, -1
-                    while chunk := response.read(1 << 20):
-                        out.write(chunk)
-                        done += len(chunk)
-                        percent = done * 100 // total if total else 0
-                        if percent != shown:
-                            shown = percent
-                            self.ui_calls.put(lambda p=percent: progress(p))
+                    download_update(response, out, lambda percent:
+                                    self.ui_calls.put(lambda p=percent: progress(p)))
                 with zipfile.ZipFile(archive) as package:
-                    package.extractall(UPDATE_DIR / 'new')
+                    new = extract_update(package, stage / 'new')
                 archive.unlink()
-                new = next((p.parent for p in (UPDATE_DIR / 'new').rglob('BLauncher.exe')), None)
-                if not new:
-                    raise OSError('BLauncher.exe is missing from the download')
                 # The new launcher copies itself over this installation once this one has closed.
-                subprocess.Popen([str(new / 'BLauncher.exe'), '--install-update', str(PORT_DIR), str(os.getpid())],
-                                 cwd=str(new), stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                subprocess.Popen([str(new), '--install-update', str(PORT_DIR), str(os.getpid())],
+                                 cwd=str(new.parent), stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                handed_off = True
                 self.ui_calls.put(self.root.destroy)
-            except (OSError, zipfile.BadZipFile) as failure:
-                def failed(error=failure):
-                    self.update_button.configure(state='normal')
-                    self.update_bar.pack_forget()
-                    self.update_label.configure(text=_('Version {} is available.', 'Доступна версия {}.').format(version))
-                    self.messagebox.showerror('Bloodborne', _('Update failed: {}', 'Не удалось обновить: {}').format(error))
-                self.ui_calls.put(failed)
-        threading.Thread(target=work, daemon=True).start()
+            except (OSError, ValueError, RuntimeError, http.client.HTTPException, zipfile.BadZipFile, zlib.error) as error:
+                self.ui_calls.put(lambda error=error: failed(error))
+            finally:
+                if stage is not None and not handed_off:
+                    shutil.rmtree(stage, ignore_errors=True)
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except (OSError, RuntimeError) as error:
+            failed(error)
 
     def clear_cache(self):
         """Shader and pipeline caches; they are rebuilt while playing."""
@@ -7672,16 +7683,28 @@ def install_update(target, wait_pid):
     waits for the old launcher to close, copies this version over TARGET (never the saves,
     settings, mods or ReShade presets) and starts it."""
     target = Path(target)
-    kernel = ctypes.windll.kernel32
-    handle = kernel.OpenProcess(0x00100000, False, int(wait_pid))  # SYNCHRONIZE
-    if handle:
-        kernel.WaitForSingleObject(handle, 60000)
-        kernel.CloseHandle(handle)
+    try:
+        wait_for_update_parent(wait_pid)
+    except (OSError, ValueError) as error:
+        show_error_box(str(error))
+        return 1
+    try:
+        with lock_portable_install(target):
+            return apply_portable_update(target)
+    except (OSError, ValueError) as error:
+        show_error_box(str(error))
+        return 1
+
+
+def apply_portable_update(target):
     ignore = update_ignore(target)
     for attempt in range(30):
         try:
-            shutil.copytree(PORT_DIR, target, dirs_exist_ok=True, ignore=ignore)
+            copy_portable_update(PORT_DIR, target, ignore)
             break
+        except ValueError as error:
+            show_error_box(str(error))
+            return 1
         except OSError:  # a file still in use: the old launcher is closing
             time.sleep(1)
     else:
@@ -7805,8 +7828,8 @@ def start_launcher():
     LANG = settings.get('ui_language') or windows_language()
     if args[:1] == ['--install-update'] and len(args) == 3:
         sys.exit(install_update(args[1], args[2]))
-    if FROZEN and UPDATE_DIR not in PORT_DIR.parents:
-        shutil.rmtree(UPDATE_DIR, ignore_errors=True)  # what a finished update left behind
+    # Each portable updater owns a unique temporary stage. Never remove a shared
+    # staging directory here: another launcher instance might still use it.
     # Without a usable game folder there is nothing to play yet: open the launcher instead. The co-op
     # release plays co-op from Bloodborne.exe and Steam too (LeWhiske 2026-11-05: it started the plain
     # game, which could not reach the server); unfinished co-op settings open the launcher.

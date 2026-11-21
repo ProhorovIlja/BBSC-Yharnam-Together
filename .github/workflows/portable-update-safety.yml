@@ -1,0 +1,35 @@
+name: Safe portable launcher updates
+
+on:
+  pull_request:
+    paths:
+      - 'bbport/launcher/bbport_update_zip.py'
+      - 'bbport/launcher/bbport_launcher_win.py'
+      - 'bbport/tests/test_portable_update_zip.py'
+      - '.github/workflows/portable-update-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archive-and-copy:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile portable updater and launcher
+        run: python -m py_compile bbport/launcher/bbport_update_zip.py bbport/launcher/bbport_launcher_win.py
+      - name: ZIP, CRC, lock, symlink and interrupted-copy regressions
+        run: python -m unittest discover -s bbport/tests -p test_portable_update_zip.py -v
+      - name: Main launcher regression suite
+        run: python -m unittest discover -s bbport/tests -p test_coop_launcher.py -v
