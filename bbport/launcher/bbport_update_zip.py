@@ -99,6 +99,18 @@ def _check_install_path(path, directory, *, required=False):
         raise ValueError(f'Update cannot replace a linked or incompatible path: {path}')
 
 
+def _copy_and_sync(source, destination):
+    """Stage new bytes/rollback originals before publishing the ready journal.
+
+    An fsynced manifest and ready marker cannot protect the installation if
+    the referenced payloads/old backups were still only in volatile cache.
+    This does not make directory renames power-loss atomic.
+    """
+    shutil.copyfile(source, destination)
+    with Path(destination).open('r+b') as saved:
+        os.fsync(saved.fileno())
+
+
 def copy_portable_update(source, target, ignore):
     """Replace the whole portable package with backup, rollback and a recovery journal.
 
@@ -152,9 +164,9 @@ def copy_portable_update(source, target, ignore):
     cleanup = True
     try:
         for index, (src, dst, existed) in enumerate(planned):
-            shutil.copyfile(src, payload / str(index))
+            _copy_and_sync(src, payload / str(index))
             if existed:
-                shutil.copyfile(dst, originals / str(index))
+                _copy_and_sync(dst, originals / str(index))
 
         prepare_journal(undo, target, planned)
         mark_journal(undo, 'ready')
