@@ -135,7 +135,7 @@ int LargeBackendReplyHasBoundedReliableDebt() {
                                   static_cast<qsizetype>(event.bytes.size()));
             }
         }
-        if (tick % 4 == 0) {
+        if (tick % 12 == 0) {
             for (const auto& ack : inbound.Flush(tick * 10 + 1))
                 outbound.Receive(ack, tick * 10 + 1);
         }
