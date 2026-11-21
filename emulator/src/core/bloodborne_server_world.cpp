@@ -2877,20 +2877,20 @@ bool HomeWorldRecordReadableOrAbsent(int slot) {
 // Preserve every previous personal-world archive and never destroy a live
 // backup because the archive is locked, full, unreadable, or cannot be renamed.
 // This is source-data safety, not a multi-file home-registration transaction.
-void RetireOwnWorld(int slot) {
+bool RetireOwnWorld(int slot) {
     std::error_code error;
     const auto source = PersonalWorldFile(slot);
     if (!PlainWorldFileOrMissing(source)) {
-        return;
+        return false;
     }
     const bool exists = std::filesystem::exists(source, error);
     if (error) {
         LOG_ERROR(Debug, "Co-op team world: cannot inspect slot {}'s own world: {}", slot,
                   error.message());
-        return; // unknown file state is not permission to erase the save
+        return false; // unknown file state is not permission to erase the save
     }
     if (!exists)
-        return;
+        return true; // prior interrupted rename already archived the snapshot
 
     const std::filesystem::path base = Common::FS::GetUserPath(Common::FS::PathType::UserDir) /
                                       SlotFileName("personal_world_before_home", slot);
@@ -2906,7 +2906,7 @@ void RetireOwnWorld(int slot) {
         if (error && error != std::errc::no_such_file_or_directory) {
             LOG_ERROR(Debug, "Co-op team world: could not inspect archived snapshot {}: {}",
                       archived.string(), error.message());
-            return;
+            return false;
         }
         if (type != std::filesystem::file_type::not_found)
             continue;
@@ -2915,10 +2915,34 @@ void RetireOwnWorld(int slot) {
         if (error) {
             LOG_ERROR(Debug, "Co-op team world: could not archive slot {}'s own world: {}",
                       slot, error.message());
+            return false;
         }
-        return; // failure keeps the live sidecar intact for manual recovery
+        return true;
     }
     LOG_ERROR(Debug, "Co-op team world: slot {} keeps its own world; archival limit reached", slot);
+    return false;
+}
+
+// Complete a home record's pending archival transaction *before* any branch
+// that might mistake the former solo sidecar for guest flags. Writing the
+// pending marker first and clearing it after a successful archive makes both
+// interrupted orders recoverable without overwriting prior archives.
+bool FinishPendingWorldRetirement(int slot) {
+    if (!HomeWorldRecordReadableOrAbsent(slot)) {
+        return false;
+    }
+    auto home = ReadHomeWorlds(slot);
+    if (!home || !home->archive_pending) {
+        return true;
+    }
+    if (!RetireOwnWorld(slot)) {
+        return false;
+    }
+    home->archive_pending = false;
+    if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home))) {
+        return false; // the durable pending marker will retry on next load
+    }
+    return true;
 }
 
 struct WorldStore {
@@ -3096,6 +3120,14 @@ void ApplyTeamWorldOnLoad(bool trip) {
     if (Invading()) {
         return;
     }
+    // Never restore or retire a legacy personal snapshot while its home
+    // registration remains half-committed. Only touch the current save's
+    // slot after the native flag store has become readable.
+    if (const int slot = character_slot.load(); slot >= 0 && ReadFlagStore().whole) {
+        if (!FinishPendingWorldRetirement(slot)) {
+            return;
+        }
+    }
     // An ending's next playthrough (PlaythroughWatch): this load's save has the new game's world.
     // It stays: the host's next report makes it the team's, a guest's trips take the team's
     // again once the host's is in, and this save's own world kept aside (from before its
@@ -3220,12 +3252,13 @@ void ApplyTeamWorldOnLoad(bool trip) {
             if (old == OldSaveWorld::Made) {
                 HomeWorlds home;
                 home.Add(hint);
-                // A failed home record must not discard/retire the only
-                // personal-world sidecar. Retry the migration on next load.
-                if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(home))) {
+                home.archive_pending = true;
+                // Persist intent before archiving; a failed archive leaves a
+                // recognizable, idempotently resumable state after restart.
+                if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(home)) ||
+                    !FinishPendingWorldRetirement(slot)) {
                     return;
                 }
-                RetireOwnWorld(slot);
                 personal_world_due = false;
                 LOG_INFO(Debug,
                          "Co-op team world: slot {} plays alone: world {} is its own (its "
@@ -3313,12 +3346,14 @@ void ApplyTeamWorldOnLoad(bool trip) {
         if (!home && team_host && !lobby_name.empty() && world->character() == lobby_name) {
             home.emplace();
             if (home->Add(world_id)) {
-                // The legacy personal backup must outlive a failed home
-                // registration. Leave team_take unset so a load retries.
-                if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home))) {
+                home->archive_pending = true;
+                // A legacy home record and its archive must advance together:
+                // never claim team_take while either step remains pending.
+                if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home)) ||
+                    !FinishPendingWorldRetirement(slot)) {
                     return;
                 }
-                RetireOwnWorld(slot);
+                home->archive_pending = false;
                 LOG_INFO(Debug,
                          "Co-op team world: world {} is slot {}'s home world (its character "
                          "hosted it before the home worlds were kept)",
