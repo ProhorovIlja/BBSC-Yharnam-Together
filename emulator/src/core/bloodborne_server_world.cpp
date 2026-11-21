@@ -3155,10 +3155,12 @@ void ApplyTeamWorldOnLoad(bool trip) {
     }
     std::optional<bbcoop::TeamWorld> world;
     bool due = false;
+    bool waiting_for_team = false;
     bool personal = false;
     {
         std::scoped_lock lock{team_mutex};
-        due = team_world_due && team_world.has_value();
+        waiting_for_team = team_world_due;
+        due = waiting_for_team && team_world.has_value();
         personal = personal_world_due;
         if (due) {
             world = team_world;
@@ -3173,7 +3175,11 @@ void ApplyTeamWorldOnLoad(bool trip) {
         }
     }
     const int slot = character_slot.load();
-    if (personal && slot >= 0) {
+    if (personal && slot >= 0 && !waiting_for_team) {
+        // A failed sidecar trim during a new host transition also leaves
+        // personal_world_due set. That is NOT a solo-leave event: while a
+        // team load is pending, let the host/guest branch retry its guarded
+        // own-world restoration before acknowledging team ownership.
         // Alone again: this save's own world back where a team's was in it, block by block as
         // the loads bring them; the file keeps the blocks still to come.
         std::scoped_lock lock{team_mutex};
