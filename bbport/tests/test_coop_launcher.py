@@ -460,6 +460,66 @@ class AnswersTests(unittest.TestCase):
                                     Path('.'))
         self.assertEqual(env['BB_SHADNET_SERVER'], f'26.1.2.3:{coop.MATCHING_PORT}', 'a home host as before')
 
+    def test_directory_json_is_bounded_and_malformed_shards_fail_cleanly(self):
+        class Response:
+            def __init__(self, body):
+                self.body = body
+                self.limit = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self, limit):
+                self.limit = limit
+                return self.body[:limit]
+
+        url = 'https://eu.example.com'
+        normal = Response(b'{"shards":[]}')
+        with mock.patch.object(coop.urllib.request, 'urlopen', return_value=normal):
+            self.assertEqual(coop.fetch_json(url), {'shards': []})
+        self.assertEqual(normal.limit, coop.REGION_DIRECTORY_MAX_BYTES + 1)
+
+        exact = Response(b' ' * (coop.REGION_DIRECTORY_MAX_BYTES - 2) + b'{}')
+        with mock.patch.object(coop.urllib.request, 'urlopen', return_value=exact):
+            self.assertEqual(coop.fetch_json(url), {})
+        huge = Response(b'x' * (coop.REGION_DIRECTORY_MAX_BYTES + 1))
+        with mock.patch.object(coop.urllib.request, 'urlopen', return_value=huge):
+            with self.assertRaisesRegex(ValueError, '64 KiB'):
+                coop.fetch_json(url)
+
+        key = 'ab' * 32
+        good = {'address': '203.0.113.1:31314', 'key': key, 'players': 0,
+                'capacity': 5, 'name': 'eu-1'}
+        self.assertEqual(coop.pick_shard([None, 'text', {'address': 'x'}, good]), good)
+        for invalid in (
+            dict(good, address='999.999.999.999:31314'),
+            dict(good, players='0'),
+            dict(good, players=True),
+            dict(good, players=-1),
+            dict(good, capacity='5'),
+            dict(good, capacity=0),
+            dict(good, name=[]),
+        ):
+            self.assertIsNone(coop.pick_shard([invalid]), invalid)
+
+        for listed in (None, [], 'bad', {'shards': None},
+                       {'shards': 'not a list'}, {'shards': {}}):
+            with self.subTest(listed=listed):
+                def fetch(endpoint):
+                    return None if '/v1/where' in endpoint else listed
+                with self.assertRaisesRegex(RuntimeError, 'does not answer'):
+                    coop.resolve_region(url, 'Hunter', fetch=fetch)
+
+        with self.assertRaisesRegex(RuntimeError, 'does not answer'):
+            coop.resolve_region(url, 'Hunter', fetch=lambda endpoint:
+                                [] if '/v1/where' in endpoint else {'shards': [good]})
+        self.assertEqual(coop.resolve_region(url, 'Hunter', fetch=lambda endpoint:
+                         None if '/v1/where' in endpoint else {'shards': [good]})[:2],
+                         ('203.0.113.1', 31314))
+
     def test_a_copied_install_makes_its_own_player_id(self):
         # Player report 2026-10-24: a friend's install copied with its user\\coop.json gave two PCs one
         # id; their games took the server's link from each other and a new team left at once.
