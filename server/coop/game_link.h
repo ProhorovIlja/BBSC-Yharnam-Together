@@ -179,6 +179,9 @@ public:
         for (Outgoing& out : fresh) {
             entries.push_back({out.packet_class, out.seq, out.packet});
             if (out.packet_class == PacketClass::Reliable) {
+                // A newly assigned sequence number cannot be acknowledged
+                // before its corresponding frame is actually emitted.
+                sent_reliable_end = out.seq + 1;
                 out.sent_ms = now_ms;
                 out.wait_ms = settings.resend_ms;
                 unacked.emplace(out.seq, std::move(out));
@@ -251,7 +254,9 @@ public:
             ack_owed = true;
             return {};
         }
-        if (frame.peer_instance == instance) {
+        if (frame.peer_instance == instance && frame.ack <= sent_reliable_end) {
+            // A forged, reordered or stale ACK above the sent window must
+            // never retire the reliable backlog or a queued join/world packet.
             const auto acked = unacked.lower_bound(frame.ack);
             for (auto out = unacked.begin(); out != acked; ++out) {
                 reliable_bytes -= out->second.packet.size();
@@ -351,6 +356,7 @@ private:
         held_bytes = 0;
         newest_unreliable.clear();
         next_reliable = 0;
+        sent_reliable_end = 0;
         next_unreliable = 0;
         unacked.clear();
         reliable_bytes = 0;
@@ -408,6 +414,7 @@ private:
     std::optional<s64> last_heard_ms;
 
     u32 next_reliable = 0;
+    u32 sent_reliable_end = 0; // exclusive ACK ceiling of *emitted* reliability
     u32 next_unreliable = 0;
     std::deque<Outgoing> fresh;
     std::map<u32, Outgoing> unacked;
