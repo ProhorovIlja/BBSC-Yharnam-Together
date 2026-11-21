@@ -1,0 +1,35 @@
+name: Member-specific late joins
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_boards.cpp'
+      - 'emulator/src/core/bloodborne_party.cpp'
+      - 'emulator/src/core/bloodborne_party.h'
+      - 'tools/re/tests/test_member_specific_joins.py'
+      - '.github/workflows/member-specific-join.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  late-join:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact waiting-member source contract and 2/3/5 board selector
+        run: python -m unittest discover -s tools/re/tests -p 'test_member_specific_joins.py' -v
+      - name: Compile and run selector on Ubuntu
+        if: runner.os == 'Linux'
+        run: python -m unittest discover -s tools/re/tests -p 'test_member_specific_joins.py' -v
