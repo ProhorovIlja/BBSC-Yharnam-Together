@@ -3047,6 +3047,13 @@ void ApplyTeamWorldOnLoad(bool trip) {
         }
         std::error_code error;
         std::filesystem::remove(PersonalWorldFile(slot), error);
+        if (error) {
+            // NG+ must not silently acknowledge retirement of a personal
+            // snapshot that the filesystem did not remove. Retry on load.
+            LOG_ERROR(Debug, "Co-op team world: NG+ slot {} cannot retire old own world: {}",
+                      slot, error.message());
+            return;
+        }
         std::scoped_lock lock{team_mutex};
         next_playthrough_due = false;
         personal_world_due = false;
@@ -3094,7 +3101,12 @@ void ApplyTeamWorldOnLoad(bool trip) {
         // (HowToTakeTeamWorld).
         if (auto home = ReadHomeWorlds(slot); home && !home->worlds.empty() && !home->alone) {
             home->alone = true;
-            WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home));
+            if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home))) {
+                // Do not consume or delete this character's last personal
+                // backup while the metadata still says it is in a team.
+                // Leaving personal_world_due set retries on the next load.
+                return;
+            }
         }
         std::error_code error;
         if (!std::filesystem::exists(PersonalWorldFile(slot), error)) {
@@ -3213,13 +3225,19 @@ void ApplyTeamWorldOnLoad(bool trip) {
                          world_id, slot);
             }
         }
-        team_take =
+        const TeamWorldTake chosen =
             HowToTakeTeamWorld(home.value_or(HomeWorlds{}), world_id, team_host, world->version());
-        // In a team again: decided for this session, and the next one starts from the server's.
+        // A save that played alone may lead the team. Preserve that
+        // decision (computed from the original alone marker), but do not
+        // publish a new in-session take or apply team flags before the
+        // on-disk marker has been updated. Retry on next load on failure.
         if (home && home->alone) {
             home->alone = false;
-            WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home));
+            if (!WriteWholeFile(HomeWorldFile(slot), FormatHomeWorlds(*home))) {
+                return;
+            }
         }
+        team_take = chosen;
         LOG_INFO(Debug, "Co-op team world: slot {} takes world {} (version {}) as {}", slot,
                  world_id, world->version(),
                  *team_take == TeamWorldTake::Aside  ? "another's: its own goes aside"
