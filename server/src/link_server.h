@@ -5,6 +5,7 @@
 #include <memory>
 #include <QElapsedTimer>
 #include <QHostAddress>
+#include <QPointer>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QObject>
@@ -93,12 +94,13 @@ private:
         std::unique_ptr<BloodborneCoop::RpcTunnel> tunnel;
         ServerLink::Endpoint to;
         QTcpSocket* socket = nullptr;
+        QPointer<QTcpSocket> draining; // previous graceful backend close, aborted on lost session
         QByteArray pending; // what came before the connection to the TCP port was up
     };
     void OnRpc(const ServerLink::Endpoint& from, const QByteArray& online_id,
                const QByteArray& body);
     void OpenRpc(const QByteArray& online_id, RpcEnd& end);
-    void CloseRpc(RpcEnd& end);
+    void CloseRpc(RpcEnd& end, bool abort = false);
     void FlushRpc(RpcEnd& end);
 
     QUdpSocket* m_socket;
