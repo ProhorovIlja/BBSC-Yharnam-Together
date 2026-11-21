@@ -1,0 +1,48 @@
+name: Guest personal world I/O fail-closed
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/bloodborne_server_world.cpp'
+      - 'emulator/src/core/bloodborne_team.*'
+      - 'emulator/src/core/bloodborne_travel.cpp'
+      - 'tools/re/tests/fixtures/team_world.cpp.in'
+      - 'tools/re/tests/test_team_world_preservation.py'
+      - '.github/workflows/personal-world-save-io.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ten-world-cases:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Extract actual world/restore production source and test (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tools/re/tests -p 'test_team_world_preservation.py' -v
+      - name: Compile real world-load source fragments with synthetic memory (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          python tools\re\tests\test_team_world_preservation.py --emit "%RUNNER_TEMP%\world-io.cpp"
+          if errorlevel 1 exit /b 1
+          cl /nologo /std:c++20 /W3 /EHsc "%RUNNER_TEMP%\world-io.cpp" /Fe:"%RUNNER_TEMP%\world-io.exe"
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\world-io.exe"
