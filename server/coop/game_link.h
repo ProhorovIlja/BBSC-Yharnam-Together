@@ -179,6 +179,9 @@ public:
         for (Outgoing& out : fresh) {
             entries.push_back({out.packet_class, out.seq, out.packet});
             if (out.packet_class == PacketClass::Reliable) {
+                // ACKs may retire only reliable sequence numbers already emitted.
+                // Queued (unflushed) join/world packets must survive impossible ACKs.
+                sent_reliable_end = out.seq + 1;
                 out.sent_ms = now_ms;
                 out.wait_ms = settings.resend_ms;
                 unacked.emplace(out.seq, std::move(out));
@@ -251,7 +254,9 @@ public:
             }
             peer_instance = frame.instance;
         }
-        if (frame.peer_instance == instance) {
+        // Ignore cumulative ACKs for data not yet flushed. Continue to
+        // process genuine inbound packets even if the ACK field is invalid.
+        if (frame.peer_instance == instance && frame.ack <= sent_reliable_end) {
             const auto acked = unacked.lower_bound(frame.ack);
             for (auto out = unacked.begin(); out != acked; ++out) {
                 reliable_bytes -= out->second.packet.size();
@@ -351,6 +356,7 @@ private:
         held_bytes = 0;
         newest_unreliable.clear();
         next_reliable = 0;
+        sent_reliable_end = 0;
         next_unreliable = 0;
         unacked.clear();
         reliable_bytes = 0;
@@ -409,6 +415,7 @@ private:
     std::optional<s64> last_heard_ms;
 
     u32 next_reliable = 0;
+    u32 sent_reliable_end = 0; // highest exclusive reliable sequence sent by Flush
     u32 next_unreliable = 0;
     std::deque<Outgoing> fresh;
     std::map<u32, Outgoing> unacked;
