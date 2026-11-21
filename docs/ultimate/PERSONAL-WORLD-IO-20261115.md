@@ -39,3 +39,9 @@ Integration: independently backported onto current playable `main` in PR #307; t
 ## 2026-11-22 source follow-up: native setter readback
 
 A setter's return from the game does **not** prove that personal-world flags were restored. PR #308 checks the live flag-block table again and compares it to the intended private backup **before** shrinking/removing the sidecar or registering the world as the hunter's home. When the setter silently fails or the slot changes, restoration is deferred and the full original backup is retained for retry. This adds an eleventh production-source fixture scenario in which the setter intentionally ignores one flag. Readback still does not establish the game's durable save-data commit; crash/reload of disposable retail 1.09 saves remains a separate acceptance gate.
+
+## 2026-11-22 retirement safety follow-up
+
+Previous `RetireOwnWorld` first deleted the prior archived personal snapshot, then attempted to rename the current one, and **deleted the still-live current personal snapshot if the rename failed**. PR #309 never deletes an existing archive during retirement: subsequent snapshots use distinct bounded suffixes, and archive errors or exhausted slots preserve the live backup for recovery. Two new production-extracted tests cover existing archives and all 64 archive slots occupied.
+
+**Important remaining risk:** home-world metadata and retirement are two separate filesystem operations. The callers still need transactional/checkable home-registration sequencing. A retained backup does not itself prove the game loaded the correct world. Test with disposable 1.09 saves before closing the larger #22 issue.

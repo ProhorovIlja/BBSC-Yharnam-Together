@@ -2807,20 +2807,48 @@ std::optional<HomeWorlds> ReadHomeWorlds(int slot) {
 
 // The save's own world is a team's from now on (it made the team's world): the one kept aside
 // from before is over. Out of the way, never deleted (the launcher's save backups take it too).
+// Preserve every previous personal-world archive and never destroy a live
+// backup because the archive is locked, full, unreadable, or cannot be renamed.
+// This is source-data safety, not a multi-file home-registration transaction.
 void RetireOwnWorld(int slot) {
     std::error_code error;
-    if (!std::filesystem::exists(PersonalWorldFile(slot), error)) {
-        return;
-    }
-    const std::filesystem::path old = Common::FS::GetUserPath(Common::FS::PathType::UserDir) /
-                                      SlotFileName("personal_world_before_home", slot);
-    std::filesystem::remove(old, error);
-    std::filesystem::rename(PersonalWorldFile(slot), old, error);
+    const auto source = PersonalWorldFile(slot);
+    const bool exists = std::filesystem::exists(source, error);
     if (error) {
-        LOG_ERROR(Debug, "Co-op team world: could not move slot {}'s old own world aside: {}", slot,
+        LOG_ERROR(Debug, "Co-op team world: cannot inspect slot {}'s own world: {}", slot,
                   error.message());
-        std::filesystem::remove(PersonalWorldFile(slot), error);
+        return; // unknown file state is not permission to erase the save
     }
+    if (!exists)
+        return;
+
+    const std::filesystem::path base = Common::FS::GetUserPath(Common::FS::PathType::UserDir) /
+                                      SlotFileName("personal_world_before_home", slot);
+    // Do not overwrite an old archived snapshot. Retain a bounded number of
+    // prior transitions; after exhaustion refuse retirement without data loss.
+    constexpr unsigned MaxArchives = 64;
+    for (unsigned index = 0; index < MaxArchives; ++index) {
+        auto archived = base;
+        if (index)
+            archived += "." + std::to_string(index);
+        error.clear();
+        const auto type = std::filesystem::symlink_status(archived, error).type();
+        if (error && error != std::errc::no_such_file_or_directory) {
+            LOG_ERROR(Debug, "Co-op team world: could not inspect archived snapshot {}: {}",
+                      archived.string(), error.message());
+            return;
+        }
+        if (type != std::filesystem::file_type::not_found)
+            continue;
+        error.clear();
+        std::filesystem::rename(source, archived, error);
+        if (error) {
+            LOG_ERROR(Debug, "Co-op team world: could not archive slot {}'s own world: {}",
+                      slot, error.message());
+        }
+        return; // failure keeps the live sidecar intact for manual recovery
+    }
+    LOG_ERROR(Debug, "Co-op team world: slot {} keeps its own world; archival limit reached", slot);
 }
 
 struct WorldStore {
