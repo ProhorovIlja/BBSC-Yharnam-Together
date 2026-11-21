@@ -511,8 +511,16 @@ class AnswersTests(unittest.TestCase):
         good = {'address': '203.0.113.1:31314', 'key': key, 'players': 0,
                 'capacity': 5, 'name': 'eu-1'}
         self.assertEqual(coop.pick_shard([None, 'text', {'address': 'x'}, good]), good)
+        for host in ('10.0.0.5', '26.1.2.3', '100.64.0.2', '203.0.113.1'):
+            self.assertEqual(coop.shard_address({'address': host + ':31314'}), (host, 31314))
         for invalid in (
             dict(good, address='999.999.999.999:31314'),
+            dict(good, address='0.0.0.0:31314'),
+            dict(good, address='0.1.2.3:31314'),
+            dict(good, address='224.1.2.3:31314'),
+            dict(good, address='255.255.255.255:31314'),
+            dict(good, address='169.254.22.8:31314'),
+            dict(good, address='127.0.0.1:31314'),
             dict(good, players='0'),
             dict(good, players=True),
             dict(good, players=-1),
