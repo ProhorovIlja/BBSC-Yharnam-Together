@@ -39,6 +39,7 @@ Focus on the **existing playable launcher + game client + ShadNet server**, not 
 | [#313](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/313) | Validate every portable updater rollback backup/parent and reject symlinked originals before any overwrite | [Win/Linux updater 44953044511](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/44953044511), launcher 44953044505; merge `22468ba` | Real Windows packaged update, power-loss transaction still pending; #283 open |
 
 | [#317](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/317) | Cap regional directory JSON at 64 KiB, validate shard payload types/IP/capacity and give controlled errors | [Win/Ubuntu 44954247891](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/44954247891); merge `b75f76a` | Not a fix for damaged game preparation archives or installed 1.09 startup; #192 open |
+| [#320](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/320) | Accept player-preferred region only if name/address/key match the current healthy shard roster; otherwise choose least-loaded listed shard | [Win/Ubuntu 44954736035](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/actions/runs/44954736035); merge `6d6669f` | Live region failover and directory service health unverified; #3 open |
 
 ## Active work and release gates
 
