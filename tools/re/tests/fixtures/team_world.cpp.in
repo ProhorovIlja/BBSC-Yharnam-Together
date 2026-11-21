@@ -265,6 +265,35 @@ bool FailedNativeRestoreKeepsBackupAndBlocksHomeRegistration() {
     return true;
 }
 
+
+bool RetireOwnWorldPreservesOldArchivesAndLiveSnapshot() {
+    Reset();
+    const auto live = PersonalWorldFile(0);
+    const auto old = test_root / SlotFileName("personal_world_before_home", 0);
+    { std::ofstream file{live}; file << "live-private-world"; }
+    { std::ofstream file{old}; file << "older-private-world"; }
+    RetireOwnWorld(0);
+    CHECK(!std::filesystem::exists(live));
+    CHECK(ReadWholeFile(old) == "older-private-world");
+    CHECK(ReadWholeFile(old.string() + ".1") == "live-private-world");
+    return true;
+}
+bool RetireOwnWorldArchiveExhaustionNeverDeletesBackup() {
+    Reset();
+    const auto live = PersonalWorldFile(0);
+    const auto old = test_root / SlotFileName("personal_world_before_home", 0);
+    { std::ofstream file{live}; file << "must-not-be-deleted"; }
+    for (int i = 0; i < 64; ++i) {
+        const auto name = i == 0 ? old : std::filesystem::path(old.string() + "." + std::to_string(i));
+        { std::ofstream file{name}; file << "previous-archive"; }
+    }
+    RetireOwnWorld(0);
+    CHECK(ReadWholeFile(live) == "must-not-be-deleted");
+    CHECK(ReadWholeFile(old) == "previous-archive");
+    CHECK(ReadWholeFile(old.string() + ".63") == "previous-archive");
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -280,8 +309,10 @@ int main() {
                       FailedBackupDefersAnUncreatedWorld,
                       MalformedOrUnreadableBackupNeverBecomesAnEmptyOwnWorld,
                       FailedBackupExtensionPreservesThePreviousCompleteBackup,
-                      FailedNativeRestoreKeepsBackupAndBlocksHomeRegistration}) if (!test()) ++failed;
+                      FailedNativeRestoreKeepsBackupAndBlocksHomeRegistration,
+                      RetireOwnWorldPreservesOldArchivesAndLiveSnapshot,
+                      RetireOwnWorldArchiveExhaustionNeverDeletesBackup}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (11 - failed) << "/11 passed\n";
+    std::cout << "World preservation scenarios: " << (13 - failed) << "/13 passed\n";
     return failed ? 1 : 0;
 }
