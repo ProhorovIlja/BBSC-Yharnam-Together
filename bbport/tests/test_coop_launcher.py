@@ -37,6 +37,23 @@ class CopiedProfileTests(unittest.TestCase):
 
 
 
+    def test_atomic_settings_commit_does_not_publish_unflushed_temp(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            old = dict(coop.DEFAULTS, account='HunterOld', password='old-secret')
+            new = dict(coop.DEFAULTS, account='HunterNew', password='new-secret')
+            coop.save_settings(root, old)
+            path = coop.settings_path(root)
+            before = path.read_bytes()
+            with mock.patch.object(coop.os, 'fsync', side_effect=OSError('fake disk flush failure')):
+                with self.assertRaisesRegex(OSError, 'disk flush failure'):
+                    coop.save_settings(root, new)
+            self.assertEqual(path.read_bytes(), before, 'old profile must remain recoverable')
+            self.assertEqual(list(path.parent.glob('.coop-*.tmp')), [], 'no aborted temporary file')
+            coop.save_settings(root, new)
+            self.assertEqual(coop.read_settings(root)['account'], 'HunterNew')
+            self.assertNotEqual(path.read_bytes(), before)
+
     def test_failed_rules_migration_survives_automatic_identity_save_and_retries(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
