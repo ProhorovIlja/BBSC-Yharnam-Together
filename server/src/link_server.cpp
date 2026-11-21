@@ -835,6 +835,10 @@ void LinkServer::ResendRedirects() {
 void LinkServer::OnRpc(const ServerLink::Endpoint& from, const QByteArray& online_id,
                        const QByteArray& body) {
     auto& slot = m_rpc[online_id];
+    // A reauthenticated hunter's new endpoint must never inherit a live
+    // RPC stream or an unfinished local TCP write from the old connection.
+    ShadNetRpc::RetireIfEndpointChanged(slot, from,
+                                        [this](RpcEnd& stale) { CloseRpc(stale, true); });
     if (!slot) {
         // The game's calls: none past a read of its bridge (16 KiB), its chunks a Send's. Each end
         // its own instance: a game whose end was dropped sees a new one and connects again.
