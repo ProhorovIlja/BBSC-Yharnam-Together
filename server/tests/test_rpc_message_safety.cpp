@@ -91,6 +91,56 @@ int main() {
             valid[0].bytes == std::vector<u8>{'x'});
     REQUIRE(deliver({3}, 16).size() == 1 && !receiver.IsOpen());
     REQUIRE(deliver({2, 'y'}, 17).empty());
-    std::cout << "RPC bounded 512KiB reply, post-close isolation, malformed controls passed\n";
+    // Exact shared transport under loss and a stalled ACK path. The backend
+    // emits 512 KiB and then Close; every 13th initial frame is dropped, ACKs
+    // remain blocked for 500 ms, and the receiver's out-of-order buffer is
+    // capped at 256 KiB. Resends must eventually deliver every byte exactly
+    // once in order and retire all sender reliable bytes.
+    RpcTunnel loss_sender{"shadnet", 43};
+    RpcTunnel loss_receiver{"game", 47, limits};
+    loss_sender.Open(0);
+    loss_sender.Write(expected, 0);
+    loss_sender.Close(0);
+    std::vector<u8> restored;
+    bool loss_open = false;
+    bool loss_closed = false;
+    size_t simulated_loss = 0;
+    size_t resent_frames = 0;
+    for (s64 tick = 0; tick < 20'000; tick += 100) {
+        size_t frame_index = 0;
+        const auto frames = loss_sender.Flush(tick);
+        if (tick > 0) resent_frames += frames.size();
+        for (const auto& frame : frames) {
+            const bool drop = tick == 0 && frame_index % 13 == 0;
+            ++frame_index;
+            if (drop) {
+                ++simulated_loss;
+                continue;
+            }
+            for (const auto& event : loss_receiver.Receive(frame, tick)) {
+                if (event.kind == Kind::Opened) {
+                    REQUIRE(!loss_open && !loss_closed);
+                    loss_open = true;
+                } else if (event.kind == Kind::Data) {
+                    REQUIRE(loss_open && !loss_closed);
+                    restored.insert(restored.end(), event.bytes.begin(), event.bytes.end());
+                    REQUIRE(restored.size() <= expected.size());
+                } else {
+                    REQUIRE(event.kind == Kind::Closed && loss_open && !loss_closed);
+                    loss_closed = true;
+                }
+            }
+        }
+        // Hold client ACKs for 500ms, then restore the return path.
+        for (const auto& ack : loss_receiver.Flush(tick)) {
+            if (tick >= 500) loss_sender.Receive(ack, tick);
+        }
+        REQUIRE(!loss_receiver.Broken());
+        if (loss_closed && loss_sender.UnackedBytes() == 0) break;
+    }
+    REQUIRE(simulated_loss > 0 && resent_frames > 0);
+    REQUIRE(loss_open && loss_closed && restored == expected);
+    REQUIRE(loss_sender.UnackedBytes() == 0);
+    std::cout << "RPC 512KiB ordered reply, lost frames, paused ACK recovery, malformed controls passed\n";
     return 0;
 }
