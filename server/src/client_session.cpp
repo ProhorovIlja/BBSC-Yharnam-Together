@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include "client_session.h"
+#include "bounded_socket_drain.h"
 #include "proto_utils.h"
 #include "protocol.h"
 #include "shadnet.pb.h"
@@ -39,7 +40,11 @@ void ClientSession::Start() {
 }
 
 void ClientSession::OnReadyRead() {
-    Take(m_socket->readAll());
+    ShadNet::DrainClientSocket(*m_socket,
+                              [this](const QByteArray& chunk) { Take(chunk); },
+                              [this] {
+                                  return m_socket->state() == QAbstractSocket::ConnectedState;
+                              });
 }
 
 void ClientSession::Take(const QByteArray& bytes) {
