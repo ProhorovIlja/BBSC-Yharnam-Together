@@ -35,3 +35,7 @@ The upstream source files were byte-identical at PR #250. This follow-up intenti
 extends that implementation locally; it must not be described as unmodified upstream.
 
 Integration: independently backported onto current playable `main` in PR #307; this is the same runtime source blob as the 2026-11-15 candidate, not a retail save test.
+
+## 2026-11-22 source follow-up: native setter readback
+
+A setter's return from the game does **not** prove that personal-world flags were restored. PR #308 checks the live flag-block table again and compares it to the intended private backup **before** shrinking/removing the sidecar or registering the world as the hunter's home. When the setter silently fails or the slot changes, restoration is deferred and the full original backup is retained for retry. This adds an eleventh production-source fixture scenario in which the setter intentionally ignores one flag. Readback still does not establish the game's durable save-data commit; crash/reload of disposable retail 1.09 saves remains a separate acceptance gate.
