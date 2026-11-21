@@ -110,7 +110,7 @@ int LargeBackendReplyHasBoundedReliableDebt() {
         inbound.Receive(frame, 0);
     for (const auto& ack : inbound.Flush(0))
         outbound.Receive(ack, 0);
-    RpcReadPause pause;
+    BloodborneCoop::RpcReadPause pause;
     QByteArray actual;
     constexpr size_t budget = 64 * 1024;
     size_t peak_debt = 0;
