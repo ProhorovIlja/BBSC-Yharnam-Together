@@ -47,6 +47,9 @@ def extract_update(package, destination):
         name = entry.orig_filename
         directory = entry.is_dir()
         parts = (name[:-1] if directory else name).split('/')
+        if any(part.casefold() == '.bbport-update.lock' or
+               part.casefold().startswith('.bbport-update-undo-') for part in parts):
+            raise ValueError(f'Unsafe internal updater member: {name!r}')
         if len(parts) > 32 or len(name) > 1024 or any(not part or part.endswith(('.', ' ')) or _UNSAFE.search(part) or
                _RESERVED.fullmatch(part.split('.')[0].rstrip(' ')) for part in parts):
             raise ValueError(f'Unsafe update archive member: {name!r}')
@@ -95,7 +98,15 @@ def _check_install_path(path, directory, *, required=False):
 
 
 def copy_portable_update(source, target, ignore):
-    """Validate an idle installation and atomically replace individual files, not the whole tree."""
+    """Preflight then replace a package as one recoverable *in-process* transaction.
+
+    Keep the previous content of every modified file until all replacements
+    succeed. If a later replacement fails, restore already replaced files in
+    reverse order, including deleting new files and their empty directories.
+    This is not a power-loss journal: a killed updater can still leave a mixed
+    installation; the lock, staged backup and an explicit recovery mechanism
+    are needed before claiming crash-durable transactions.
+    """
     source, target = Path(source), Path(target)
     if not target.is_dir():
         raise ValueError('The current installation directory is missing')
@@ -106,34 +117,91 @@ def copy_portable_update(source, target, ignore):
             target_real in source_real.parents):
         raise ValueError('Update staging and installation must be separate trees')
 
+    planned = []
+
     def preflight(src, dst):
         entries = list(src.iterdir())
         skipped = ignore(str(src), [item.name for item in entries])
         for item in entries:
             if item.name in skipped:
                 continue
+            # A package must never replace our persistent inter-process lock or
+            # transaction state. Even a symlink-free ZIP may contain these names.
+            if (item.name.casefold() == '.bbport-update.lock' or
+                    item.name.casefold().startswith('.bbport-update-undo-')):
+                raise ValueError('Update archive contains internal updater state')
             directory = item.is_dir()
             _check_install_path(item, directory, required=True)
             candidate = dst / item.name
             _check_install_path(candidate, directory)
             if directory:
                 preflight(item, candidate)
-
-    def replace_file(src, dst):
-        fd, name = tempfile.mkstemp(prefix='.bb-update-', dir=Path(dst).parent)
-        os.close(fd)
-        try:
-            shutil.copyfile(src, name)
-            os.replace(name, dst)
-        finally:
-            try:
-                os.unlink(name)
-            except FileNotFoundError:
-                pass
-        return dst
+            else:
+                planned.append((item, candidate, candidate.exists()))
 
     preflight(source, target)
-    shutil.copytree(source, target, dirs_exist_ok=True, ignore=ignore, copy_function=replace_file)
+    if not planned:
+        raise ValueError('No files to update')
+
+    # Backups and new payloads must be on the same volume as the installation
+    # so os.replace of each file is atomic. A separate new scratch directory
+    # inside target is only created after the full path and type preflight.
+    undo = Path(tempfile.mkdtemp(prefix='.bbport-update-undo-', dir=target))
+    payload, originals = undo / 'payload', undo / 'originals'
+    payload.mkdir()
+    originals.mkdir()
+    created_directories = []
+    replaced = []
+    cleanup = True
+    try:
+        # Prepare every new payload and old-file backup before touching a
+        # single installed binary, including the files late in the update.
+        for index, (src, dst, existed) in enumerate(planned):
+            shutil.copyfile(src, payload / str(index))
+            if existed:
+                shutil.copyfile(dst, originals / str(index))
+
+        try:
+            for index, (_, dst, existed) in enumerate(planned):
+                missing = []
+                parent = dst.parent
+                while parent != target and not parent.exists():
+                    missing.append(parent)
+                    parent = parent.parent
+                for folder in reversed(missing):
+                    _check_install_path(folder.parent, True, required=True)
+                    folder.mkdir()
+                    created_directories.append(folder)
+                # The old bytes remain in the undo directory until every
+                # replacement succeeds, not only until this file succeeds.
+                os.replace(payload / str(index), dst)
+                replaced.append((index, dst, existed))
+        except Exception as apply_error:
+            restore_errors = []
+            for index, dst, existed in reversed(replaced):
+                try:
+                    if existed:
+                        os.replace(originals / str(index), dst)
+                    else:
+                        dst.unlink()
+                except OSError as rollback_error:
+                    restore_errors.append(f'{dst}: {rollback_error}')
+            for folder in reversed(created_directories):
+                try:
+                    folder.rmdir()  # Never remove user data or nonempty folders.
+                except OSError:
+                    pass
+            if restore_errors:
+                # Do not discard the only intact old bytes when rollback fails.
+                cleanup = False
+                raise RuntimeError(
+                    'Portable update rollback incomplete; backups retained at '
+                    f'{undo}; failures: {"; ".join(restore_errors)}'
+                ) from apply_error
+            raise
+    finally:
+        if cleanup:
+            shutil.rmtree(undo, ignore_errors=True)
 
 
 def make_portable_stage(parent=None):
