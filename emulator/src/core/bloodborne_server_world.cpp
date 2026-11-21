@@ -2862,15 +2862,17 @@ size_t SetWorldFlags(const WorldStore& world, const WorldFlags& target) {
 bool PutOwnWorldBack(int slot, std::string_view why) {
     const std::string text = ReadWholeFile(PersonalWorldFile(slot));
     if (text.empty()) {
-        personal_world_due = false;
-        return false;
+        std::error_code error;
+        personal_world_due = std::filesystem::exists(PersonalWorldFile(slot), error) ||
+                             static_cast<bool>(error);
+        return false; // a present but unreadable backup is not an absent backup
     }
     auto own = ParseWorldFlags(text);
     std::optional<WorldStore> store = ReadWorldStore();
     if (!own || !store) {
         LOG_WARNING(Debug, "Co-op team world: slot {}'s own world {}", slot,
                     own ? "waits (the flags are not readable now)" : "does not read: left");
-        personal_world_due = own.has_value();
+        personal_world_due = true;
         return false;
     }
     std::erase_if(store->blocks, [&](const FlagBlockBits& block) {
@@ -2880,7 +2882,21 @@ bool PutOwnWorldBack(int slot, std::string_view why) {
         return false;
     }
     const size_t changed = SetWorldFlags(*store, *own);
+    const auto after = ReadWorldStore();
     const u32 per_block = store->store.flags_per_block;
+    if (!after || after->store.flags_per_block != per_block || character_slot.load() != slot) {
+        personal_world_due = true;
+        return false;
+    }
+    // The native setter returns void. An attempted write is not a restored block.
+    for (const FlagBlockBits& block : store->blocks) {
+        const auto observed = std::ranges::find(after->blocks, block.id, &FlagBlockBits::id);
+        if (observed == after->blocks.end() ||
+            !WorldFlagChanges(per_block, std::span{&*observed, 1}, *own).empty()) {
+            personal_world_due = true;
+            return false; // retain the full original snapshot for retry
+        }
+    }
     for (const FlagBlockBits& block : store->blocks) {
         std::erase(own->blocks, block.id);
         std::erase_if(own->on, [&](s32 flag) { return u32(flag) / per_block == block.id; });
@@ -2888,9 +2904,9 @@ bool PutOwnWorldBack(int slot, std::string_view why) {
     if (own->blocks.empty()) {
         std::error_code error;
         std::filesystem::remove(PersonalWorldFile(slot), error);
-        personal_world_due = false;
+        personal_world_due = static_cast<bool>(error);
     } else {
-        WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(*own));
+        personal_world_due = !WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(*own));
     }
     LOG_INFO(Debug,
              "Co-op team world: slot {} {}: its own world is back in {} blocks ({} flags "
@@ -3117,8 +3133,10 @@ void ApplyTeamWorldOnLoad(bool trip) {
             // Its own world comes back first, block by block as the loads bring them (the blocks
             // still to come at this world's next loads, its home world's).
             std::error_code error;
-            if (std::filesystem::exists(PersonalWorldFile(slot), error) &&
-                PutOwnWorldBack(slot, "makes a new world")) {
+            if (std::filesystem::exists(PersonalWorldFile(slot), error) || error) {
+                if (!PutOwnWorldBack(slot, "makes a new world")) {
+                    return; // do not publish another hunter's world while restoration is unverified
+                }
                 store = ReadWorldStore();
                 if (!store) {
                     return;
@@ -3172,8 +3190,10 @@ void ApplyTeamWorldOnLoad(bool trip) {
         // Its own world kept aside while it visited another's comes back first: the home world
         // goes on from it.
         std::error_code error;
-        if (std::filesystem::exists(PersonalWorldFile(slot), error) &&
-            PutOwnWorldBack(slot, "is back in its home world")) {
+        if (std::filesystem::exists(PersonalWorldFile(slot), error) || error) {
+            if (!PutOwnWorldBack(slot, "is back in its home world")) {
+                return; // do not publish another hunter's world while restoration is unverified
+            }
             store = ReadWorldStore();
             if (!store) {
                 return;
