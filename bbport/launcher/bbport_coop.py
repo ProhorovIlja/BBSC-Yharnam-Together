@@ -355,13 +355,21 @@ SECRET_DAYS = 29
 def is_signed_in_global(settings, now=None):
     url = global_url(settings)
     held = (settings.get('server_ids') or {}).get(server_key(url)) if url else None
-    if not held:
+    if not isinstance(held, (list, tuple)) or len(held) != 2:
+        return False
+    account, secret = held
+    # Global signed sessions are 32-byte printable tokens with a Unix-epoch
+    # issue time in the first eight hex chars. An invalid/forged future stamp
+    # must not keep a copied or corrupt profile in a permanently "signed in"
+    # state, hiding the sign-in form even though the server will refuse it.
+    if not valid_name(account) or not valid_secret(secret) or len(secret) != 32:
         return False
     try:
-        issued = int(held[1][:8], 16)
+        issued = int(secret[:8], 16)
     except ValueError:
         return False
-    return (time.time() if now is None else now) - issued < SECRET_DAYS * 24 * 3600
+    age = (time.time() if now is None else now) - issued
+    return -300 <= age < SECRET_DAYS * 24 * 3600
 
 
 def signed_in_global(settings, account):
