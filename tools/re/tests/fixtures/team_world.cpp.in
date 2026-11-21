@@ -67,7 +67,9 @@ FlagStore ReadFlagStore() {
     return store;
 }
 bool EventFlagOn(s32 flag) { return (memory[u32(flag) / 8][0] & (0x80 >> (u32(flag) % 8))) != 0; }
+s32 ignored_flag = -1;
 void SetGameFlag(u64, s32 flag, bool on) {
+    if (flag == ignored_flag) return;
     auto& byte = memory[u32(flag) / 8][0];
     const u8 mask = static_cast<u8>(0x80 >> (u32(flag) % 8));
     byte = on ? static_cast<u8>(byte | mask) : static_cast<u8>(byte & ~mask);
@@ -245,6 +247,24 @@ bool FailedBackupExtensionPreservesThePreviousCompleteBackup() {
     CHECK(ReadWholeFile(PersonalWorldFile(0)) == before);
     return true;
 }
+bool FailedNativeRestoreKeepsBackupAndBlocksHomeRegistration() {
+    Reset(true);
+    WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds({}));
+    WriteWholeFile(PersonalWorldFile(0), FormatWorldFlags({{8}, {1}}));
+    const auto before = ReadWholeFile(PersonalWorldFile(0));
+    memory[1][0] = 0x40;
+    ignored_flag = 8;
+    ApplyTeamWorldOnLoad(false);
+    ignored_flag = -1;
+    CHECK(!EventFlagOn(8) && personal_world_due && !team_world_taken);
+    CHECK(ReadWholeFile(PersonalWorldFile(0)) == before);
+    CHECK(ReadHomeWorlds(0)->worlds.empty());
+    CHECK(PutOwnWorldBack(0, "fixture retry"));
+    CHECK(EventFlagOn(8) && !EventFlagOn(9));
+    CHECK(!std::filesystem::exists(PersonalWorldFile(0)));
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -259,8 +279,9 @@ int main() {
                       FailedBackupDefersExistingWorldAndCanRetry,
                       FailedBackupDefersAnUncreatedWorld,
                       MalformedOrUnreadableBackupNeverBecomesAnEmptyOwnWorld,
-                      FailedBackupExtensionPreservesThePreviousCompleteBackup}) if (!test()) ++failed;
+                      FailedBackupExtensionPreservesThePreviousCompleteBackup,
+                      FailedNativeRestoreKeepsBackupAndBlocksHomeRegistration}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (10 - failed) << "/10 passed\n";
+    std::cout << "World preservation scenarios: " << (11 - failed) << "/11 passed\n";
     return failed ? 1 : 0;
 }
