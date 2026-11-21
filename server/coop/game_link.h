@@ -176,6 +176,11 @@ public:
 
     // The frames to send now: new packets, reliable ones due again, and an ack when one is owed.
     std::vector<GameFrame> Flush(s64 now_ms) {
+        if (++flush_serial == 0) {
+            // Keep the per-packet membership tag unique across a u64 wrap.
+            for (auto& [seq, out] : unacked) out.emitted_flush = 0;
+            flush_serial = 1;
+        }
         std::vector<GameFrameEntry> entries;
         for (Outgoing& out : fresh) {
             entries.push_back({out.packet_class, out.seq, out.packet});
@@ -185,7 +190,10 @@ public:
                 sent_reliable_end = out.seq + 1;
                 out.sent_ms = now_ms;
                 out.wait_ms = settings.resend_ms;
-                unacked.emplace(out.seq, std::move(out));
+                // A freshly emitted packet must not also be resent during
+                // this Flush (including when the configured delay is zero).
+                auto sent = unacked.emplace(out.seq, std::move(out)).first;
+                sent->second.emitted_flush = flush_serial;
             }
         }
         fresh.clear();
@@ -204,16 +212,17 @@ public:
             if (quiet || resent >= settings.max_resends) {
                 break;
             }
-            if (now_ms - out.sent_ms >= out.wait_ms &&
-                std::ranges::none_of(entries, [&](const GameFrameEntry& entry) {
-                    return entry.packet_class == PacketClass::Reliable && entry.seq == seq;
-                })) {
-                out.sent_ms = now_ms;
-                out.wait_ms = (std::min)(out.wait_ms * 2, settings.max_resend_ms);
-                ++resends;
-                ++resent;
-                entries.push_back({out.packet_class, out.seq, out.packet});
+            // Do not scan an ever-growing outgoing vector for every retry.
+            // Per-outgoing tags retain exact packet ordering and backoff.
+            if (now_ms - out.sent_ms < out.wait_ms || out.emitted_flush == flush_serial) {
+                continue;
             }
+            out.emitted_flush = flush_serial;
+            out.sent_ms = now_ms;
+            out.wait_ms = (std::min)(out.wait_ms * 2, settings.max_resend_ms);
+            ++resends;
+            ++resent;
+            entries.push_back({out.packet_class, out.seq, out.packet});
         }
         std::vector<GameFrame> frames;
         size_t bytes = 0;
@@ -337,6 +346,7 @@ private:
         s64 sent_ms;
         s64 wait_ms = 0; // until its next resend (backs off)
         s64 queued_ms = 0;
+        u64 emitted_flush = 0;
     };
     // The game's join hello: the first it sends a member's game in a session.
     static constexpr u32 JoinHelloChannel = 0x42;
@@ -448,6 +458,7 @@ private:
     std::map<u32, Outgoing> unacked;
     size_t reliable_bytes = 0; // the reliable packets' in fresh and unacked
     u64 resends = 0;
+    u64 flush_serial = 0;
     bool was_quiet = false;         // the last flush found the member silent
     bool heard_since_quiet = false; // and it was heard since
 
