@@ -528,6 +528,54 @@ bool DamagedHomeMetadataDefersPersonalRestoreWithoutLosingBackup() {
     return true;
 }
 
+
+// A redirected source or staging name must not consume another character's
+// data. Windows runners may lack the privilege to create a test symlink, so
+// this fixture also exercises a .part directory on all platforms.
+bool LinkedSidecarsAndScratchFilesNeverTruncateOutsideWorldData() {
+    Reset(false, true);
+    const auto outside = test_root / "unrelated-character-data";
+    { std::ofstream file{outside}; file << "never-touch-this"; }
+    auto partial = HomeWorldFile(0);
+    partial += ".part";
+    std::error_code error;
+    std::filesystem::create_symlink(outside, partial, error);
+    if (!error) {
+        CHECK(!WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds({})));
+        CHECK(ReadWholeFile(outside) == "never-touch-this");
+        std::filesystem::remove(partial);
+    } else {
+        error.clear();
+        std::filesystem::create_directory(partial);
+        CHECK(!WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds({})));
+        CHECK(ReadWholeFile(outside) == "never-touch-this");
+        std::filesystem::remove(partial);
+    }
+
+    const auto home = HomeWorldFile(0);
+    std::filesystem::create_symlink(outside, home, error);
+    if (!error) {
+        CHECK(ReadWholeFile(home).empty());
+        CHECK(!WriteWholeFile(home, FormatHomeWorlds({})));
+        ApplyTeamWorldOnLoad(false);
+        CHECK(!team_world_taken && EventFlagOn(8) && !EventFlagOn(9));
+        CHECK(ReadWholeFile(outside) == "never-touch-this");
+        std::filesystem::remove(home);
+    }
+    error.clear();
+    const auto own = PersonalWorldFile(0);
+    std::filesystem::create_symlink(outside, own, error);
+    if (!error) {
+        CHECK(ReadWholeFile(own).empty());
+        CHECK(!WriteWholeFile(own, FormatWorldFlags({{8}, {1}})));
+        RetireOwnWorld(0);
+        CHECK(std::filesystem::is_symlink(own));
+        CHECK(ReadWholeFile(outside) == "never-touch-this");
+        std::filesystem::remove(own);
+    }
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -555,8 +603,9 @@ int main() {
                       RejectedNativeTeamFlagWriteDoesNotAcknowledgeWorldTakeover,
                       OversizedOwnWorldNeverLoadsOrGetsOverwritten,
                       DamagedHomeMetadataIsNotReplacedOnHostOrGuestJoin,
-                      DamagedHomeMetadataDefersPersonalRestoreWithoutLosingBackup}) if (!test()) ++failed;
+                      DamagedHomeMetadataDefersPersonalRestoreWithoutLosingBackup,
+                      LinkedSidecarsAndScratchFilesNeverTruncateOutsideWorldData}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (23 - failed) << "/23 passed\n";
+    std::cout << "World preservation scenarios: " << (24 - failed) << "/24 passed\n";
     return failed ? 1 : 0;
 }
