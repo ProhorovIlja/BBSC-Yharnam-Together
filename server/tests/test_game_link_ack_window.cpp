@@ -66,5 +66,21 @@ int main() {
     const size_t pending = restarting.Unacked();
     restarting.Receive(GameFrame{"guest", 5, 3, 123, {}}, 5);
     REQUIRE(restarting.Unacked() == pending);
+    // Combined #309 + #311 invariant: a stale recipient carrying a future
+    // ACK and a different peer instance may neither reset the active stream
+    // nor retire an unflushed reliable join packet.
+    GameLinkPeer protected_host{"host", 8};
+    protected_host.Receive(GameFrame{"guest", 2, 8, 0, {}}, 1);
+    protected_host.Send(PacketClass::Reliable, world, 2);
+    (void)protected_host.Flush(2);
+    protected_host.Send(PacketClass::Reliable, join, 3);
+    const auto old_unacked = protected_host.Unacked();
+    protected_host.Receive(
+        GameFrame{"guest", 3, 777, std::numeric_limits<u32>::max(),
+                  {{PacketClass::Reliable, 0, Packet(0x42, 90)}}}, 4);
+    REQUIRE(protected_host.Restarts() == 0);
+    REQUIRE(protected_host.Unacked() == old_unacked);
+    REQUIRE(protected_host.SilentFor(5) == 4);
+    REQUIRE(protected_host.Flush(5).front().peer_instance == 2);
     std::cout << "GameLink impossible-ACK and queued world data preserved\n";
 }
