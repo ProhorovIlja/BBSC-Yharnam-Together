@@ -3121,10 +3121,16 @@ void ApplyTeamWorldOnLoad(bool trip) {
         return;
     }
     // Never restore or retire a legacy personal snapshot while its home
-    // registration remains half-committed. Only touch the current save's
-    // slot after the native flag store has become readable.
-    if (const int slot = character_slot.load(); slot >= 0 && ReadFlagStore().whole) {
-        if (!FinishPendingWorldRetirement(slot)) {
+    // registration remains half-committed. If the native slot's flags are
+    // not readable yet, wait instead of accidentally taking this pending
+    // archive as a fresh guest backup in another load branch.
+    if (const int slot = character_slot.load(); slot >= 0) {
+        if (!HomeWorldRecordReadableOrAbsent(slot)) {
+            return;
+        }
+        const auto home = ReadHomeWorlds(slot);
+        if (home && home->archive_pending &&
+            (!ReadFlagStore().whole || !FinishPendingWorldRetirement(slot))) {
             return;
         }
     }
