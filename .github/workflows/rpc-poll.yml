@@ -1,0 +1,33 @@
+name: POSIX RPC high-descriptor safety
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/libraries/network/rpc_poll.h'
+      - 'emulator/src/core/libraries/network/rpc_bridge.cpp'
+      - 'server/tests/test_rpc_poll.cpp'
+      - '.github/workflows/rpc-poll.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  high-fd:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: POSIX descriptor high-water regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -n 4096
+          c++ -std=c++20 -Wall -Wextra -Werror -pedantic -Iemulator/src server/tests/test_rpc_poll.cpp -o "$RUNNER_TEMP/rpc-poll"
+          "$RUNNER_TEMP/rpc-poll"

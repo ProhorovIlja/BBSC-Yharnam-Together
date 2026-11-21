@@ -19,7 +19,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <sys/select.h>
+#include "core/libraries/network/rpc_poll.h"
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -55,11 +55,16 @@ s64 NowMs() {
 
 // Whether `socket` has something to read (a connection, bytes, its end) within `ms`.
 bool Readable(Socket socket, int ms) {
+#ifdef _WIN32
     fd_set read_set;
     FD_ZERO(&read_set);
     FD_SET(socket, &read_set);
     timeval timeout{0, ms * 1000};
-    return select(static_cast<int>(socket) + 1, &read_set, nullptr, nullptr, &timeout) > 0;
+    // Winsock ignores nfds; a SOCKET is a handle, not a POSIX descriptor.
+    return select(0, &read_set, nullptr, nullptr, &timeout) > 0;
+#else
+    return RpcLocal::ReadableFd(socket, ms);
+#endif
 }
 
 class Bridge {
