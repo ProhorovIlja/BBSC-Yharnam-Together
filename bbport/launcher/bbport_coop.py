@@ -151,7 +151,7 @@ def region_url(value):
 def shard_address(shard):
     """(address, port) of a directory's shard row, or None."""
     host, _, port = str(shard.get('address', '')).rpartition(':')
-    if not re.fullmatch(r'\d{1,3}(\.\d{1,3}){3}', host) or not port.isdigit() or not 0 < int(port) < 65536:
+    if not valid_ip(host) or not port.isdigit() or not 0 < int(port) < 65536:
         return None
     return host, int(port)
 
@@ -160,8 +160,12 @@ def pick_shard(shards, own=None):
     """The shard the game starts on: `own` (where the player is, or last played a world) when it is up,
     not draining and has room; else the least loaded by its share of its capacity. None when none is."""
     def usable(shard):
-        return (shard and shard_address(shard) and valid_link_key(shard.get('key', '')) and not shard.get('draining')
-                and shard.get('players', 0) < max(1, shard.get('capacity', 0)))
+        if not isinstance(shard, dict) or not shard_address(shard) or not valid_link_key(shard.get('key', '')):
+            return False
+        players, capacity = shard.get('players', 0), shard.get('capacity', 0)
+        return (type(players) is int and type(capacity) is int and
+                players >= 0 and capacity > 0 and players < capacity and
+                isinstance(shard.get('name', ''), str) and not shard.get('draining'))
     if own and usable(own):
         return own
     candidates = [shard for shard in shards if usable(shard)]
@@ -190,11 +194,17 @@ def use_system_certificates():
     return True
 
 
+REGION_DIRECTORY_MAX_BYTES = 64 * 1024
+
+
 def fetch_json(url, timeout=10):
-    """The JSON a directory answers, None for a 404."""
+    """Bound the directory JSON response before parsing; None for a 404."""
     try:
         with urllib.request.urlopen(url, timeout=timeout) as answer:
-            return json.loads(answer.read())
+            raw = answer.read(REGION_DIRECTORY_MAX_BYTES + 1)
+            if len(raw) > REGION_DIRECTORY_MAX_BYTES:
+                raise ValueError('region directory reply exceeds 64 KiB')
+            return json.loads(raw)
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return None
@@ -210,10 +220,14 @@ def resolve_region(url, player, fetch=fetch_json):
     directory does not answer or no shard has room."""
     try:
         where = fetch(f'{url}/v1/where?player={urllib.parse.quote(player)}')
-        listed = fetch(f'{url}/v1/shards') or {}
+        listed = fetch(f'{url}/v1/shards')
+        if where is not None and not isinstance(where, dict):
+            raise ValueError('invalid player lookup reply')
+        if not isinstance(listed, dict) or not isinstance(listed.get('shards'), list):
+            raise ValueError('invalid shards reply')
+        shards = listed['shards']
     except (OSError, ValueError) as error:
         raise RuntimeError(REGION_DOWN_TEXT.format(url)) from error
-    shards = listed.get('shards') or []
     shard = pick_shard(shards, (where or {}).get('shard'))
     if shard is None:
         raise RuntimeError(REGION_FULL_TEXT.format(url))
