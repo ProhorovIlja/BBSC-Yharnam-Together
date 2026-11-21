@@ -215,6 +215,72 @@ class PortableUpdateZipTests(unittest.TestCase):
             self.assertEqual((install / 'user' / 'hunter.save').read_bytes(), b'unique-save')
             self.assertFalse(list(install.glob('.bbport-update-undo-*')))
 
+    def test_failed_payload_or_backup_fsync_never_publishes_ready_journal(self):
+        from bbport_update_zip import copy_portable_update
+
+        for sync_call in (1, 2):
+            with self.subTest(sync_call=sync_call), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                stage, install = root / 'stage', root / 'install'
+                stage.mkdir()
+                install.mkdir()
+                (stage / 'BLauncher.exe').write_bytes(b'new')
+                (install / 'BLauncher.exe').write_bytes(b'old')
+                real_fsync = os.fsync
+                calls = 0
+
+                def fail_sync(fd):
+                    nonlocal calls
+                    calls += 1
+                    if calls == sync_call:
+                        raise OSError('simulated disk flush failure before ready')
+                    return real_fsync(fd)
+
+                with mock.patch('bbport_update_zip.os.fsync', side_effect=fail_sync):
+                    with self.assertRaisesRegex(OSError, 'disk flush failure'):
+                        copy_portable_update(stage, install, lambda *_: ())
+                self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'old')
+                self.assertFalse(list(install.glob('.bbport-update-undo-*')))
+                copy_portable_update(stage, install, lambda *_: ())
+                self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'new')
+
+    def test_failed_recovery_fsync_retains_original_backups_for_retry(self):
+        from bbport_update_zip import copy_portable_update
+        from bbport_update_recovery import recover_pending_portable_updates
+        import shutil
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            stage, install = root / 'stage', root / 'install'
+            stage.mkdir()
+            install.mkdir()
+            for name in ('BLauncher.exe', 'engine.dll'):
+                (stage / name).write_bytes(b'new-' + name.encode())
+                (install / name).write_bytes(b'old-' + name.encode())
+            original_replace = os.replace
+            calls = 0
+
+            def killed_after_first_replacement(src, dst):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise SystemExit('simulated abrupt updater termination')
+                return original_replace(src, dst)
+
+            with mock.patch('bbport_update_zip.os.replace', side_effect=killed_after_first_replacement):
+                with self.assertRaises(SystemExit):
+                    copy_portable_update(stage, install, shutil.ignore_patterns('user'))
+            backups = list(install.glob('.bbport-update-undo-*'))
+            self.assertEqual(len(backups), 1)
+            with mock.patch('bbport_update_recovery.os.fsync',
+                            side_effect=OSError('simulated rollback flush failure')):
+                with self.assertRaisesRegex(OSError, 'rollback flush failure'):
+                    recover_pending_portable_updates(install)
+            self.assertEqual(list(install.glob('.bbport-update-undo-*')), backups)
+            self.assertEqual(recover_pending_portable_updates(install), 1)
+            for name in ('BLauncher.exe', 'engine.dll'):
+                self.assertEqual((install / name).read_bytes(), b'old-' + name.encode())
+
     def test_failed_copy_before_commit_never_mutates_install(self):
         from bbport_update_zip import copy_portable_update
 
