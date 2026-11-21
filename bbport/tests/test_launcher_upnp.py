@@ -28,7 +28,7 @@ DESCRIPTION = f'''<?xml version="1.0"?>
 class Router:
     """A fake gateway: its description, GetExternalIPAddress, Add/Delete/GetSpecificPortMappingEntry."""
 
-    def __init__(self, public='203.0.113.7', refuse=()):
+    def __init__(self, public='8.8.8.8', refuse=()):
         self.public, self.refuse, self.mappings, self.calls = public, set(refuse), {}, []
         router = self
 
@@ -93,7 +93,7 @@ class UpnpTests(unittest.TestCase):
         router, found = self.router()
         result = upnp.open_ports(found=found)
         self.assertEqual(result['state'], 'open')
-        self.assertEqual(result['public'], '203.0.113.7')
+        self.assertEqual(result['public'], '8.8.8.8')
         self.assertEqual(result['local'], '127.0.0.1')
         self.assertEqual(set(router.mappings), {('TCP', '31315'), ('TCP', '20443'), ('UDP', '31314')})
         self.assertEqual(set(router.mappings.values()), {'127.0.0.1'})
@@ -107,6 +107,17 @@ class UpnpTests(unittest.TestCase):
             result = upnp.open_ports(found=found)
             self.assertEqual(result['state'], 'cgnat', address)
             self.assertEqual(router.mappings, {})
+
+    def test_invalid_reserved_wan_refuses_all_mapping_attempts(self):
+        for address in ('203.0.113.7', '198.51.100.3', '240.0.0.1',
+                        '255.255.255.255', '224.5.6.7'):
+            with self.subTest(address=address):
+                router, found = self.router(public=address)
+                result = upnp.open_ports(found=found)
+                self.assertEqual(result['state'], 'cgnat')
+                self.assertEqual(result['public'], address)
+                self.assertEqual(router.mappings, {})
+                self.assertFalse(any(action == 'AddPortMapping' for action, _ in router.calls))
 
     def test_a_refused_port_is_named(self):
         router, found = self.router(refuse={'UDP 31314'})
@@ -166,9 +177,12 @@ class UpnpTests(unittest.TestCase):
         self.assertEqual(upnp.default_gateways(route_print), [('192.168.1.1', '192.168.1.20')])
 
     def test_public_addresses(self):
-        self.assertTrue(upnp.is_public('203.0.113.7'))
+        self.assertTrue(upnp.is_public('8.8.8.8'))
         self.assertTrue(upnp.is_public('26.1.2.3'))
-        for address in ('100.64.0.1', '172.16.4.4', '127.0.0.1', '0.0.0.0', 'not an ip', ''):
+        for address in ('100.64.0.1', '172.16.4.4', '127.0.0.1', '0.0.0.0',
+                        '203.0.113.7', '192.0.2.1', '198.51.100.42', '198.18.0.1',
+                        '224.0.0.1', '240.1.2.3', '255.255.255.255',
+                        'not an ip', ''):
             self.assertFalse(upnp.is_public(address), address)
 
 
