@@ -730,7 +730,8 @@ std::string FormatHomeWorlds(const HomeWorlds& home) {
     for (const HomeWorlds::World& world : home.worlds) {
         text += world.id + " " + std::to_string(world.version) + "\n";
     }
-    return text + (home.alone ? "alone\n" : "") + "end\n";
+    return text + (home.alone ? "alone\n" : "") +
+           (home.archive_pending ? "archive_pending\n" : "") + "end\n";
 }
 
 std::optional<HomeWorlds> ParseHomeWorlds(std::string_view text) {
@@ -756,6 +757,10 @@ std::optional<HomeWorlds> ParseHomeWorlds(std::string_view text) {
         }
         if (line == "alone" && part == 1) {
             home.alone = true;
+            continue;
+        }
+        if (line == "archive_pending" && part == 1 && !home.archive_pending) {
+            home.archive_pending = true;
             continue;
         }
         const auto space = line.find(' ');
