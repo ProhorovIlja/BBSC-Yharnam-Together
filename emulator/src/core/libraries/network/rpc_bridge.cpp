@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/libraries/network/rpc_bridge.h"
+#include "core/libraries/network/rpc_safe_send.h"
 
 #include <array>
 #include <chrono>
@@ -65,7 +66,7 @@ bool SendAll(Socket socket, std::span<const u8> bytes) {
     size_t sent = 0;
     while (sent < bytes.size()) {
         const int rc = send(socket, reinterpret_cast<const char*>(bytes.data() + sent),
-                            static_cast<int>(bytes.size() - sent), 0);
+                            static_cast<int>(bytes.size() - sent), RpcLocal::SafeSendFlags());
         if (rc <= 0) {
             return false;
         }
@@ -140,6 +141,16 @@ private:
         if (client == NoSocket) {
             return;
         }
+#if defined(SO_NOSIGPIPE)
+        // Darwin/BSD do not have MSG_NOSIGNAL: suppress SIGPIPE per socket.
+        const int no_sigpipe = 1;
+        if (setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe,
+                       sizeof(no_sigpipe)) != 0) {
+            LOG_ERROR(Lib_Net, "Rpc bridge: could not disable SIGPIPE for local client");
+            DropClient();
+            return;
+        }
+#endif
         tunnel.Open(now_ms);
     }
 

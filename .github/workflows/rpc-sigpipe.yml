@@ -1,0 +1,28 @@
+name: POSIX RPC local send safety
+
+on:
+  pull_request:
+    paths:
+      - 'emulator/src/core/libraries/network/rpc_bridge.cpp'
+      - 'emulator/src/core/libraries/network/rpc_safe_send.h'
+      - 'emulator/tests/bloodborne/test_rpc_sigpipe.cpp'
+      - '.github/workflows/rpc-sigpipe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  posix-send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile and run SIGPIPE regression with default signal action
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ -std=c++20 -Wall -Wextra -Werror -pedantic emulator/tests/bloodborne/test_rpc_sigpipe.cpp -o "$RUNNER_TEMP/rpc-sigpipe"
+          "$RUNNER_TEMP/rpc-sigpipe"
