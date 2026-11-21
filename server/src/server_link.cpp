@@ -1062,16 +1062,20 @@ Hub::Result Hub::Tick(qint64 now_ms) {
                                .arg(count);
             }
             link.refused.clear();
-            result.log.append(QStringLiteral("server link: %1 in %2 frames/%3 bytes, out %4 "
-                                             "frames/%5 bytes, %6 pings%7%8")
-                                  .arg(Name(link))
-                                  .arg(link.frames_in)
-                                  .arg(link.bytes_in)
-                                  .arg(link.frames_out)
-                                  .arg(link.bytes_out)
-                                  .arg(link.pings)
-                                  .arg(link.quiet ? ", quiet" : "")
-                                  .arg(refused));
+            // Keep the refusal signal even when routine summaries are off.
+            // Counters still reset below to preserve the same time window.
+            if (log_traffic_summaries || !refused.isEmpty()) {
+                result.log.append(QStringLiteral("server link: %1 in %2 frames/%3 bytes, out %4 "
+                                                 "frames/%5 bytes, %6 pings%7%8")
+                                      .arg(Name(link))
+                                      .arg(link.frames_in)
+                                      .arg(link.bytes_in)
+                                      .arg(link.frames_out)
+                                      .arg(link.bytes_out)
+                                      .arg(link.pings)
+                                      .arg(link.quiet ? ", quiet" : "")
+                                      .arg(refused));
+            }
             link.frames_in = link.bytes_in = link.frames_out = link.bytes_out = 0;
             link.pings = 0;
         }
