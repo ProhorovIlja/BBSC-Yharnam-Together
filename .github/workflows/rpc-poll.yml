@@ -28,5 +28,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          ulimit -n 4096
           c++ -std=c++20 -Wall -Wextra -Werror -pedantic -Iemulator/src server/tests/test_rpc_poll.cpp -o "$RUNNER_TEMP/rpc-poll"
           "$RUNNER_TEMP/rpc-poll"
