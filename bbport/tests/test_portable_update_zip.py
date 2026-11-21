@@ -179,6 +179,112 @@ class PortableUpdateZipTests(unittest.TestCase):
                     self.assertTrue(second.is_dir())
             self.assertEqual(subprocess.run(command, timeout=10).returncode, 0)
 
+    def test_rejects_updater_lock_and_transaction_members(self):
+        self.stage(['BLauncher.exe', '.bbport-update.lock'])
+        self.stage(['BLauncher.exe', '.bbport-update-undo-forged/backup'])
+
+    def test_second_replacement_failure_restores_all_old_files(self):
+        from bbport_update_zip import copy_portable_update
+        import shutil
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            stage, install = root / 'stage', root / 'install'
+            (stage / 'bin').mkdir(parents=True)
+            (install / 'bin').mkdir(parents=True)
+            (install / 'user').mkdir()
+            (install / 'user' / 'hunter.save').write_bytes(b'unique-save')
+            for name in ('BLauncher.exe', 'bin/game.dll'):
+                (stage / name).write_bytes(b'new-' + name.encode())
+                (install / name).write_bytes(b'old-' + name.encode())
+            original_replace = os.replace
+            count = 0
+
+            def fail_second(src, dst):
+                nonlocal count
+                count += 1
+                if count == 2:
+                    raise PermissionError('simulated second file lock')
+                return original_replace(src, dst)
+
+            with mock.patch('bbport_update_zip.os.replace', side_effect=fail_second):
+                with self.assertRaises(PermissionError):
+                    copy_portable_update(stage, install, shutil.ignore_patterns('user'))
+            for name in ('BLauncher.exe', 'bin/game.dll'):
+                self.assertEqual((install / name).read_bytes(), b'old-' + name.encode())
+            self.assertEqual((install / 'user' / 'hunter.save').read_bytes(), b'unique-save')
+            self.assertFalse(list(install.glob('.bbport-update-undo-*')))
+
+    def test_failed_copy_before_commit_never_mutates_install(self):
+        from bbport_update_zip import copy_portable_update
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            stage, install = root / 'stage', root / 'install'
+            stage.mkdir()
+            install.mkdir()
+            (stage / 'BLauncher.exe').write_bytes(b'new')
+            (install / 'BLauncher.exe').write_bytes(b'old')
+            real_copy = __import__('shutil').copyfile
+
+            def fail_backup(src, dst):
+                if Path(src) == install / 'BLauncher.exe':
+                    raise OSError('simulated backup disk full')
+                return real_copy(src, dst)
+
+            with mock.patch('bbport_update_zip.shutil.copyfile', side_effect=fail_backup):
+                with self.assertRaises(OSError):
+                    copy_portable_update(stage, install, lambda *_: ())
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'old')
+            self.assertFalse(list(install.glob('.bbport-update-undo-*')))
+
+    def test_rollback_failure_keeps_backups_for_manual_recovery(self):
+        from bbport_update_zip import copy_portable_update
+        import shutil
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            stage, install = root / 'stage', root / 'install'
+            stage.mkdir()
+            install.mkdir()
+            for name in ('BLauncher.exe', 'game.dll'):
+                (stage / name).write_bytes(b'new')
+                (install / name).write_bytes(b'old')
+            original_replace = os.replace
+            calls = 0
+
+            def deny_second_and_restore(src, dst):
+                nonlocal calls
+                calls += 1
+                if calls >= 2:
+                    raise PermissionError('simulated locked destination and rollback')
+                return original_replace(src, dst)
+
+            with mock.patch('bbport_update_zip.os.replace', side_effect=deny_second_and_restore):
+                with self.assertRaisesRegex(RuntimeError, 'backups retained at'):
+                    copy_portable_update(stage, install, shutil.ignore_patterns('user'))
+            backups = list(install.glob('.bbport-update-undo-*'))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(sorted(p.read_bytes() for p in (backups[0] / 'originals').iterdir()),
+                             [b'old', b'old'])
+            self.assertEqual(sum((install / name).read_bytes() == b'new'
+                                 for name in ('BLauncher.exe', 'game.dll')), 1)
+
+    def test_rejects_direct_lock_file_overlay(self):
+        from bbport_update_zip import copy_portable_update
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            stage, install = root / 'stage', root / 'install'
+            stage.mkdir()
+            install.mkdir()
+            (stage / 'BLauncher.exe').write_bytes(b'new')
+            (stage / '.bbport-update.lock').write_bytes(b'malicious')
+            (install / 'BLauncher.exe').write_bytes(b'old')
+            with self.assertRaises(ValueError):
+                copy_portable_update(stage, install, lambda *_: ())
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'old')
+
     def test_expanded_budget_is_checked_before_staging(self):
         with mock.patch('bbport_update_zip.MAX_EXPANDED_BYTES', 1):
             self.stage(['BLauncher.exe'])
