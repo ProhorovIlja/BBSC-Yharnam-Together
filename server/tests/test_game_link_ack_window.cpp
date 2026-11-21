@@ -82,5 +82,42 @@ int main() {
     REQUIRE(protected_host.Unacked() == old_unacked);
     REQUIRE(protected_host.SilentFor(5) == 4);
     REQUIRE(protected_host.Flush(5).front().peer_instance == 2);
+    // Combined current-main #318 + #323 + #326: after remote run 100
+    // was retired in favor of run 101, a late future-ACK from 100
+    // cannot retire an unsent join, and a genuinely lost new-run packet
+    // must still be retransmitted in order.
+    GameLinkPeer combined{"host", 9};
+    combined.Receive(GameFrame{"guest", 100, 9, 0, {}}, 0);
+    combined.Send(PacketClass::Reliable, world, 1);
+    (void)combined.Flush(1);
+    combined.Receive(GameFrame{"guest", 101, 9, 0, {}}, 2);
+    combined.Send(PacketClass::Reliable, join, 3);
+    const size_t combined_pending = combined.Unacked();
+    REQUIRE(combined_pending == 1);
+    combined.Receive(GameFrame{"guest", 100, 9, std::numeric_limits<u32>::max(),
+                               {{PacketClass::Reliable, 0, Packet(0x42, 90)}}}, 4);
+    REQUIRE(combined.Restarts() == 1);
+    REQUIRE(combined.SilentFor(4) == 2);
+    REQUIRE(combined.Unacked() == combined_pending);
+    combined.Receive(GameFrame{"guest", 101, 9, std::numeric_limits<u32>::max(), {}}, 5);
+    REQUIRE(combined.Unacked() == combined_pending);
+    GameLinkPeer current_guest{"guest", 101};
+    const auto join_frames = combined.Flush(6);
+    REQUIRE(join_frames.size() == 1);
+    REQUIRE(join_frames.front().peer_instance == 101);
+    REQUIRE(join_frames.front().entries.size() == 1);
+    REQUIRE(current_guest.Receive(join_frames.front(), 6) ==
+            (std::vector<std::vector<u8>>{join}));
+    for (const auto& frame: current_guest.Flush(7)) (void)combined.Receive(frame, 7);
+    REQUIRE(combined.Unacked() == 0);
+    combined.Send(PacketClass::Reliable, world, 8);
+    (void)combined.Flush(8); // simulated loss
+    const auto resent_frames = combined.Flush(200);
+    REQUIRE(resent_frames.size() == 1);
+    REQUIRE(resent_frames.front().entries.size() == 1);
+    REQUIRE(current_guest.Receive(resent_frames.front(), 200) ==
+            (std::vector<std::vector<u8>>{world}));
+    for (const auto& frame: current_guest.Flush(201)) (void)combined.Receive(frame, 201);
+    REQUIRE(combined.Unacked() == 0);
     std::cout << "GameLink impossible-ACK and queued world data preserved\n";
 }
