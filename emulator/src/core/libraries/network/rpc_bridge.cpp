@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/libraries/network/rpc_bridge.h"
+#include "core/libraries/network/rpc_frame_length.h"
 #include "core/libraries/network/rpc_local_send.h"
 
 #include <array>
@@ -180,7 +181,14 @@ private:
             if (size < 0) {
                 break;
             }
-            for (auto& event : tunnel.Receive({buffer.data(), static_cast<size_t>(size)}, now_ms)) {
+            const size_t copied = RpcLocal::ValidatedFrameLength(size, buffer.size());
+            if (!copied) {
+                // An adapter may return the original datagram size instead
+                // of bytes actually copied, or a malformed zero-length frame.
+                // Never let either reach the decoder's span boundary.
+                continue;
+            }
+            for (auto& event : tunnel.Receive({buffer.data(), copied}, now_ms)) {
                 if (stop.stop_requested()) return;
                 using Kind = BloodborneCoop::RpcTunnel::Event::Kind;
                 if (event.kind == Kind::Data && client != NoSocket) {
