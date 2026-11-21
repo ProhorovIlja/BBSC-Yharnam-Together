@@ -3309,6 +3309,27 @@ void ApplyTeamWorldOnLoad(bool trip) {
         return;
     }
     const size_t changed = SetWorldFlags(*store, target);
+    // The native game's event-flag setter returns void. A requested change
+    // is not proof that all flags landed: loading/transition hooks may reject
+    // some writes. Do not claim the team world was taken, or retire its
+    // blocks from future retries, until the actual game flag memory agrees.
+    const auto observed = ReadWorldStore();
+    if (!observed || observed->store.flags_per_block != store->store.flags_per_block ||
+        character_slot.load() != slot) {
+        LOG_WARNING(Debug, "Co-op team world: slot {} cannot verify team flags after load; retry",
+                    slot);
+        return;
+    }
+    for (const FlagBlockBits& block : store->blocks) {
+        const auto at = std::ranges::find(observed->blocks, block.id, &FlagBlockBits::id);
+        if (at == observed->blocks.end() ||
+            !WorldFlagChanges(store->store.flags_per_block, std::span{&*at, 1}, target).empty()) {
+            LOG_WARNING(Debug,
+                        "Co-op team world: slot {} block {} still differs after native setter; retry",
+                        slot, block.id);
+            return;
+        }
+    }
     for (const FlagBlockBits& block : store->blocks) {
         team_world_blocks.insert(block.id);
     }
