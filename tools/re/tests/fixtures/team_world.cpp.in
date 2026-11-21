@@ -403,6 +403,35 @@ bool FailedNextPlaythroughSidecarRemovalKeepsPendingTransition() {
     return true;
 }
 
+
+// The world version must retry after a failed sidecar write rather than
+// advancing a cache in memory; two characters with the same world/version
+// must each receive the metadata in their *own* slot.
+bool HostVersionNoteRetriesAndNeverCrossesCharacterSlots() {
+    Reset(true, true);
+    HomeWorlds home;
+    CHECK(home.Add("test"));
+    CHECK(WriteWholeFile(HomeWorldFile(0), FormatHomeWorlds(home)));
+    CHECK(WriteWholeFile(HomeWorldFile(1), FormatHomeWorlds(home)));
+    NoteHomeWorldVersionIfChanged(0, "test", 11);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->Version("test") == 11);
+    CHECK(ReadHomeWorlds(1) && ReadHomeWorlds(1)->Version("test") == 0);
+    NoteHomeWorldVersionIfChanged(1, "test", 11);
+    CHECK(ReadHomeWorlds(1) && ReadHomeWorlds(1)->Version("test") == 11);
+    // A version change on the original slot must not be acknowledged when
+    // a blocked .part path prevents the atomic replacement.
+    auto partial = HomeWorldFile(0); partial += ".part";
+    std::filesystem::create_directory(partial);
+    NoteHomeWorldVersionIfChanged(0, "test", 12);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->Version("test") == 11);
+    CHECK(ReadHomeWorlds(1) && ReadHomeWorlds(1)->Version("test") == 11);
+    std::filesystem::remove_all(partial);
+    NoteHomeWorldVersionIfChanged(0, "test", 12);
+    CHECK(ReadHomeWorlds(0) && ReadHomeWorlds(0)->Version("test") == 12);
+    CHECK(ReadHomeWorlds(1) && ReadHomeWorlds(1)->Version("test") == 11);
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -425,8 +454,9 @@ int main() {
                       FailedNewHostHomeWriteDoesNotClaimRegisteredWorld,
                       FailedAloneMarkerWriteKeepsOwnWorldForRetry,
                       FailedRejoinMarkerWriteDefersTeamFlagsAndDecision,
-                      FailedNextPlaythroughSidecarRemovalKeepsPendingTransition}) if (!test()) ++failed;
+                      FailedNextPlaythroughSidecarRemovalKeepsPendingTransition,
+                      HostVersionNoteRetriesAndNeverCrossesCharacterSlots}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (18 - failed) << "/18 passed\n";
+    std::cout << "World preservation scenarios: " << (19 - failed) << "/19 passed\n";
     return failed ? 1 : 0;
 }
