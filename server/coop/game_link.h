@@ -234,6 +234,12 @@ public:
 
     // A frame from the member: the packets for the game, in order.
     std::vector<std::vector<u8>> Receive(const GameFrame& frame, s64 now_ms) {
+        // A delayed packet for the previous local run must not refresh liveness
+        // or reset a new peer stream before we check the intended recipient.
+        if (frame.peer_instance != 0 && frame.peer_instance != instance) {
+            ack_owed = true; // advertise this run for discovery
+            return {};
+        }
         if (was_quiet) {
             heard_since_quiet = true;
         }
@@ -244,12 +250,6 @@ public:
                 RestartStreams(heard_before);
             }
             peer_instance = frame.instance;
-        }
-        if (frame.peer_instance != 0 && frame.peer_instance != instance) {
-            // Meant for this member's earlier game (this one restarted): nothing of it is taken,
-            // and a frame goes back at once so the sender starts its streams again.
-            ack_owed = true;
-            return {};
         }
         if (frame.peer_instance == instance) {
             const auto acked = unacked.lower_bound(frame.ack);
@@ -354,8 +354,9 @@ private:
         next_unreliable = 0;
         unacked.clear();
         reliable_bytes = 0;
-        std::erase_if(
-            fresh, [](const Outgoing& out) { return out.packet_class == PacketClass::Reliable; });
+        // Unreliable snapshots queued before restart still carry the old
+        // sequence space. Never retarget them to the new instance.
+        fresh.clear();
         if (hello != pending.rend()) {
             for (auto out = std::prev(hello.base()); out != pending.end(); ++out) {
                 out->seq = next_reliable++;
