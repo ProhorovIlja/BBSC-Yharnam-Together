@@ -3006,6 +3006,16 @@ bool PutOwnWorldBack(int slot, std::string_view why) {
     } else {
         personal_world_due = !WriteWholeFile(PersonalWorldFile(slot), FormatWorldFlags(*own));
     }
+    if (personal_world_due) {
+        // Native flags may already match, but without persisting/removing the
+        // remaining sidecar, a hosting transition must NOT be acknowledged.
+        // Keep the complete backup available and retry on the next load.
+        LOG_WARNING(Debug,
+                    "Co-op team world: slot {} restored native flags but could not commit its "
+                    "remaining own-world sidecar; retry before hosting",
+                    slot);
+        return false;
+    }
     LOG_INFO(Debug,
              "Co-op team world: slot {} {}: its own world is back in {} blocks ({} flags "
              "changed, {} blocks to come)",
