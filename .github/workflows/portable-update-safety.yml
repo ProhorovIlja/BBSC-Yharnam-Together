@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'bbport/launcher/bbport_update_zip.py'
+      - 'bbport/launcher/bbport_update_recovery.py'
       - 'bbport/launcher/bbport_launcher_win.py'
       - 'bbport/tests/test_portable_update_zip.py'
       - '.github/workflows/portable-update-safety.yml'
@@ -28,7 +29,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile portable updater and launcher
-        run: python -m py_compile bbport/launcher/bbport_update_zip.py bbport/launcher/bbport_launcher_win.py
+        run: python -m py_compile bbport/launcher/bbport_update_zip.py bbport/launcher/bbport_update_recovery.py bbport/launcher/bbport_launcher_win.py
       - name: ZIP, CRC, lock, symlink and interrupted-copy regressions
         run: python -m unittest discover -s bbport/tests -p test_portable_update_zip.py -v
       - name: Main launcher regression suite

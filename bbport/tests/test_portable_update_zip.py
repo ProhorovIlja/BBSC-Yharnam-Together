@@ -285,6 +285,114 @@ class PortableUpdateZipTests(unittest.TestCase):
                 copy_portable_update(stage, install, lambda *_: ())
             self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'old')
 
+    def test_restart_after_interrupted_second_file_recovers_prior_install(self):
+        from bbport_update_zip import copy_portable_update
+        from bbport_update_recovery import recover_pending_portable_updates
+        import shutil
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            stage, install = root / 'stage', root / 'install'
+            stage.mkdir()
+            install.mkdir()
+            (install / 'user').mkdir()
+            (install / 'user' / 'save').write_bytes(b'personal-game-save')
+            for name in ('BLauncher.exe', 'engine.dll'):
+                (stage / name).write_bytes(b'new')
+                (install / name).write_bytes(b'old')
+            original_replace = os.replace
+            calls = 0
+
+            def killed_midway(src, dst):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise SystemExit('simulated forced exit')
+                return original_replace(src, dst)
+
+            with mock.patch('bbport_update_zip.os.replace', side_effect=killed_midway):
+                with self.assertRaises(SystemExit):
+                    copy_portable_update(stage, install, shutil.ignore_patterns('user'))
+            self.assertEqual(sum((install / name).read_bytes() == b'new'
+                                 for name in ('BLauncher.exe', 'engine.dll')), 1)
+            self.assertEqual(len(list(install.glob('.bbport-update-undo-*'))), 1)
+            self.assertEqual(recover_pending_portable_updates(install), 1)
+            self.assertEqual(recover_pending_portable_updates(install), 0)
+            for name in ('BLauncher.exe', 'engine.dll'):
+                self.assertEqual((install / name).read_bytes(), b'old')
+            self.assertEqual((install / 'user' / 'save').read_bytes(), b'personal-game-save')
+            self.assertFalse(list(install.glob('.bbport-update-undo-*')))
+
+    def test_crash_after_last_replacement_before_commit_restores_old(self):
+        from bbport_update_zip import copy_portable_update
+        from bbport_update_recovery import recover_pending_portable_updates
+        import shutil
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            stage, install = root / 'stage', root / 'install'
+            stage.mkdir()
+            install.mkdir()
+            for name in ('BLauncher.exe', 'new.dll'):
+                (stage / name).write_bytes(b'new')
+            (install / 'BLauncher.exe').write_bytes(b'old')
+            original_marker = __import__('bbport_update_zip').mark_journal
+
+            def killed_before_commit(path, state):
+                if state == 'committed':
+                    raise SystemExit('simulated power loss before commit')
+                return original_marker(path, state)
+
+            with mock.patch('bbport_update_zip.mark_journal', side_effect=killed_before_commit):
+                with self.assertRaises(SystemExit):
+                    copy_portable_update(stage, install, shutil.ignore_patterns('user'))
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'new')
+            self.assertEqual((install / 'new.dll').read_bytes(), b'new')
+            self.assertEqual(recover_pending_portable_updates(install), 1)
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'old')
+            self.assertFalse((install / 'new.dll').exists())
+
+    def test_cleanup_crash_after_committed_keeps_new_version(self):
+        from bbport_update_zip import copy_portable_update
+        from bbport_update_recovery import recover_pending_portable_updates
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            stage, install = root / 'stage', root / 'install'
+            stage.mkdir()
+            install.mkdir()
+            (stage / 'BLauncher.exe').write_bytes(b'new')
+            (install / 'BLauncher.exe').write_bytes(b'old')
+            with mock.patch('bbport_update_zip.shutil.rmtree', side_effect=SystemExit('killed cleanup')):
+                with self.assertRaises(SystemExit):
+                    copy_portable_update(stage, install, lambda *_: ())
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'new')
+            self.assertEqual(len(list(install.glob('.bbport-update-undo-*'))), 1)
+            self.assertEqual(recover_pending_portable_updates(install), 1)
+            self.assertEqual((install / 'BLauncher.exe').read_bytes(), b'new')
+            self.assertFalse(list(install.glob('.bbport-update-undo-*')))
+
+    def test_rejects_forged_or_traversing_recovery_journal(self):
+        import json
+        from bbport_update_recovery import recover_pending_portable_updates
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            install = root / 'install'
+            install.mkdir()
+            (install / 'user').mkdir()
+            (install / 'user' / 'hunter.save').write_bytes(b'keep-unchanged')
+            journal = install / '.bbport-update-undo-forged'
+            journal.mkdir()
+            (journal / 'manifest.json').write_text(json.dumps({
+                'version': 1, 'entries': [{'path': '../user/hunter.save', 'old': True}], 'dirs': [],
+            }), encoding='utf-8')
+            (journal / 'ready').write_bytes(b'1')
+            with self.assertRaises(ValueError):
+                recover_pending_portable_updates(install)
+            self.assertEqual((install / 'user' / 'hunter.save').read_bytes(), b'keep-unchanged')
+            self.assertTrue(journal.exists())  # Preserve evidence; no unsafe deletion.
+
     def test_expanded_budget_is_checked_before_staging(self):
         with mock.patch('bbport_update_zip.MAX_EXPANDED_BYTES', 1):
             self.stage(['BLauncher.exe'])
