@@ -237,6 +237,12 @@ public:
 
     // A frame from the member: the packets for the game, in order.
     std::vector<std::vector<u8>> Receive(const GameFrame& frame, s64 now_ms) {
+        if (frame.peer_instance != 0 && frame.peer_instance != instance) {
+            // An old-target frame is not a new remote process. Reply with our
+            // current instance, without changing liveness, ACK or receive state.
+            ack_owed = true;
+            return {};
+        }
         if (was_quiet) {
             heard_since_quiet = true;
         }
@@ -247,12 +253,6 @@ public:
                 RestartStreams(heard_before);
             }
             peer_instance = frame.instance;
-        }
-        if (frame.peer_instance != 0 && frame.peer_instance != instance) {
-            // Meant for this member's earlier game (this one restarted): nothing of it is taken,
-            // and a frame goes back at once so the sender starts its streams again.
-            ack_owed = true;
-            return {};
         }
         if (frame.peer_instance == instance && frame.ack <= sent_reliable_end) {
             // A forged, reordered or stale ACK above the sent window must
@@ -360,8 +360,10 @@ private:
         next_unreliable = 0;
         unacked.clear();
         reliable_bytes = 0;
-        std::erase_if(
-            fresh, [](const Outgoing& out) { return out.packet_class == PacketClass::Reliable; });
+        // Old unreliable visual snapshots carry the retired run's sequence
+        // space. Retargeting them after next_unreliable resets would suppress
+        // newer entity snapshots and poison the replacement peer's state.
+        fresh.clear();
         if (hello != pending.rend()) {
             for (auto out = std::prev(hello.base()); out != pending.end(); ++out) {
                 out->seq = next_reliable++;
