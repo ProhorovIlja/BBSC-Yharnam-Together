@@ -2955,7 +2955,10 @@ class Launcher:
         self.downloading = self.downloading_fsr4vk = self.fsr4vk_hashing = self.rechecking = False
         self.updating, self.update_release = False, None  # the co-op release's update (coop_check_update)
         self.close_scheduled = False  # "Close the launcher when the game starts" is armed once per run
-        self.server_checking = self.server_starting = False  # the server line: a check, a Start server under way
+        self.server_checking = self.server_starting = self.server_stopping = False
+        self.server_stop_pending = False
+        self.server_status_epoch = 0
+        self.coop_upnp = None
         self.installing, self.install_proc, self.install_cancel = False, None, threading.Event()
         self.install_card = self.install_hide = self.pkg_dialog = None
         self.output = queue.Queue()
@@ -3007,7 +3010,7 @@ class Launcher:
         root.after(100, self.drain_output)
         root.after(30, self.start_motion)
         if COOP_INSTALL:
-            root.after(500, self.coop_watch_server)
+            self.server_poll = root.after(500, self.coop_watch_server)
         threading.Thread(target=self.detect_gpu, daemon=True).start()
         if self.app.get('check_updates', True) and not COOP_TEST:
             threading.Thread(target=self.check_update, daemon=True).start()
@@ -5006,6 +5009,8 @@ class Launcher:
         self.ui_calls.put(lambda: self.status.configure(text=text, fg=color))
 
     def coop_start_servers(self):
+        if self.server_starting or self.server_stopping:
+            return
         if not bbport_coop.valid_ip(self.coop.get('host_ip', '')):
             self.messagebox.showerror('Bloodborne', _("Type the host's IP address first (yours, as the guests reach you).",
                                                       'Сначала введите IP хоста (ваш, по которому вас видят гости).'))
@@ -5019,6 +5024,7 @@ class Launcher:
         self.coop_server_line.configure(text=_('Starting…', 'Запуск…'), fg=MUTED)
         host_ip = self.coop['host_ip']
         self.server_starting = True
+        self.server_status_epoch += 1
 
         def work():
             try:
@@ -5029,20 +5035,40 @@ class Launcher:
                 traceback.print_exc()
                 said = [_('Start server stopped on an unexpected error: {}', 'Запуск сервера остановлен ошибкой: {}'
                           ).format(f'{type(error).__name__}: {error}')]
-            finally:
-                self.server_starting = False
-            state = bbport_coop.server_state()
-            running = state != 'stopped'
-            text, color = {'running': (_('Running', 'Работает'), OK),
+            try:
+                state = bbport_coop.server_state()
+            except Exception as error:  # the health probe must not strand Starting…
+                state = None
+                said = [*said, _('Could not check local server status: {}',
+                                 'Не удалось проверить состояние локального сервера: {}').format(error)]
+            running = state in ('running', 'no_backend')
+            text, color = {None: (_('Status unavailable', 'Состояние недоступно'), CAUTION),
+                           'running': (_('Running', 'Работает'), OK),
                            'no_backend': (_(bbport_coop.NO_BACKEND_TEXT), CAUTION)}.get(
                 state, (_('Not running', 'Не работает'), BAD))
-            self.ui_calls.put(lambda: self.coop_server_line.configure(text=text, fg=color))
-            said = [_(line) for line in said]
-            if running and bbport_coop.wants_router(host_ip):
-                said.append(self.coop_open_router())
-            if said:
-                self.coop_say(' '.join(said), MUTED)
-        threading.Thread(target=work, daemon=True).start()
+            def complete():
+                self.server_starting = False
+                if self.server_stop_pending:
+                    self.server_stop_pending = False
+                    self.coop_stop_servers()
+                else:
+                    self.coop_server_line.configure(text=text, fg=color)
+                    if said:
+                        self.coop_say(' '.join(said), MUTED)
+
+            try:
+                said = [_(line) for line in said]
+                if running and not self.server_stop_pending and bbport_coop.wants_router(host_ip):
+                    said.append(self.coop_open_router())
+            finally:
+                # Stop must run after Start and its router work, not alongside them.
+                self.ui_calls.put(complete)
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except RuntimeError as error:
+            self.server_starting = False
+            self.coop_server_line.configure(
+                text=_('Could not start server: {}', 'Не удалось запустить сервер: {}').format(error), fg=BAD)
 
     def coop_open_router(self):
         """Off the window's thread: asks the router to forward the host's ports (UPnP) and says what came of
@@ -5079,30 +5105,59 @@ class Launcher:
                  'Radmin VPN или ручной проброс портов.')
 
     def coop_stop_servers(self):
+        if self.server_stopping:
+            return
+        self.coop_server_line.configure(text=_('Stopping…', 'Остановка…'), fg=MUTED)
+        if self.server_starting:
+            self.server_stop_pending = True
+            return
+        self.server_stopping = True
+        self.server_status_epoch += 1
+        host_ip = self.coop.get('host_ip', '')
+
         def work():
-            if bbport_coop.wants_router(self.coop.get('host_ip', '')) or \
-                    (getattr(self, 'coop_upnp', None) or {}).get('state') == 'open':
-                try:
-                    bbport_upnp.close_ports()
-                except Exception:  # the forwards stay until the next Stop; the server stops regardless
-                    pass
-                self.coop_upnp = None
-                if self.coop_help is not None:
-                    self.ui_calls.put(self.coop_help_refresh_public)
-            stopped = bbport_coop.stop_servers(PORT_DIR)
-            self.ui_calls.put(lambda: self.coop_server_line.configure(
-                text=_('Stopped ({})', 'Остановлен ({})').format(stopped), fg=MUTED))
-        threading.Thread(target=work, daemon=True).start()
+            try:
+                if bbport_coop.wants_router(host_ip) or (self.coop_upnp or {}).get('state') == 'open':
+                    try:
+                        bbport_upnp.close_ports()
+                    except Exception:  # stop the server even if the router cannot be reached
+                        pass
+                    else:
+                        self.coop_upnp = None
+                        if self.coop_help is not None:
+                            self.ui_calls.put(self.coop_help_refresh_public)
+                stopped = bbport_coop.stop_servers(PORT_DIR)
+                text, color = _('Stopped ({})', 'Остановлен ({})').format(stopped), MUTED
+            except Exception as error:
+                text, color = _('Could not stop server: {}',
+                                'Не удалось остановить сервер: {}').format(error), BAD
+
+            def complete():
+                self.server_stopping = False
+                self.coop_server_line.configure(text=text, fg=color)
+
+            self.ui_calls.put(complete)
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except RuntimeError as error:
+            self.server_stopping = False
+            self.coop_server_line.configure(
+                text=_('Could not stop server: {}', 'Не удалось остановить сервер: {}').format(error), fg=BAD)
 
     def coop_watch_server(self):
-        """Every few seconds the server line says whether this PC's co-op server runs (Reddit 2026-10-21: it
-        stayed empty while the server ran)."""
-        if not self.server_checking and not self.server_starting:
+        """Refresh local server status when no explicit Start or Stop is in progress."""
+        if not (self.server_checking or self.server_starting or self.server_stopping):
             self.server_checking = True
-            threading.Thread(target=self.coop_check_server, daemon=True).start()
-        self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
+            try:
+                threading.Thread(target=self.coop_check_server,
+                                 args=(self.server_status_epoch,), daemon=True).start()
+            except RuntimeError:
+                self.server_checking = False
+                self.coop_server_line.configure(
+                    text=_('Status unavailable', 'Состояние недоступно'), fg=CAUTION)
+        self.server_poll = self.root.after(SERVER_CHECK_MS, self.coop_watch_server)
 
-    def coop_check_server(self):
+    def coop_check_server(self, epoch):
         try:
             state = bbport_coop.server_state()
             if state == 'running':
@@ -5114,10 +5169,15 @@ class Launcher:
                                 'Не работает: чтобы стать хостом, нажмите «Запустить сервер»'), CAUTION
             else:
                 text, color = '', MUTED  # a guest's server is the host's
-            if not self.server_starting:
-                self.ui_calls.put(lambda: self.coop_server_line.configure(text=text, fg=color))
-        finally:
+        except Exception:
+            text, color = _('Status unavailable', 'Состояние недоступно'), CAUTION
+
+        def complete():
             self.server_checking = False
+            if epoch == self.server_status_epoch and not (self.server_starting or self.server_stopping):
+                self.coop_server_line.configure(text=text, fg=color)
+
+        self.ui_calls.put(complete)
 
     def coop_firewall(self):
         """This install's firewall rules, asking Windows for them (one UAC prompt) when they are missing."""
@@ -5141,8 +5201,14 @@ class Launcher:
         self.coop_id_tries = 0  # new ids made after the server refused this one's address (coop_watch_line)
         self.play_button.configure(state='disabled')
         self.set_running(False, preparing=True)
-        threading.Thread(target=self.coop_prepare_and_play,
-                         args=(dict(bbport_coop.played_settings(self.coop)),), daemon=True).start()
+        try:
+            settings = dict(bbport_coop.played_settings(self.coop))
+            threading.Thread(target=self.coop_prepare_and_play,
+                             args=(settings,), daemon=True).start()
+        except (RuntimeError, OSError, ValueError) as error:
+            self.coop_start_game({}, None,
+                                 _('Could not prepare PLAY: {}',
+                                   'Не удалось подготовить запуск: {}').format(error), '')
 
     def coop_prepare_and_play(self, settings):
         """Off the window's thread: the firewall and the game folder; then the game starts on the window's
