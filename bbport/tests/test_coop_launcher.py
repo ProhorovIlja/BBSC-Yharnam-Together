@@ -15,6 +15,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 import bbport_coop as coop  # noqa: E402
 
 
+class GlobalSessionTimestampTests(unittest.TestCase):
+    """Do not misreport copied, expired or future-dated Global identity as live."""
+
+    @staticmethod
+    def settings(account, secret):
+        return dict(coop.DEFAULTS, server_type='global',
+                    global_server='https://seamlesshunt.com',
+                    server_ids={coop.server_key('https://seamlesshunt.com'):
+                                [account, secret]})
+
+    def test_timestamp_boundaries_and_small_machine_clock_skew(self):
+        now = 1800000000
+        token = lambda issued: f'{issued:08x}' + 'b' * 24
+        self.assertTrue(coop.is_signed_in_global(self.settings('u0123456789abcd', token(now)), now))
+        self.assertTrue(coop.is_signed_in_global(self.settings('u0123456789abcd', token(now + 300)), now))
+        self.assertFalse(coop.is_signed_in_global(self.settings('u0123456789abcd', token(now + 301)), now))
+        expiry = coop.SECRET_DAYS * 24 * 3600
+        self.assertTrue(coop.is_signed_in_global(self.settings('u0123456789abcd', token(now - expiry + 1)), now))
+        self.assertFalse(coop.is_signed_in_global(self.settings('u0123456789abcd', token(now - expiry)), now))
+
+    def test_broken_or_non_session_credentials_never_hide_sign_in(self):
+        now = 1800000000
+        valid = f'{now:08x}' + 'x' * 24
+        bad = ('', 'q' * 32, f'{now:08x}' + 'x' * 23,
+               f'{now:08x}' + 'x' * 25, f'{now:08x}' + '*not-a-token')
+        for secret in bad:
+            with self.subTest(secret=secret):
+                self.assertFalse(coop.is_signed_in_global(self.settings('u0123456789abcd', secret), now))
+        for account in ('', 'id with spaces', 'a' * 17):
+            with self.subTest(account=account):
+                self.assertFalse(coop.is_signed_in_global(self.settings(account, valid), now))
+        for pair in ([], ['u0123456789abcd'], None, 'not-an-account'):
+            with self.subTest(pair=pair):
+                settings = self.settings('u0123456789abcd', valid)
+                settings['server_ids'][coop.server_key(settings['global_server'])] = pair
+                self.assertFalse(coop.is_signed_in_global(settings, now))
+
+
 class CopiedProfileTests(unittest.TestCase):
     def test_malformed_values_do_not_become_paths_or_credentials(self):
         with tempfile.TemporaryDirectory() as folder:
