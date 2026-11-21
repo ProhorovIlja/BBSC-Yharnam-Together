@@ -11,6 +11,7 @@
 // Close (it is over). A side whose peer restarted lost the connection: Receive says Closed then.
 #pragma once
 
+#include <algorithm>
 #include <span>
 #include <string>
 #include <utility>
@@ -39,9 +40,16 @@ public:
         Put(Message::Open, {}, now_ms);
         open = true;
     }
+    // One TCP read can contain hundreds of KiB, but the receiving RPC
+    // stream accepts only bounded messages. Split into 16 KiB pieces without
+    // changing the wire format or byte order (Data remains opcode 2).
+    static constexpr size_t MaxDataBytes = 16 * 1024;
     void Write(std::span<const u8> bytes, s64 now_ms) {
-        if (!bytes.empty()) {
-            Put(Message::Data, bytes, now_ms);
+        if (!open) return; // Never queue bytes for a completed TCP session.
+        while (!bytes.empty()) {
+            const size_t size = (std::min)(bytes.size(), MaxDataBytes);
+            Put(Message::Data, bytes.first(size), now_ms);
+            bytes = bytes.subspan(size);
         }
     }
     void Close(s64 now_ms) {
@@ -65,14 +73,17 @@ public:
             }
             switch (static_cast<Message>(message[0])) {
             case Message::Open:
+                if (message.size() != 1) break;
                 open = true;
                 events.push_back({Event::Kind::Opened, {}});
                 break;
             case Message::Data:
+                if (!open || message.size() == 1) break;
                 message.erase(message.begin());
                 events.push_back({Event::Kind::Data, std::move(message)});
                 break;
             case Message::Close:
+                if (message.size() != 1) break;
                 open = false;
                 events.push_back({Event::Kind::Closed, {}});
                 break;
