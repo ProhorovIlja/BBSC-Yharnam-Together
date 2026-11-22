@@ -29,7 +29,7 @@ int main() {
     assert(RootField(R"([{"evt":"ACTIVITY_JOIN"}])", "evt").empty());
     assert(RootField(R"( {"data":[{"evt":"UNTRUSTED"}],"evt" : "ACTIVITY_JOIN"} )",
                      "evt") == "ACTIVITY_JOIN");
-    assert(RootField(R"({"message":"escaped \\"evt\\":\\"BAD\\"","evt":"ERROR"})",
+    assert(RootField(R"({"message":"escaped \"evt\":\"BAD\"","evt":"ERROR"})",
                      "evt") == "ERROR");
     assert(Field(join, "secret") == "c:ABC\"D");
     assert(Field(join, "nothing").empty());
