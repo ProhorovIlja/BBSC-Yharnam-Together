@@ -334,5 +334,54 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.call('/v1/heartbeat', {'shard': 'x'})[0], 400)
 
 
+class RedisSocketTimeoutTests(unittest.TestCase):
+    """These fast tests run even when fakeredis and the real redis wheel are absent."""
+
+    def test_redis_client_has_bounded_connect_and_read_timeouts(self):
+        import directory as module
+        captured = {}
+
+        class Redis:
+            @staticmethod
+            def from_url(url, **settings):
+                captured.update(url=url, **settings)
+                return 'redis-client'
+
+        class FakeModule:
+            pass
+
+        FakeModule.Redis = Redis
+        result = module.redis_client(FakeModule, {'REDIS_URL': 'redis://example.invalid:1234/1'})
+        self.assertEqual(result, 'redis-client')
+        self.assertEqual(captured['url'], 'redis://example.invalid:1234/1')
+        self.assertEqual(captured['socket_timeout'], 3.0)
+        self.assertEqual(captured['socket_connect_timeout'], 3.0)
+
+    def test_redis_failure_gets_503_and_worker_slot_is_reusable(self):
+        import directory as module
+
+        class UnavailableRedis:
+            def ping(self):
+                raise TimeoutError('simulated Redis socket read timeout')
+
+        class UnavailableDirectory:
+            redis = UnavailableRedis()
+
+        server = module.serve(UnavailableDirectory(), 'token', port=0,
+                              host='127.0.0.1', max_workers=1)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = 'http://127.0.0.1:%d/healthz' % server.server_address[1]
+            for _ in range(2):
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(url, timeout=3)
+                self.assertEqual(error.exception.code, 503)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+
+
 if __name__ == '__main__':
     unittest.main()
