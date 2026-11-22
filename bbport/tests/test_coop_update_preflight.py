@@ -143,6 +143,60 @@ class SafeCoopUpdateTests(unittest.TestCase):
             self.assertEqual(sentinel.read_bytes(), b'untouched')
             self.assertEqual(sample.read_bytes(), b'original')
 
+    def test_numbered_personal_world_archives_are_backed_up(self):
+        # The game's RetireOwnWorld() preserves .txt.1 etc. after a home
+        # transition; those were missing from the legacy '*.txt' glob.
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            save = install / 'user/savedata/1/CUSA03173/SPRJ0005/userdata0000'
+            save.parent.mkdir(parents=True)
+            save.write_bytes(b'character')
+            before_home = install / 'user/bloodborne_party_personal_world_before_home_slot0.txt'
+            archive_1 = Path(str(before_home) + '.1')
+            before_home.write_bytes(b'own-world-current')
+            archive_1.write_bytes(b'own-world-prior')
+            (install / 'user/bloodborne_party_private.log').write_bytes(b'never-a-save')
+            backup = coop.back_up_saves(install, 'before an update', now=1792900000, prune=False)
+            self.assertEqual((backup / before_home.name).read_bytes(), b'own-world-current')
+            self.assertEqual((backup / archive_1.name).read_bytes(), b'own-world-prior')
+            self.assertFalse((backup / 'bloodborne_party_private.log').exists())
+            self.assertIn(archive_1.name, coop.save_files(backup))
+
+    def test_restore_reinstates_archived_world_and_removes_stale_archive(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            save = install / 'user/savedata/1/CUSA03173/SPRJ0005/userdata0000'
+            save.parent.mkdir(parents=True)
+            save.write_bytes(b'character')
+            file_name = 'bloodborne_party_personal_world_before_home_slot0.txt.1'
+            world = install / 'user' / file_name
+            world.write_bytes(b'world-before')
+            snapshot = coop.back_up_saves(install, 'before an update', now=1792900000, prune=False)
+            world.write_bytes(b'world-after')
+            extra_archive = install / 'user/bloodborne_party_personal_world_before_home_slot0.txt.2'
+            extra_archive.write_bytes(b'extra-after')
+            coop.restore_saves(install, snapshot.name)
+            self.assertEqual(world.read_bytes(), b'world-before')
+            self.assertFalse(extra_archive.exists(), 'stale archive must not outlive restored snapshot')
+            self.assertEqual(save.read_bytes(), b'character')
+
+    def test_linked_world_sidecar_refuses_backup(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            save = install / 'user/savedata/1/CUSA03173/SPRJ0005/userdata0000'
+            save.parent.mkdir(parents=True)
+            save.write_bytes(b'character')
+            external = install / 'external-private'
+            external.write_bytes(b'secret')
+            sidecar = install / 'user/bloodborne_party_personal_world_slot0.txt'
+            try:
+                sidecar.symlink_to(external)
+            except (OSError, NotImplementedError):
+                self.skipTest('symlinks require privileges')
+            with self.assertRaisesRegex(OSError, 'symbolic link'):
+                coop.back_up_saves(install, 'before an update', now=1792900000, prune=False)
+            self.assertEqual(external.read_bytes(), b'secret')
+
     def test_windows_frontend_calls_preflight_and_catches_http_errors(self):
         source = (Path(__file__).resolve().parents[1] / 'launcher' /
                   'bbport_launcher_win.py').read_text(encoding='utf-8')
