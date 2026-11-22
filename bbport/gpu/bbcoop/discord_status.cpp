@@ -206,7 +206,7 @@ public:
             if (header[0] == 3) {
                 Send(4, body); // a ping: its pong
             } else if (header[0] == 1) {
-                const std::string event = Field(body, "evt");
+                const std::string event = DiscordActivity::RootField(body, "evt");
                 if (event == "ACTIVITY_JOIN") {
                     JoinFromDiscord(Field(body, "secret"));
                 } else if (event == "ACTIVITY_JOIN_REQUEST") {
