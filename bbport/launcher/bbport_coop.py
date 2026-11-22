@@ -86,12 +86,19 @@ NO_GLOW_TEXT = 'Show teammates without the blue phantom glow (on your screen onl
 # --- answers ----------------------------------------------------------------------------------
 
 def valid_ip(value):
-    """An IPv4 address the other players can reach: never loopback (shadnet tells them the address
-    it sees, and 127.0.0.1 means nothing to them)."""
+    """IPv4 host for direct co-op: reject non-unicast, link-local and loopback.
+
+    Keep private LAN, VPN-assigned addresses and TEST-NET examples accepted for
+    legacy configuration/tests; directory-controlled *shard* hints have the
+    stricter separate shard_address policy.
+    """
     if not re.fullmatch(r'\d{1,3}(\.\d{1,3}){3}', value or ''):
         return False
     try:
-        return not ipaddress.IPv4Address(value).is_loopback
+        address = ipaddress.IPv4Address(value)
+        return not (address.is_loopback or address.is_multicast or
+                    address.is_unspecified or address.is_reserved or
+                    address.is_link_local or address.packed[0] == 0)
     except ValueError:
         return False
 
