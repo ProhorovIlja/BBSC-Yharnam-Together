@@ -140,6 +140,64 @@ class PortableUpdateZipTests(unittest.TestCase):
                 self.assertEqual(destination.getvalue(), b'')
                 self.assertEqual(progress, [])
 
+    def test_real_http_parser_refuses_ambiguous_update_framing(self):
+        import io
+        import socketserver
+        import threading
+        import urllib.request
+        from bbport_update_zip import download_update
+
+        class RawResponse(socketserver.BaseRequestHandler):
+            def handle(self):
+                self.request.settimeout(2)
+                incoming = b''
+                while b'\r\n\r\n' not in incoming and len(incoming) < 8192:
+                    chunk = self.request.recv(4096)
+                    if not chunk:
+                        break
+                    incoming += chunk
+                try:
+                    self.request.sendall(self.server.reply)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # caller rejected framing before draining body
+
+        cases = (
+            ('normal', '200 OK', ['Content-Length: 3'], b'abc', True),
+            ('duplicate', '200 OK', ['Content-Length: 3', 'Content-Length: 3'], b'abc', False),
+            ('chunked', '200 OK', ['Transfer-Encoding: chunked'],
+             b'3\r\nabc\r\n0\r\n\r\n', True),
+            ('ambiguous', '200 OK', ['Transfer-Encoding: chunked', 'Content-Length: 3'],
+             b'3\r\nabc\r\n0\r\n\r\n', False),
+            ('unsupported', '200 OK', ['Transfer-Encoding: gzip'], b'abc', False),
+            ('range', '206 Partial Content', ['Content-Length: 3'], b'abc', False),
+            ('eof', '200 OK', [], b'abc', True),
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for case, status, headers, payload, accepted in cases:
+            with self.subTest(case=case):
+                response = (f'HTTP/1.1 {status}\r\n'.encode('ascii') +
+                            b'\r\n'.join(h.encode('ascii') for h in
+                                        (*headers, 'Connection: close')) +
+                            b'\r\n\r\n' + payload)
+                with socketserver.TCPServer(('127.0.0.1', 0), RawResponse) as server:
+                    server.reply = response
+                    thread = threading.Thread(target=server.serve_forever, daemon=True)
+                    thread.start()
+                    try:
+                        url = f'http://127.0.0.1:{server.server_address[1]}/'
+                        with opener.open(url, timeout=2) as incoming:
+                            destination, progress = io.BytesIO(), []
+                            if accepted:
+                                download_update(incoming, destination, progress.append)
+                                self.assertEqual(destination.getvalue(), b'abc')
+                            else:
+                                with self.assertRaises(ValueError):
+                                    download_update(incoming, destination, progress.append)
+                                self.assertEqual(destination.getvalue(), b'')
+                    finally:
+                        server.shutdown()
+                        thread.join(timeout=3)
+
     def test_crc_failure_removes_partial_staging_but_preserves_install(self):
         import io
         import zipfile
