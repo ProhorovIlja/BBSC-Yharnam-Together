@@ -25,6 +25,16 @@ These **isolated reproductions** used separately assembled copies of the modifie
 
 No full repository, Windows launcher, actual Win32 named pipe, complete fakeredis, Docker, load, or installed Bloodborne 1.09 run was performed for this **new integration head**.
 
+## Additional manual verification after the four-branch integration
+
+These are **explicit foreground checks**, not full-repository CI, scheduled jobs or production tests:
+
+- **Python HTTP framing:** a local source-faithful CPython 3-method unit suite passed (21 header patterns, seven rejected non-200 responses, bounded streaming). A separate disposable socket-server fixture returned seven raw HTTP/1.1 responses through actual `urllib.request.HTTPResponse`, covering normal Content-Length, duplicate values, chunked decoding, conflicting length+chunked, unknown gzip transfer, HTTP 206, and EOF-delimited replies. All seven passed, with no real downloaded or installed ZIP.
+- **Discord IPC:** portable helper copied from candidate source compiled with GCC and Clang C++20 under `-Wall -Wextra -Werror`. An isolated 25,000-case deterministic parser stress run with Clang AddressSanitizer and UndefinedBehaviorSanitizer passed. A 4,096-case deterministic round-trip/malformed test was also committed to the candidate's C++ fixture and checked in a local stand-alone GCC/Clang+sanitizer build. Real MSVC, Win32 named-pipe operation and the full game client are still untested.
+- **Directory worker slots:** three local Python tests passed on a source-faithful isolated class: TCP stalled POST/503/recovery, invalid cap refusal and simulated thread-start failure. The class now defaults to 64 workers with `DIRECTORY_MAX_HTTP_WORKERS` limited to 1–256; an overload response gets a 100 ms send timeout. This is not a staging load test, Caddy proxy acceptance, or actual fakeredis/server Docker validation.
+- **Support ZIP:** three local Python unit methods passed for nonmutating `without_secrets` against nested server credentials, unknown future session fields and malformed key pins. No complete installed support ZIP privacy audit or raw log/dump scrubbing was performed.
+- **Upstream duplicate prevention:** the latest Amanises 1.5.1 source includes targeted stuck-loading guest visibility, `KeepOwnWorldAside`, game sign-in URL handling, GPU PM4 and NPC/render crash fixes. Corresponding functions/patch names were verified **already present** in this fork's main; no blind duplicate or incompatible upstream merge was made. Actual five-player and installed client acceptance is still outstanding.
+
 ## On-demand validation only
 
 From the checkout of **this exact integration head** (never production):
