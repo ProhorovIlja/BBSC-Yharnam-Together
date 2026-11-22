@@ -9,19 +9,19 @@ Integration combines the source and tests from four independently staged branche
 
 | Area | Modified paths | Existing tracker | Candidate change |
 | --- | --- | --- | --- |
-| Portable Windows updater | `bbport/launcher/bbport_update_zip.py`, `bbport/tests/test_portable_update_zip.py` | #283 | Reject duplicate/ambiguous/signed/Unicode/pathological HTTP Content-Length before download, retain acceptable chunked streaming. |
+| Portable Windows updater | `bbport/launcher/bbport_update_zip.py`, `bbport/tests/test_portable_update_zip.py` | #283 | Reject duplicate/ambiguous/signed/Unicode/pathological Content-Length; accept only CPython-decodable plain chunked transfer, reject partial HTTP 206 and non-200 responses before download. |
 | Support ZIP | `bbport/launcher/bbport_support.py`, `bbport/tests/test_support_bundle.py` | #233 | Export only reviewed settings, redact credential-like keys, validate publicly pinned server keys. Does not scrub attached raw logs/dumps. |
 | Game client Discord | `bbport/gpu/bbcoop/discord_activity.h`, `bbport/tests/test_discord_activity.cpp` | #119 | Decode JSON string fields with legal whitespace, escaped quotes, UTF-8/Unicode and UTF-16 surrogate pairs; ignore lookalike keys inside strings. |
-| ShadNet directory | `server/directory/directory.py`, `server/directory/test_directory.py` | #376 / umbrella #3 | Limit active HTTP request workers to 256; best-effort 503 when saturated; always release a slot on worker completion or thread creation failure. |
+| ShadNet directory | `server/directory/directory.py`, `server/directory/test_directory.py` | #376 / umbrella #3 | Default to 64 concurrent HTTP request workers, configurable through DIRECTORY_MAX_HTTP_WORKERS in the range 1–256; best-effort 503 with a 100-ms socket write budget when saturated; always release a slot on completion or thread-start failure. |
 
 ## Evidence already obtained
 
 These **isolated reproductions** used separately assembled copies of the modified functions, **not** the exact repository build. Be explicit about this limit:
 
-- Portable update: 16 synthetic HTTPMessage header cases passed in local CPython, including duplicate headers, outer OWS, chunked without length and huge integers.
+- Portable update (expanded after initial handoff): a source-faithful local CPython module passed 3 unittest methods (21 HTTPMessage header patterns, 7 abnormal HTTP statuses, 5 finite-download cases). Duplicate Transfer-Encoding, unknown/gzip transfer encodings, unexpected 206 Partial Content and early refusal before writes are now covered. No Windows updater packaging test yet.
 - Support settings: local Python test passed with multiple synthetic account/session secrets and malformed nested values; live settings not mutated.
-- Client Discord JSON: isolated Linux g++ C++20 build passed ten assertions, including escaped fake keys, whitespace, surrogate-pair emoji and invalid escapes.
-- Directory concurrency: isolated CPython live TCP loopback test passed with a one-worker budget, 503 overload, completion and slot recovery.
+- Client Discord JSON: a reconstructed matching-source Linux C++20 portable fixture compiled and passed with both g++ and clang++ (-Wall -Wextra -Werror), checking escaped keys, whitespace, surrogate-pair emoji, invalid escapes, join secrets and IPC frame sizes. No Win32 named-pipe test.
+- Directory concurrency: updated faithful isolated CPython 3-method unittest suite passed: actual TCP loopback held one POST worker, received 503 on second client, recovered the slot, rejected invalid worker limits and released a permit after a mocked thread-start failure. Production class now defaults to 64, with a configurable 1–256 cap. No complete real directory/fakeredis suite or staging load acceptance.
 
 No full repository, Windows launcher, actual Win32 named pipe, complete fakeredis, Docker, load, or installed Bloodborne 1.09 run was performed for this **new integration head**.
 
@@ -45,7 +45,7 @@ Manual failure gates: no successful private player save backup; no guarantee a f
 ## Release and issue rules
 
 - Do not close #283, #233, #119 or #376 based only on these new isolated checks.
-- Preserve P0 #22/#35/#137 personal save and reward integrity; #21/#23/#63 hunter/NPC divergence; #80 direct authenticated P2P with relay fallback; and all real Bloodborne 1.09 multi-hunter acceptance.
+- Owner-closed historic #22 and completed #349 remain closed. Track remaining *unverified* cross-file save durability/native ACK in new open P0 #377; keep #35/#137 guest rewards, #21/#23/#63 hunter/NPC divergence and #80 direct authenticated P2P/relay open until actual 1.09 multi-hunter acceptance.
 - Avoid source-workflow files, push/PR event CI launches, production deploys and automatic scheduled tasks without the owner's separate explicit authorization.
 - Source comparisons: HTTP framing rejection follows RFC 9110/9112's permitted error treatment; this is a conservative client policy, not an alleged live exploit. Private Nov 14 bug register is not mirrored into public GitHub.
 
