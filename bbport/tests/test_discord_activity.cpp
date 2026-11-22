@@ -76,7 +76,7 @@ int main() {
         for (char& c : expected) {
             if (static_cast<unsigned char>(c) < 0x20) c = ' ';
         }
-        assert(Field(std::string{"{\\\"value\\\":"} + Json(raw) + "}", "value") == expected);
+        assert(Field(std::string{"{\"value\":"} + Json(raw) + "}", "value") == expected);
         (void)Field(raw, "value"); // may be any malformed byte sequence
     }
 
