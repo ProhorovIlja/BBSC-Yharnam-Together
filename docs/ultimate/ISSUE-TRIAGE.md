@@ -1,5 +1,11 @@
 # Playable edition — issue triage and closure rules
 
+## Latest manually staged source additions — 2026-11-22
+
+The unmerged integration branch has additional source-only gates: #379 now includes exclusive backup-directory allocation, linked-root refusal and source data recheck after copying; #376 now caps redis-py connection/read socket waits at 3 seconds per operation (not a full-request deadline); #119 now uses a root-scoped Discord IPC `evt` discriminator instead of accepting nested fields; #280 returns generic busy error after any account-worker construction/start exception. The local synthetic source-faithful Python harness passes **31 tests**; the reconstructed C++20 Discord fixture passes g++, clang++ and ASan/UBSan. **No actual integrated full-repository run, installed game or production acceptance.** Do not close these tickets.
+
+P2 [#380](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/380) tracks high-resolution SSR fragment-shading-rate research from Supermedo's November 22 upstream commit: external reported performance numbers only, not imported code or our benchmarks. Existing hybrid [#80](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/80) now includes bbhost's November 21 Matching2 peer identity/transport-slot fix as a design invariant, not a protocol-compatible merge.
+
 ## New manually staged source-only acceptance blockers — 2026-11-22
 
 - [#378 — support ZIP filesystem privacy](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/378): unmerged candidate refuses obvious symlinks, Python 3.11 Windows reparse points/junctions and automatic raw host overrides, uses an exclusive random ZIP scratch file, cleans partials and warns the player before sharing. **Open** until full Windows/Linux archive, antivirus/rotation and race-free file-handle checks; isolated local filesystem smoke is not full client acceptance.
