@@ -201,6 +201,70 @@ class SafeCoopUpdateTests(unittest.TestCase):
                 coop.back_up_saves(install, 'before an update', now=1792900000, prune=False)
             self.assertEqual(external.read_bytes(), b'secret')
 
+    def test_linked_native_save_file_is_not_read_into_backup(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            outside = install / 'private-native-file'
+            outside.write_bytes(b'not-a-hunter-save')
+            native = install / 'user/savedata/1/CUSA03173/SPRJ0005/userdata0000'
+            native.parent.mkdir(parents=True)
+            try:
+                native.symlink_to(outside)
+            except (OSError, NotImplementedError):
+                self.skipTest('native file symlink creation requires privileges')
+            with self.assertRaisesRegex(OSError, 'symbolic link or junction'):
+                coop.back_up_saves(install, 'before update', now=1792900000, prune=False)
+            self.assertEqual(outside.read_bytes(), b'not-a-hunter-save')
+            self.assertFalse((install / 'user/save-backups').exists())
+
+    def test_linked_native_save_directory_is_not_traversed(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            outside = install / 'unrelated-profile'
+            outside.mkdir()
+            (outside / 'userdata0000').write_bytes(b'other-character')
+            parent = install / 'user/savedata/1'
+            parent.mkdir(parents=True)
+            linked = parent / 'CUSA03173'
+            try:
+                linked.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest('native directory symlink creation requires privileges')
+            with self.assertRaisesRegex(OSError, 'symbolic link or junction'):
+                coop.back_up_saves(install, 'before update', now=1792900000, prune=False)
+            self.assertEqual((outside / 'userdata0000').read_bytes(), b'other-character')
+            self.assertFalse((install / 'user/save-backups').exists())
+
+    def test_linked_home_root_is_refused_before_any_backup(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            outside = install / 'outside-home'
+            outside.mkdir()
+            (outside / 'unrelated.txt').write_text('private', encoding='utf-8')
+            user = install / 'user'
+            user.mkdir()
+            try:
+                (user / 'home').symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest('home-root symlink creation requires privileges')
+            with self.assertRaisesRegex(OSError, 'symbolic link or junction'):
+                coop.back_up_saves(install, 'before update', now=1792900000, prune=False)
+            self.assertEqual((outside / 'unrelated.txt').read_text(encoding='utf-8'), 'private')
+            self.assertFalse((user / 'save-backups').exists())
+
+    def test_regular_native_and_home_save_trees_still_backup(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            native = install / 'user/savedata/1/CUSA03173/SPRJ0005/userdata0000'
+            home = install / 'user/home/hunter1/savedata/1/CUSA03173/SPRJ0005/userdata0000'
+            for path, content in ((native, b'native'), (home, b'home')):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            backup = coop.back_up_saves(install, 'before update', now=1792900000, prune=False)
+            self.assertEqual((backup / native.relative_to(install / 'user')).read_bytes(), b'native')
+            self.assertEqual((backup / home.relative_to(install / 'user')).read_bytes(), b'home')
+            self.assertEqual(coop.save_files(backup), coop.save_files(install / 'user'))
+
     def test_bad_calendar_backups_do_not_hide_valid_snapshots(self):
         with tempfile.TemporaryDirectory() as root:
             install = Path(root)
