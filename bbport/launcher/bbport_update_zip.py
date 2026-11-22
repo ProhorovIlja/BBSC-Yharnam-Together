@@ -27,12 +27,22 @@ def download_length(headers):
     get_all = getattr(headers, 'get_all', None)
     if callable(get_all):
         lengths = get_all('Content-Length') or []
+        encodings = get_all('Transfer-Encoding') or []
     else:
-        value = headers.get('Content-Length')
-        lengths = [] if value is None else [value]
-    if not lengths:
+        length = headers.get('Content-Length')
+        encoding = headers.get('Transfer-Encoding')
+        lengths = [] if length is None else [length]
+        encodings = [] if encoding is None else [encoding]
+    # CPython http.client only decodes a plain "chunked" transfer encoding.
+    # Anything else may yield undecoded wire bytes or an ambiguous body.
+    if encodings:
+        if (len(encodings) != 1 or not isinstance(encodings[0], str) or
+                encodings[0].lower() != 'chunked' or lengths):
+            raise ValueError('Update download has unsupported or ambiguous HTTP framing')
         return None  # urllib already decodes a valid chunked body
-    if len(lengths) != 1 or headers.get('Transfer-Encoding') is not None:
+    if not lengths:
+        return None  # EOF-delimited response, still subject to download budget
+    if len(lengths) != 1:
         raise ValueError('Update download has ambiguous HTTP framing')
     value = lengths[0]
     if not isinstance(value, str):
@@ -52,7 +62,10 @@ def download_length(headers):
 
 
 def download_update(response, out, progress):
-    """Copy a bounded complete HTTP response, with or without a length header."""
+    """Copy a bounded full HTTP 200 response, with or without a length header."""
+    # Never install a self-contained archive embedded in a partial-range reply.
+    if getattr(response, 'status', 200) != 200:
+        raise ValueError('Update download requires a complete HTTP 200 response')
     expected = download_length(response.headers)
     done, shown = 0, -1
     while chunk := response.read(1 << 20):
