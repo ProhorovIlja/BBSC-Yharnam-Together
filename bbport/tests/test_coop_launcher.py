@@ -498,11 +498,11 @@ class AnswersTests(unittest.TestCase):
 
     def test_the_launcher_starts_on_the_players_shard_or_the_least_loaded(self):
         key = 'ab' * 32
-        shards = [{'name': 'eu-1', 'address': '203.0.113.1:31314', 'key': key, 'players': 700, 'capacity': 800,
+        shards = [{'name': 'eu-1', 'address': '10.9.0.1:31314', 'key': key, 'players': 700, 'capacity': 800,
                    'draining': False},
-                  {'name': 'eu-2', 'address': '203.0.113.2:31314', 'key': key, 'players': 100, 'capacity': 800,
+                  {'name': 'eu-2', 'address': '10.9.0.2:31314', 'key': key, 'players': 100, 'capacity': 800,
                    'draining': False},
-                  {'name': 'eu-3', 'address': '203.0.113.3:40000', 'key': key, 'players': 0, 'capacity': 800,
+                  {'name': 'eu-3', 'address': '10.9.0.3:40000', 'key': key, 'players': 0, 'capacity': 800,
                    'draining': True},
                   {'name': 'bad', 'address': 'nowhere', 'key': key, 'players': 0, 'capacity': 800}]
         self.assertEqual(coop.pick_shard(shards)['name'], 'eu-2')
@@ -520,7 +520,7 @@ class AnswersTests(unittest.TestCase):
                 return None  # 404: nowhere yet
             return {'shards': shards}
         self.assertEqual(coop.resolve_region('https://eu.example.com', 'Ada', fetch=fetch),
-                         ('203.0.113.1', 31314, key, 'eu-1'))
+                         ('10.9.0.1', 31314, key, 'eu-1'))
         self.assertEqual(asked, ['https://eu.example.com/v1/where?player=Ada', 'https://eu.example.com/v1/shards'])
         self.assertEqual(coop.resolve_region('https://eu.example.com', 'Bob', fetch=fetch)[:2], ('10.9.0.2', 31314))
         with self.assertRaises(RuntimeError):
@@ -536,14 +536,14 @@ class AnswersTests(unittest.TestCase):
         other = 'cd' * 32
         made = coop.region_settings(settings, fetch=fetch)
         self.assertEqual((made['host_ip'], made['link_port'], made['link_key'], made['server']),
-                         ('203.0.113.1', '31314', key, 'https://eu.example.com'))
+                         ('10.9.0.1', '31314', key, 'https://eu.example.com'))
         with mock.patch.dict(coop.KNOWN_SERVER_KEYS, {'https://eu.example.com': other}):
             self.assertEqual(coop.region_settings(settings, fetch=fetch)['link_key'], other)
         env = coop.game_environment({}, dict(made, link_key=key), Path('.'), Path('.'))
-        self.assertEqual(env['BB_SHADNET_SERVER'], '203.0.113.1:31314')
-        self.assertEqual(env['BB_SHADNET_WEBAPI'], 'http://203.0.113.1:31315')
+        self.assertEqual(env['BB_SHADNET_SERVER'], '10.9.0.1:31314')
+        self.assertEqual(env['BB_SHADNET_WEBAPI'], 'http://10.9.0.1:31315')
         env = coop.game_environment({}, dict(made, link_port='40000'), Path('.'), Path('.'))
-        self.assertEqual(env['BB_SHADNET_SERVER'], '203.0.113.1:40000')
+        self.assertEqual(env['BB_SHADNET_SERVER'], '10.9.0.1:40000')
         env = coop.game_environment({}, dict(coop.DEFAULTS, host_ip='26.1.2.3', account='a', password='b'), Path('.'),
                                     Path('.'))
         self.assertEqual(env['BB_SHADNET_SERVER'], f'26.1.2.3:{coop.MATCHING_PORT}', 'a home host as before')
