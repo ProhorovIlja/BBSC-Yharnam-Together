@@ -737,6 +737,23 @@ class FindGameTests(unittest.TestCase):
             self.assertEqual(coop.update_folder(game), root / 'Bloodborne' / 'CUSA03173-patch')
             self.assertEqual(coop.game_version(game), ('CUSA03173', '01.00'))
 
+    def test_unrelated_ps4_game_does_not_hide_bloodborne_in_a_sibling(self):
+        # The old near-install recursive search returned the first eboot,
+        # regardless of title, then rejected that one without checking the
+        # next sibling. This happens when a game library has several CUSA dirs.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            make_game(root / 'Games' / 'A-Other', title='CUSA00001')
+            wanted = make_game(root / 'Games' / 'Z-Bloodborne', title='CUSA03173')
+            install = root / 'Games' / 'Launcher'
+            install.mkdir()
+            self.assertEqual(coop.find_game_folder(root / 'Games', depth=1), wanted)
+            self.assertEqual(coop.search_game(install, drives=[], homes=[]), wanted)
+            # An unrelated eboot folder can itself contain a deeper game.
+            nested = make_game(root / 'Mixed' / 'CUSA03173', title='CUSA03173')
+            make_game(root / 'Mixed', title='CUSA00001')
+            self.assertEqual(coop.find_game_folder(root / 'Mixed', depth=1), nested)
+
     def test_the_search_looks_near_the_install_and_on_the_drives(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
