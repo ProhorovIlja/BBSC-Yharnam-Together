@@ -12,6 +12,7 @@ Shards authenticate with `Authorization: Bearer $DIRECTORY_TOKEN`; GET /v1/shard
 import hmac
 import ipaddress
 import json
+import math
 import os
 import re
 import sys
@@ -41,6 +42,7 @@ SHARD_UNROUTABLE = tuple(ipaddress.IPv4Network(value) for value in (
     '198.51.100.0/24', '203.0.113.0/24'))
 NAME = re.compile(r'[A-Za-z0-9_.-]{1,64}')
 KEY = re.compile(r'[0-9a-f]{64}')
+MAX_SHARD_CAPACITY = 1_000_000  # reject malformed unbounded directory metrics
 
 # A world's lease: taken when free, renewed only by its holder (a lease that lapsed and was taken by
 # another shard is never extended by the old one). Answers the holder.
@@ -88,6 +90,14 @@ def as_str(value):
     return value.decode() if isinstance(value, bytes) else value
 
 
+def shard_metric(value, field, minimum=0):
+    # JSON strings, booleans and fractions are not counts. Never publish
+    # misleading typed capacities/counts that an older game might trust.
+    if type(value) is not int or not minimum <= value <= MAX_SHARD_CAPACITY:
+        raise Refused(400, f'invalid shard {field}')
+    return value
+
+
 class Directory:
     def __init__(self, redis, now=time.time):
         self.redis = redis
@@ -102,10 +112,15 @@ class Directory:
             raise Refused(400, 'shard name')
         if not KEY.fullmatch(text(beat.get('key', ''))):
             raise Refused(400, 'key is not 64 hex digits')
+        capacity = shard_metric(beat.get('capacity', 0), 'capacity', minimum=1)
+        count = shard_metric(beat.get('count', 0), 'count')
+        draining = beat.get('draining', False)
+        load = beat.get('load', 0.0)
+        if type(draining) is not bool or type(load) not in (int, float) or not math.isfinite(load) or load < 0:
+            raise Refused(400, 'invalid shard draining/load')
         row = {'name': shard, 'address': address_of(beat.get('address')), 'key': beat['key'],
-               'capacity': int(beat.get('capacity', 0)), 'draining': bool(beat.get('draining')),
-               'players': int(beat.get('count', 0)), 'load': float(beat.get('load', 0.0)),
-               'at': self.now()}
+               'capacity': capacity, 'draining': draining,
+               'players': count, 'load': load, 'at': self.now()}
         players = [{'id': text(p.get('id'), 64), 'member': text(p.get('member'), 128),
                     'name': text(p.get('name'), 128)} for p in beat.get('players') or []]
         codes = [text(code, 16) for code in beat.get('codes') or []]
