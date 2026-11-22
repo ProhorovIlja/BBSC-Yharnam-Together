@@ -7,6 +7,15 @@
 using namespace DiscordActivity;
 
 int main() {
+    // A forged/local pipe header must not allocate gigabytes or use an
+    // unexpected opcode. Boundary cap is a client policy, not a Discord spec.
+    assert(ValidIpcFrame(0, 0));
+    assert(ValidIpcFrame(1, MaxIpcPayloadBytes));
+    assert(ValidIpcFrame(4, 16));
+    assert(!ValidIpcFrame(1, MaxIpcPayloadBytes + 1));
+    assert(!ValidIpcFrame(1, UINT32_MAX));
+    assert(!ValidIpcFrame(5, 0));
+
     assert(Json("Yharnam") == "\"Yharnam\"");
     assert(Json("a\"b\\c") == "\"a\\\"b\\\\c\"");
     assert(Json("line\nbreak") == "\"line break\"");
