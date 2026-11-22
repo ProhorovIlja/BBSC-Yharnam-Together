@@ -17,12 +17,43 @@ _RESERVED = re.compile(r'(?i)(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])\Z')
 _UNSAFE = re.compile(r'[\x00-\x1f<>:"|?*\\]')
 
 
+def download_length(headers):
+    """A single, bounded ASCII Content-Length, or None for a chunked/EOF response.
+
+    HTTP response headers can contain duplicates. A dict-like get() returns
+    only one value, hiding conflicting lengths from a portable updater.
+    Reject ambiguous framing, rather than using an arbitrary first length.
+    """
+    get_all = getattr(headers, 'get_all', None)
+    if callable(get_all):
+        lengths = get_all('Content-Length') or []
+    else:
+        value = headers.get('Content-Length')
+        lengths = [] if value is None else [value]
+    if not lengths:
+        return None  # urllib already decodes a valid chunked body
+    if len(lengths) != 1 or headers.get('Transfer-Encoding') is not None:
+        raise ValueError('Update download has ambiguous HTTP framing')
+    value = lengths[0]
+    if not isinstance(value, str):
+        raise ValueError('Update download has an invalid size')
+    # HTTP permits optional outer whitespace, not commas, signs, Unicode
+    # digits or an unlimited decimal integer.
+    value = value.strip(' \t')
+    if not value or len(value) > 32 or not value.isascii() or not value.isdecimal():
+        raise ValueError('Update download has an invalid size')
+    digits = value.lstrip('0') or '0'
+    if len(digits) > len(str(MAX_DOWNLOAD_BYTES)):
+        raise ValueError('Update download has an invalid size')
+    expected = int(digits)
+    if not 0 < expected <= MAX_DOWNLOAD_BYTES:
+        raise ValueError('Update download has an invalid size')
+    return expected
+
+
 def download_update(response, out, progress):
     """Copy a bounded complete HTTP response, with or without a length header."""
-    declared = response.headers.get('Content-Length')
-    expected = int(declared) if declared is not None else None
-    if expected is not None and not 0 < expected <= MAX_DOWNLOAD_BYTES:
-        raise ValueError('Update download has an invalid size')
+    expected = download_length(response.headers)
     done, shown = 0, -1
     while chunk := response.read(1 << 20):
         done += len(chunk)
