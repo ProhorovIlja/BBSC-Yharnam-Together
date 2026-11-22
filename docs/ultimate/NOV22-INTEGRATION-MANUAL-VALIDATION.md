@@ -5,6 +5,12 @@ Status: **unmerged integration branch**. This is **not** a game release, product
 Base: previously validated main `fdbdbc67a19edc2fc8015fdf710ad1905104935f` (documentation-only update of the previous main source).
 Integration combines the source and tests from ten focused source branches (including follow-up save, Discord, Redis and auth fixes). All fifteen unique modified source/test paths below are present together in this branch, with no changes to production server credentials, networking ports, user saves or retail game assets.
 
+## Backup index hardening — issue #379
+
+A separate source review of `save_backups` found two failure modes: a folder name can match the date regex but still be an impossible calendar value, which raises `ValueError` when parsed; a dated folder or root can be a symlink/junction and should not be traversed as a real game backup. New [fix/launcher-backup-list-validation-20261122](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/tree/fix/launcher-backup-list-validation-20261122) skips malformed calendar names **without deleting them**, rejects linked/junction backup directories, and reuses already staged backup preflight.
+
+Two source-oriented `test_coop_update_preflight.py` fixture cases were added for an impossible date alongside a valid backup and a symlink pointing outside the installation. Their independent local reconstructions passed. The complete current scratch suite now reports **39 Python tests PASS**. This is a foreground set of separately copied/reconstructed functions, not exact repository/Windows source-suite CI or gameplay validation; no issue was closed.
+
 ## New P0 save-backup archive gap — issue #381
 
 This audit cross-checked the actual game's `emulator/src/core/bloodborne_server_world.cpp::RetireOwnWorld` archive path against launcher `bbport/launcher/bbport_coop.py::save_files`. The game retains old personal-world snapshots at `SlotFileName("personal_world_before_home", slot) + ".1"`, `+".2"`, etc. Previous launcher backups read only `bloodborne_party_*.txt`, so these numbered recovery snapshots were omitted; `restore_saves` also left stale numbered archives behind.
