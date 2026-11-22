@@ -160,6 +160,13 @@ def shard_address(shard):
     if (address.is_multicast or address.is_unspecified or address.is_reserved or
             address.is_link_local or address.packed[0] == 0):
         return None
+    # Keep parity with server Region::EndpointOf: a directory hint cannot
+    # redirect a hunter to CGNAT, IANA documentation or benchmark networks.
+    # RFC1918 and real global-unicast shards remain valid.
+    blocked = ('100.64.0.0/10', '192.0.2.0/24', '198.18.0.0/15',
+               '198.51.100.0/24', '203.0.113.0/24')
+    if any(address in ipaddress.IPv4Network(network) for network in blocked):
+        return None
     return host, int(port)
 
 
