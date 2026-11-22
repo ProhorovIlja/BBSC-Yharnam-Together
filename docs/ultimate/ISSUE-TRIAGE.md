@@ -99,3 +99,15 @@ Run source regressions only on demand using [MANUAL-SOURCE-CHECKS.md](MANUAL-SOU
 - Five co-op hunters: boss wipe, late join, invisibility, revive/spectator UI, AI/quest flags, Travel Together and personal-world restoration.
 - Persistent rewards: character/slot identity, partial write and crash, save acknowledgement, 1.09 real disposable saves, no duplicate key items.
 - ShadNet: ordered 512 KiB RPC reply after stalled ACKs, TCP half-close, session replacement, direct P2P/relay failover, actual deployed test endpoint only.
+
+
+## 2026-11-22 follow-up: native save metadata and invalid direct addresses
+
+**Unmerged branch candidate:** [fix/save-tree-nofollow-20261122](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/tree/fix/save-tree-nofollow-20261122); do not present its changes as released or tested in the installed game.
+
+- [#381](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/381) and [#379](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/379): after the numbered sidecar backup fix, discovered another no-follow gap. Native `savedata` and `home/*/savedata` trees were traversed with `is_file()` and `read_bytes()` before rejecting linked files; the backup metadata browser also followed a linked `launcher.txt` or other linked backup members. Candidate now rejects obvious symlink/junction/reparse entries, refuses linked `user` roots, bounds notes to 4096 bytes, and ignores invalid-UTF8 note content without hiding valid snapshots. Nine new synthetic source test methods were added across the same existing backup test file (four native-tree, five metadata cases). This is preflight only, **not a handle-level race-proof or atomic save transaction**.
+- [#383](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/383): direct host IP validation previously permitted wildcard, multicast, link-local and reserved IPv4; the candidate rejects them before PLAY and UPnP while retaining legacy private/VPN and documentation fixtures. A new launcher regression test covers literal and DNS-resolved inputs.
+- [#382](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/382): newly tracked **unfixed** absolute-header-deadline risk in ShadNet's Python HTTP directory. A 10-second socket *idle timeout* does not prevent an attacker from keeping a single unfinished header line alive by drip-feeding bytes. #376's bounded workers reduces impact, not total occupancy time. No premature claim of mitigation.
+- Independently reconstructed helper logic passed 8 local Python test methods (normal/bad IPv4, bounded/invalid note, symlinked note/payload/user and ordinary snapshot). **The exact repository's full Python, Windows/Qt, Docker and real Bloodborne tests have not been run in this pass.**
+- Keep #377, #379, #381, #383 and #382 OPEN until their documented acceptance tests complete. Existing owner-closed #22 and #349 stay closed. No CI, deployment, scheduled monitoring or public release was invoked.
+
