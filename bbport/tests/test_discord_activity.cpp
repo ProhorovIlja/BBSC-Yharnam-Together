@@ -56,6 +56,30 @@ int main() {
     assert(JoinSecret("", "t1", Ask, Invite, 2, 5) == "t:t1");
     assert(JoinSecret("", "t1", Invite, Invite, 2, 5).empty()) ; // a member of a closed team
     assert(JoinSecret("KTCDAB", "t1", Open, Invite, 5, 5).empty()); // full
+    // Deterministic parser stress: preserve each byte of a quoted string
+    // except ASCII control bytes, which Json() normalizes to spaces.
+    // Malformed frames must never read out of bounds.
+    std::uint32_t seed = 0x91A2B3C4u;
+    const auto next = [&seed] {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        return seed;
+    };
+    for (unsigned round = 0; round < 4096; ++round) {
+        std::string raw;
+        const unsigned count = next() % 200;
+        for (unsigned i = 0; i < count; ++i) {
+            raw.push_back(static_cast<char>(next() % 256));
+        }
+        std::string expected = raw;
+        for (char& c : expected) {
+            if (static_cast<unsigned char>(c) < 0x20) c = ' ';
+        }
+        assert(Field(std::string{"{\\\"value\\\":"} + Json(raw) + "}", "value") == expected);
+        (void)Field(raw, "value"); // may be any malformed byte sequence
+    }
+
     std::puts("discord activity: ok");
     return 0;
 }
