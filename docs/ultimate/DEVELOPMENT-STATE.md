@@ -1,5 +1,9 @@
 # Yharnam Together — development state
 
+## Additional unmerged source work and evidence — 2026-11-22
+
+The combined candidate now contains fourteen unique source/test paths, including new `bbport_auth.run_thread` worker-start failure handling (#280), Discord root-only event decoding in `discord_status.cpp` (#119), finite Redis socket I/O waits (#376), and fail-closed exclusive save backups (#379). The local independently reconstructed Python validation suite passed 31 checks and the portable Discord fixture passed GCC/Clang plus sanitizer. Do not misstate these as the full repository's tests or installed game proof. New graphics research issue #380 records optional SSR shading-rate work without importing untested Vulkan code. [Manual integration document](NOV22-INTEGRATION-MANUAL-VALIDATION.md) holds the exact acceptance gates.
+
 ## Later source-only safety continuation — 2026-11-22
 
 Manual unmerged branches [fix/support-bundle-path-safety-20261122](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/tree/fix/support-bundle-path-safety-20261122) and [fix/launcher-update-save-preflight-20261122](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/tree/fix/launcher-update-save-preflight-20261122) have been incorporated into the combined integration branch. They add symlink/junction/log-race/ZIP-staging guards and a fail-closed verified save backup before game setup, plus synthetic regression fixtures. New issues #378 and #379 remain open. No source-suite CI or Win10/11 packaged installer/real 1.09 savedata acceptance has run for these candidates. See [NOV22-INTEGRATION-MANUAL-VALIDATION.md](NOV22-INTEGRATION-MANUAL-VALIDATION.md) for exact paths and on-demand commands.
