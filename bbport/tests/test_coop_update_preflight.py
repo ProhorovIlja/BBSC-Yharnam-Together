@@ -155,10 +155,14 @@ class SafeCoopUpdateTests(unittest.TestCase):
             archive_1 = Path(str(before_home) + '.1')
             before_home.write_bytes(b'own-world-current')
             archive_1.write_bytes(b'own-world-prior')
+            unicode_sidecar = install / 'user/bloodborne_party_имя_персонажа.txt'
+            unicode_sidecar.write_bytes(b'legacy-unicode-sidecar')
             (install / 'user/bloodborne_party_private.log').write_bytes(b'never-a-save')
             backup = coop.back_up_saves(install, 'before an update', now=1792900000, prune=False)
             self.assertEqual((backup / before_home.name).read_bytes(), b'own-world-current')
             self.assertEqual((backup / archive_1.name).read_bytes(), b'own-world-prior')
+            self.assertEqual((backup / unicode_sidecar.name).read_bytes(),
+                             b'legacy-unicode-sidecar')
             self.assertFalse((backup / 'bloodborne_party_private.log').exists())
             self.assertIn(archive_1.name, coop.save_files(backup))
 
