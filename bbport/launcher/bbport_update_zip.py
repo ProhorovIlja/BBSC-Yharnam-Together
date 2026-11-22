@@ -39,7 +39,7 @@ def download_length(headers):
         raise ValueError('Update download has an invalid size')
     # HTTP permits optional outer whitespace, not commas, signs, Unicode
     # digits or an unlimited decimal integer.
-    value = value.strip(' \\t')
+    value = value.strip(' \t')
     if not value or len(value) > 32 or not value.isascii() or not value.isdecimal():
         raise ValueError('Update download has an invalid size')
     digits = value.lstrip('0') or '0'
