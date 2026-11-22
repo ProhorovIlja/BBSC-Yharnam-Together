@@ -41,8 +41,18 @@ std::optional<ServerLink::Endpoint> EndpointOf(const QString& text) {
     // Never direct a hunter to non-unicast/reserved shard endpoints.
     // 127/8 remains supported for explicit local multi-shard smoke tests.
     const quint32 first = address >> 24;
+    const auto inRange = [address](quint32 prefix, quint32 mask) {
+        return (address & mask) == prefix;
+    };
+    // Directory-provided redirects must not target carrier NAT, benchmark or
+    // documentation ranges. Keep RFC1918/loopback endpoints for local shards.
     if (!ipv4 || !number || port == 0 || port > 0xFFFF ||
         first == 0 || first >= 224 || (address & 0xFFFF0000u) == 0xA9FE0000u ||
+        inRange(0x64400000u, 0xFFC00000u) ||  // 100.64.0.0/10 shared address
+        inRange(0xC0000200u, 0xFFFFFF00u) ||  // 192.0.2.0/24 TEST-NET-1
+        inRange(0xC6120000u, 0xFFFE0000u) ||  // 198.18.0.0/15 benchmark
+        inRange(0xC6336400u, 0xFFFFFF00u) ||  // 198.51.100.0/24 TEST-NET-2
+        inRange(0xCB007100u, 0xFFFFFF00u) ||  // 203.0.113.0/24 TEST-NET-3
         address == 0xFFFFFFFFu) {
         return std::nullopt;
     }
