@@ -87,6 +87,62 @@ class SafeCoopUpdateTests(unittest.TestCase):
                                                 now=1792900000, prune=False),
                               'byte-identical existing backup is already safe')
 
+    def test_existing_nonbackup_name_is_never_overwritten_or_deleted(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            install = Path(scratch)
+            sample = install / 'user/savedata/1/CUSA03173/SPRJ0005/userdata0000'
+            sample.parent.mkdir(parents=True)
+            sample.write_bytes(b'original')
+            when = 1792900000
+            import time
+            name = time.strftime('%Y%m%d-%H%M%S', time.localtime(when))
+            blocked = install / 'user/save-backups' / name
+            blocked.parent.mkdir()
+            blocked.write_text('another application owns this name')
+            result = coop.back_up_saves(install, 'update', now=when, prune=False)
+            self.assertNotEqual(result, blocked)
+            self.assertEqual(blocked.read_text(), 'another application owns this name')
+            self.assertEqual(coop.save_files(result), coop.save_files(install / 'user'))
+
+    def test_source_that_changes_during_backup_aborts_and_discards_copy(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            install = Path(scratch)
+            sample = install / 'user/savedata/1/CUSA03173/SPRJ0005/userdata0000'
+            sample.parent.mkdir(parents=True)
+            sample.write_bytes(b'before')
+            original_write = Path.write_bytes
+
+            def write_while_game_saves(path, data):
+                wrote = original_write(path, data)
+                if 'save-backups' in Path(path).parts:
+                    original_write(sample, b'after')
+                return wrote
+
+            with mock.patch.object(Path, 'write_bytes', write_while_game_saves):
+                with self.assertRaisesRegex(OSError, 'changed during backup'):
+                    coop.back_up_saves(install, 'update', now=1792900000, prune=False)
+            self.assertEqual(sample.read_bytes(), b'after')
+            self.assertEqual(list((install / 'user/save-backups').iterdir()), [])
+
+    def test_linked_backup_root_is_refused_without_touching_outside_files(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            install = Path(scratch)
+            sample = install / 'user/savedata/1/CUSA03173/SPRJ0005/userdata0000'
+            sample.parent.mkdir(parents=True)
+            sample.write_bytes(b'original')
+            external = install / 'external'
+            external.mkdir()
+            sentinel = external / 'unrelated.txt'
+            sentinel.write_bytes(b'untouched')
+            try:
+                (install / 'user/save-backups').symlink_to(external, target_is_directory=True)
+            except (NotImplementedError, OSError):
+                self.skipTest('creating links requires local permissions')
+            with self.assertRaisesRegex(OSError, 'symbolic link or junction'):
+                coop.back_up_saves(install, 'update', now=1792900000, prune=False)
+            self.assertEqual(sentinel.read_bytes(), b'untouched')
+            self.assertEqual(sample.read_bytes(), b'original')
+
     def test_windows_frontend_calls_preflight_and_catches_http_errors(self):
         source = (Path(__file__).resolve().parents[1] / 'launcher' /
                   'bbport_launcher_win.py').read_text(encoding='utf-8')
