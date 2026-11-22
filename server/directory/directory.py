@@ -310,7 +310,12 @@ class _DeadlineHeaderReader:
                 raise TimeoutError('absolute HTTP header deadline expired')
             newline = self.buffer.find(b'\n', self.scanned)
             if newline >= 0:
-                return self._take(min(newline + 1, limit))
+                line = self._take(min(newline + 1, limit))
+                if line in (b'\r\n', b'\n'):
+                    # Header parsing is finished; do not carry an almost
+                    # expired header timeout into a legitimate HTTP response.
+                    self.connection.settimeout(HTTP_IDLE_TIMEOUT_S)
+                return line
             if len(self.buffer) >= limit:
                 return self._take(limit)
             self.scanned = len(self.buffer)
