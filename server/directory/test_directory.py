@@ -274,10 +274,21 @@ class HttpTests(unittest.TestCase):
                 response = caller.recv(512)
                 self.assertTrue(response.startswith(b'HTTP/1.0 408'), response[:100])
 
+    def test_directory_http_worker_budget_is_bounded_and_configurable(self):
+        for workers in (-1, 0, 1.0, True, '64', 257, 512):
+            with self.subTest(workers=workers):
+                with self.assertRaises(ValueError):
+                    d.serve(self.directory, 'token', host='127.0.0.1', port=0,
+                            max_workers=workers)
+        self.assertEqual(d.MAX_ACTIVE_HTTP_REQUESTS, 64)
+        with d.serve(self.directory, 'token', host='127.0.0.1', port=0,
+                     max_workers=32) as server:
+            self.assertEqual(server.max_active_requests, 32)
+
     def test_busy_directory_sheds_excess_http_without_losing_first_worker(self):
-        from unittest.mock import patch
-        with patch.object(d.BoundedDirectoryHTTPServer, 'max_active_requests', 1):
-            server = d.serve(self.directory, 'token', port=0, host='127.0.0.1')
+        server = d.serve(self.directory, 'token', port=0, host='127.0.0.1',
+                         max_workers=1)
+        self.assertEqual(server.max_active_requests, 1)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
