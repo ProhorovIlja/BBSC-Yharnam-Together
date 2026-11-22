@@ -96,6 +96,32 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(self.settings['server_ids']['private-host'][1], 'private-secret-a',
                          'redaction must never mutate real credentials')
 
+    def test_unknown_settings_and_nested_tokens_never_enter_diagnostics(self):
+        self.settings['future_account_state'] = {'authorization': 'new-secret',
+                                                 'refresh_token': 'refresh-value'}
+        self.settings['Session_Token'] = 'session-token'
+        self.settings['current_password'] = 'current-password'
+        self.settings['api_key'] = 'other-private-key'
+        self.settings['server_keys'] = {
+            'trusted-server': 'ab' * 32,
+            'malformed-server': {'secret': 'unexpected-key'},
+            'wrong-length': 'key-only'
+        }
+        _failed, files = self.make()
+        snapshot = files['coop.json']
+        for secret in ('new-secret', 'refresh-value', 'session-token',
+                       'current-password', 'other-private-key', 'unexpected-key'):
+            self.assertNotIn(secret, snapshot)
+        saved = json.loads(snapshot)
+        self.assertNotIn('future_account_state', saved)
+        self.assertEqual(saved['Session_Token'], support.LEFT_OUT)
+        self.assertEqual(saved['current_password'], support.LEFT_OUT)
+        self.assertEqual(saved['api_key'], support.LEFT_OUT)
+        self.assertEqual(saved['server_keys'], {'trusted-server': 'ab' * 32})
+        self.assertEqual(saved['host_ip'], self.settings['host_ip'])
+        self.assertEqual(self.settings['future_account_state']['authorization'], 'new-secret',
+                         'snapshot creation must not alter live account settings')
+
     def test_texts_and_extra_files(self):
         ini = write(self.root / 'install' / 'bbport.ini', 'upscaler=fsr3\n')
         home = str(self.root / 'home' / 'vitsh')
