@@ -1,5 +1,10 @@
 # Playable edition — issue triage and closure rules
 
+## Latest backup index source gate — 2026-11-22
+
+For open P0 [#379](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/379), the unmerged launcher now refuses linked/junction backup directories and skips dated-looking backup folders with invalid calendar values instead of raising `ValueError` and hiding valid backups. Existing files are never deleted. New synthetic tests cover corrupt directory names and outside-tree symlinks. The 3 numbered personal-world archive regression scenarios remain tracked under open P0 [#381](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/381). The cumulative **39** local, source-faithful, reconstructed Python smoke checks passed, but the exact integrated repo, installed Windows client and live 1.09 saves have not been exercised. Both issues and related [#377](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/377) stay OPEN.
+
+
 ## Latest source-confirmed P0 gap — 2026-11-22
 
 New [#381](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/381) covers a real launcher backup/restore coverage mismatch: the game archives old personal worlds as a slot .txt file plus .txt.N suffix, but the launcher only copied/restored .txt. Unmerged integration now includes both normal co-op sidecars and numbered recovery archives, preserves Unicode-named legacy files, rejects linked sidecars, and removes stale numbered files before restore. New `test_coop_update_preflight.py` regressions and updated inherited `test_coop_launcher.py` static assertion are staged. The original regexp escaping mistake was caught and corrected **before merge**. Thirty-four local independently reconstructed Python tests passed, **not full repository/Windows/game CI**. #381 and related crash durability #377 and game updater #379 remain OPEN; do not change the owner's prior #22/#349 closures.
