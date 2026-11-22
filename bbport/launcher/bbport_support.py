@@ -24,7 +24,16 @@ KEPT_TRACES = 3
 KEPT_DUMPS = 3
 # What the zip leaves out of user\log: what we sent already is noted, not news.
 SKIPPED_LOG_NAMES = {bbport_coop.REPORTS_SENT}
-SECRET_KEYS = frozenset({'password', 'secret', 'token', 'access_token', 'refresh_token', 'global_token'})
+SECRET_KEYS = frozenset({'password', 'secret', 'token', 'access_token', 'refresh_token',
+                         'global_token', 'api_key', 'private_key', 'authorization',
+                         'recovery_code', 'client_secret'})
+# Do not export arbitrary future launcher state to a diagnostics ZIP. In particular,
+# new auth/session fields must be reviewed before being exposed to support staff.
+SUPPORT_SETTINGS_KEYS = frozenset({
+    'game', 'update', 'role', 'host_ip', 'account', 'p2p_port', 'prepared',
+    'hide_glow', 'confirmed', 'machine', 'discord_status', 'public_asked',
+    'server_type', 'global_name', 'global_server',
+})
 LEFT_OUT = '(left out)'
 
 
@@ -103,24 +112,44 @@ def log_files(log):
 
 
 def without_secrets(settings):
-    """Scrub credentials from support settings; keep nonsecret IDs for diagnostics.
+    """A minimal, non-mutating snapshot of settings for a diagnostics ZIP.
 
-    coop.json can carry per-server credentials in server_ids: {host: [account, secret]}.
-    Mask the nested secret too, and fail closed on unknown nested formats.
-    Never mutate the real launcher's in-memory settings.
+    Export only reviewed, nonsecret scalar settings. Unknown keys are omitted
+    rather than trusting a future account/session field. Redact explicit
+    credential fields and server_ids pairs; public server key *pins* are not
+    authentication secrets, but accept them only in their documented format.
+    Raw logs and externally supplied attachments are outside this scrubber.
     """
-    safe = {key: (LEFT_OUT if key in SECRET_KEYS and value else value)
-            for key, value in settings.items()}
+    safe = {}
+    for key, value in settings.items():
+        if not isinstance(key, str):
+            continue
+        normalized = key.casefold()
+        if (normalized in SECRET_KEYS or
+                normalized.endswith(('_password', '_secret', '_token', '_api_key',
+                                     '_private_key', '_authorization', '_credential'))):
+            safe[key] = LEFT_OUT if value else value
+        elif key in SUPPORT_SETTINGS_KEYS and type(value) in (str, int, bool):
+            safe[key] = value
     per_server = settings.get('server_ids')
     if isinstance(per_server, dict):
         safe['server_ids'] = {
             host: ([pair[0], LEFT_OUT]
                    if isinstance(pair, (list, tuple)) and len(pair) == 2 and
                    isinstance(pair[0], str) else LEFT_OUT)
-            for host, pair in per_server.items()
+            for host, pair in per_server.items() if isinstance(host, str)
         }
     elif per_server:
         safe['server_ids'] = LEFT_OUT
+    # server_keys stores the server's publicly advertised 32-byte key
+    # fingerprint, not a secret. Discard malformed nested values entirely.
+    known = settings.get('server_keys')
+    if isinstance(known, dict):
+        safe['server_keys'] = {
+            host: key for host, key in known.items()
+            if isinstance(host, str) and isinstance(key, str) and
+            len(key) == 64 and all(char in '0123456789abcdef' for char in key)
+        }
     return safe
 
 
