@@ -1482,12 +1482,30 @@ def back_up_saves(install, note, now=None, prune=True):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         (backup / LAUNCHER_BACKUP_NOTE).write_text(note + '\n', encoding='utf-8')
+        # A file writer may return without throwing but leave truncated or
+        # altered bytes (antivirus, disk/filter driver, interrupted stream).
+        # Never proceed to an installer without a readable full save copy.
+        if save_files(backup) != files:
+            raise OSError('the save backup could not be verified')
     except OSError:
         shutil.rmtree(backup, ignore_errors=True)
         raise
     if prune:
         prune_launcher_backups(install)
     return backup
+
+
+def prepare_coop_update(release, folder, install, progress=None):
+    """Download and VERIFY the setup and save backup before stopping any server.
+
+    A full disk, unreadable save, corrupted copy or an HTTP failure aborts
+    the update; do not trade a hunter's progress for a successful install.
+    back_up_saves returns None for no saves or a byte-identical earlier backup.
+    """
+    setup = download_update(release, folder, progress)
+    back_up_saves(install, 'before an update', prune=False)
+    stop_servers(install)
+    return setup
 
 
 def prune_launcher_backups(install, kept=KEPT_LAUNCHER_BACKUPS):
