@@ -70,6 +70,52 @@ class PortableUpdateZipTests(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             download_update(response, out, progress.append)
 
+    def test_download_rejects_duplicate_and_pathological_content_lengths(self):
+        import io
+        from email.message import Message
+        from bbport_update_zip import download_update, download_length
+
+        def headers(*lengths, transfer=None):
+            message = Message()
+            for length in lengths:
+                message.add_header('Content-Length', length)
+            if transfer is not None:
+                message.add_header('Transfer-Encoding', transfer)
+            return message
+
+        for case, head, accepted in (
+                ('no length', headers(), True),
+                ('ordinary', headers('3'), True),
+                ('outer whitespace', headers(' \t3 \t'), True),
+                ('leading zeroes', headers('0003'), True),
+                ('chunked without length', headers(transfer='chunked'), True),
+                ('zero', headers('0'), False),
+                ('sign', headers('+3'), False),
+                ('negative', headers('-3'), False),
+                ('fraction', headers('3.0'), False),
+                ('Unicode decimal', headers('٣'), False),
+                ('comma list', headers('3, 3'), False),
+                ('two identical fields', headers('3', '3'), False),
+                ('two conflicting fields', headers('2', '3'), False),
+                ('transfer and length', headers('3', transfer='chunked'), False),
+                ('huge integer', headers('9' * 5000), False),
+                ('overlong zero prefix', headers('0' * 100 + '3'), False)):
+            with self.subTest(case=case):
+                body, destination, progress = io.BytesIO(b'abc'), io.BytesIO(), []
+                body.headers = head
+                if accepted:
+                    self.assertEqual(download_length(head), None if case in
+                                     ('no length', 'chunked without length') else 3)
+                    download_update(body, destination, progress.append)
+                    self.assertEqual(destination.getvalue(), b'abc')
+                    self.assertEqual(progress[-1], 0 if case in
+                                     ('no length', 'chunked without length') else 100)
+                else:
+                    with self.assertRaises(ValueError):
+                        download_update(body, destination, progress.append)
+                    self.assertEqual(destination.getvalue(), b'', 'fail before downloading')
+                    self.assertEqual(progress, [], 'fail before emitting progress')
+
     def test_crc_failure_removes_partial_staging_but_preserves_install(self):
         import io
         import zipfile
