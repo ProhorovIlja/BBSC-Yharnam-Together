@@ -36,6 +36,9 @@ BODY_MAX = 8 << 20
 HTTP_IDLE_TIMEOUT_S = 10
 POST_BODY_DEADLINE_S = 10
 POST_READ_CHUNK = 16 * 1024
+# A stalled Redis socket must not monopolize every bounded HTTP worker.
+# Timeouts apply per blocking network operation, not to a complete multi-call handler.
+REDIS_SOCKET_TIMEOUT_S = 3.0
 # Limit kernel-thread growth from unauthenticated connections with partial headers/bodies.
 # A full worker still gets its own POST deadline; excess clients receive HTTP 503.
 MAX_ACTIVE_HTTP_REQUESTS = 64
@@ -442,12 +445,21 @@ def serve(directory, token, port=8080, host='0.0.0.0', max_workers=None):
     return server
 
 
+def redis_client(redis_module, environment=None):
+    """Connect with finite per-operation timeouts even if Redis is unresponsive."""
+    environment = os.environ if environment is None else environment
+    return redis_module.Redis.from_url(
+        environment.get('REDIS_URL', 'redis://127.0.0.1:6379/0'),
+        socket_connect_timeout=REDIS_SOCKET_TIMEOUT_S,
+        socket_timeout=REDIS_SOCKET_TIMEOUT_S)
+
+
 def main():
     import redis
     token = os.environ.get('DIRECTORY_TOKEN', '')
     if not token:
         sys.exit('DIRECTORY_TOKEN is needed')
-    client = redis.Redis.from_url(os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0'))
+    client = redis_client(redis)
     port = int(os.environ.get('PORT', '8080'))
     try:
         max_workers = int(os.environ.get('DIRECTORY_MAX_HTTP_WORKERS', str(MAX_ACTIVE_HTTP_REQUESTS)))
