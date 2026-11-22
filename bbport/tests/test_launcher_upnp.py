@@ -30,6 +30,8 @@ class Router:
 
     def __init__(self, public='8.8.8.8', refuse=()):
         self.public, self.refuse, self.mappings, self.calls = public, set(refuse), {}, []
+        self.description = DESCRIPTION
+        self.redirect_location = None
         router = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -45,7 +47,12 @@ class Router:
                 self.wfile.write(data)
 
             def do_GET(self):
-                self.reply(200, DESCRIPTION)
+                if router.redirect_location:
+                    self.send_response(302)
+                    self.send_header('Location', router.redirect_location)
+                    self.end_headers()
+                    return
+                self.reply(200, router.description)
 
             def do_POST(self):
                 body = self.rfile.read(int(self.headers['Content-Length'])).decode()
@@ -88,6 +95,44 @@ class UpnpTests(unittest.TestCase):
     def test_the_wan_service_is_found_in_the_description(self):
         router, found = self.router()
         self.assertEqual(found, (router.location.replace('/desc.xml', '/ctl/IPConn'), SERVICE))
+
+    def test_upnp_description_and_control_urls_must_stay_on_lan_gateway(self):
+        self.assertTrue(upnp._router_url('http://192.168.4.1:5000/desc'))
+        self.assertTrue(upnp._router_url('http://127.0.0.1:5000/desc', '127.0.0.1'))
+        for bad in ('http://8.8.8.8/desc', 'http://203.0.113.1/desc',
+                    'http://100.64.1.2/desc', 'http://192.0.2.1/desc',
+                    'http://127.0.0.1@8.8.8.8/desc', 'file:///etc/passwd',
+                    'http://192.168.1.1:abc/desc', 'http://localhost/desc'):
+            with self.subTest(url=bad):
+                self.assertFalse(upnp._router_url(bad))
+        self.assertFalse(upnp._router_url('http://127.0.0.1/desc', '127.0.0.2'))
+        with self.assertRaises(upnp.UpnpError):
+            upnp.gateway('http://8.8.8.8/desc')
+        with self.assertRaises(upnp.UpnpError):
+            upnp.soap('http://8.8.8.8/soap', SERVICE, 'GetExternalIPAddress')
+        with self.assertRaises(ValueError):
+            upnp.local_address_towards('http://8.8.8.8/soap')
+
+        router = Router()
+        self.addCleanup(router.stop)
+        router.description = DESCRIPTION.replace(
+            '<device>', '<URLBase>http://8.8.8.8/</URLBase><device>', 1)
+        with self.assertRaises(upnp.UpnpError):
+            upnp.gateway(router.location)
+        router.description = DESCRIPTION.replace(
+            '<controlURL>/ctl/IPConn</controlURL>',
+            '<controlURL>http://8.8.8.8/soap</controlURL>')
+        with self.assertRaises(upnp.UpnpError):
+            upnp.gateway(router.location)
+
+    def test_description_redirect_to_third_party_is_not_followed(self):
+        import urllib.error
+        router = Router()
+        self.addCleanup(router.stop)
+        router.redirect_location = 'http://8.8.8.8/desc'
+        with self.assertRaises(urllib.error.HTTPError) as result:
+            upnp.gateway(router.location)
+        self.assertEqual(result.exception.code, 302)
 
     def test_the_host_ports_are_forwarded_to_this_pc(self):
         router, found = self.router()

@@ -35,6 +35,43 @@ HOST_PORTS = (('TCP', 31315), ('TCP', 20443), ('UDP', 31314))
 # The router has no internet address of its own: carrier-grade NAT (100.64.0.0/10) or a private one.
 NOT_PUBLIC = [ipaddress.IPv4Network(n) for n in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',
                                                   '100.64.0.0/10', '169.254.0.0/16', '0.0.0.0/8')]
+# UPnP IGD is a LAN control protocol. Never use an SSDP LOCATION, XML URLBase
+# or controlURL to send a request to a WAN/third-party endpoint.
+ROUTER_LAN = tuple(ipaddress.IPv4Network(n) for n in (
+    '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',
+    '127.0.0.0/8', '169.254.0.0/16'))
+
+
+class _NoRouterRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+_ROUTER_HTTP = urllib.request.build_opener(_NoRouterRedirects())
+
+
+def _router_url(url, source=None):
+    """A literal IPv4 LAN endpoint, optionally pinned to the SSDP sender."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        if (parsed.scheme != 'http' or not parsed.hostname or
+                parsed.username is not None or parsed.password is not None or parsed.fragment):
+            return False
+        host = ipaddress.IPv4Address(parsed.hostname)
+        return (any(host in network for network in ROUTER_LAN) and
+                (source is None or str(host) == source) and
+                (parsed.port is None or 0 < parsed.port <= 65535))
+    except (ValueError, TypeError):
+        return False
+
+
+def _router_control_url(description, base, control):
+    """Resolve XML service controls only on the same gateway as LOCATION."""
+    result = urllib.parse.urljoin(base, control)
+    if (not _router_url(result) or
+            urllib.parse.urlsplit(result).hostname != urllib.parse.urlsplit(description).hostname):
+        raise UpnpError('UPnP control URL points outside the gateway')
+    return result
 
 
 class UpnpError(Exception):
@@ -139,7 +176,7 @@ def discover(timeout=2.0, addresses=None):
                 match = re.search(rb'(?im)^location:\s*(\S+)\s*$', data)
                 if match:
                     location = match.group(1).decode('ascii', 'replace')
-                    if location.startswith('http://') and location not in found:
+                    if _router_url(location, _sender[0]) and location not in found:
                         found.append(location)
     finally:
         for sock in sockets:
@@ -153,7 +190,9 @@ def _local(tag):
 
 def gateway(location, timeout=3.0):
     """(control URL, service type) of the gateway's WAN connection service, from its description."""
-    with urllib.request.urlopen(location, timeout=timeout) as response:
+    if not _router_url(location):
+        raise UpnpError('UPnP description URL must be on the local router')
+    with _ROUTER_HTTP.open(location, timeout=timeout) as response:
         root = ElementTree.fromstring(response.read(1_000_000))
     base = location
     for element in root.iter():
@@ -165,7 +204,7 @@ def gateway(location, timeout=3.0):
                 continue
             fields = {_local(child.tag): (child.text or '').strip() for child in service}
             if fields.get('serviceType') == wanted and fields.get('controlURL'):
-                return urllib.parse.urljoin(base, fields['controlURL']), wanted
+                return _router_control_url(location, base, fields['controlURL']), wanted
     raise UpnpError('the router has no WAN connection service')
 
 
@@ -175,10 +214,12 @@ def soap(control, service, action, arguments=(), timeout=3.0):
     envelope = ('<?xml version="1.0"?>\r\n<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
                 's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>'
                 f'<u:{action} xmlns:u="{service}">{body}</u:{action}></s:Body></s:Envelope>')
+    if not _router_url(control):
+        raise UpnpError('UPnP SOAP control URL must be local')
     request = urllib.request.Request(control, data=envelope.encode('utf-8'), method='POST', headers={
         'Content-Type': 'text/xml; charset="utf-8"', 'SOAPAction': f'"{service}#{action}"'})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _ROUTER_HTTP.open(request, timeout=timeout) as response:
             data = response.read(200_000)
     except urllib.error.HTTPError as error:
         code = re.search(rb'<(?:\w+:)?errorCode>\s*(\d+)', error.read(200_000) or b'')
@@ -194,6 +235,8 @@ def soap(control, service, action, arguments=(), timeout=3.0):
 
 def local_address_towards(control):
     """This PC's address on the router's network: where the forwards point."""
+    if not _router_url(control):
+        raise ValueError('UPnP control endpoint must be on the LAN')
     host = urllib.parse.urlparse(control).hostname
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         probe.connect((host, 1900))
