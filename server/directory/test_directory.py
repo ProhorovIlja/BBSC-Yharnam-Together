@@ -7,6 +7,7 @@
 import json
 import socket
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -272,6 +273,44 @@ class HttpTests(unittest.TestCase):
                                b'Content-Length: 4\r\n\r\n{}')
                 response = caller.recv(512)
                 self.assertTrue(response.startswith(b'HTTP/1.0 408'), response[:100])
+
+    def test_busy_directory_sheds_excess_http_without_losing_first_worker(self):
+        from unittest.mock import patch
+        with patch.object(d.BoundedDirectoryHTTPServer, 'max_active_requests', 1):
+            server = d.serve(self.directory, 'token', port=0, host='127.0.0.1')
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with socket.create_connection(server.server_address, timeout=3) as first:
+                first.settimeout(3)
+                # Incomplete body ties up exactly one worker (until this
+                # client supplies it or the existing absolute deadline fires).
+                first.sendall(b'POST /v1/heartbeat HTTP/1.1\r\nHost: x\r\n'
+                              b'Content-Length: 4\r\n\r\n{}')
+                deadline = time.monotonic() + 3
+                while server._worker_slots._value != 0 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(server._worker_slots._value, 0)
+                with socket.create_connection(server.server_address, timeout=3) as excess:
+                    excess.settimeout(3)
+                    excess.sendall(b'GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n')
+                    denied = excess.recv(1024)
+                    self.assertTrue(denied.startswith(b'HTTP/1.0 503 '), denied)
+                    self.assertIn(b'Connection: close', denied)
+                first.sendall(b'{}')
+                self.assertTrue(first.recv(1024).startswith(b'HTTP/1.0 401'))
+            deadline = time.monotonic() + 3
+            while server._worker_slots._value != 1 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(server._worker_slots._value, 1)
+            with socket.create_connection(server.server_address, timeout=3) as fresh:
+                fresh.settimeout(3)
+                fresh.sendall(b'GET /v1/nothing HTTP/1.1\r\nHost: x\r\n\r\n')
+                self.assertTrue(fresh.recv(1024).startswith(b'HTTP/1.0 404'))
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
 
     def test_a_launcher_reads_the_shards_and_where_its_player_is(self):
         self.call('/v1/heartbeat', beat('eu-1', 1, players=['Ada']))
