@@ -1464,10 +1464,23 @@ def save_backups(install):
     launcher wrote in it; '' for the game's own) and size in bytes."""
     folder = Path(install) / 'user' / SAVE_BACKUPS
     found = []
+    if _linked_backup_dir(folder):
+        raise OSError('save backup directory is a symbolic link or junction')
     if not folder.is_dir():
         return found
     for path in folder.iterdir():
-        if not (path.is_dir() and BACKUP_NAME.match(path.name)):
+        if not BACKUP_NAME.match(path.name):
+            continue
+        # Never inspect an unrelated linked/junction folder as a player save.
+        if _linked_backup_dir(path):
+            raise OSError('dated save backup is a symbolic link or junction')
+        if not path.is_dir():
+            continue
+        try:
+            when = time.strptime(path.name, '%Y%m%d-%H%M%S')
+        except ValueError:
+            # A folder that merely looks like a date is not a valid backup.
+            # Do not let it hide the valid backups or block the launcher UI.
             continue
         note_file = path / LAUNCHER_BACKUP_NOTE
         try:
@@ -1475,7 +1488,7 @@ def save_backups(install):
         except OSError:
             note = ''
         size = sum(f.stat().st_size for f in path.rglob('*') if f.is_file() and f.name != LAUNCHER_BACKUP_NOTE)
-        found.append({'name': path.name, 'path': path, 'when': time.strptime(path.name, '%Y%m%d-%H%M%S'),
+        found.append({'name': path.name, 'path': path, 'when': when,
                       'note': note, 'size': size, 'launcher': note_file.is_file()})
     found.sort(key=lambda backup: backup['name'], reverse=True)
     return found
