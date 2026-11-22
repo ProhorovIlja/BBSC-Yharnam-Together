@@ -1,5 +1,12 @@
 # Yharnam Together — development state
 
+## New verified source mismatch and acceptance — 2026-11-22
+
+The latest unmerged candidate includes new launcher save completeness work: `RetireOwnWorld` keeps older personal-world archives with a numeric .txt.N suffix, while previous `save_files` and `restore_saves` omitted those names. A shared `party_sidecars` helper now preserves both forms (including legacy Unicode names) for backup/restoration, with fail-closed link refusal and three synthetic filesystem scenarios. [Issue #381](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/381) is OPEN pending exact Windows/retail save tests and cross-file crash durability; #377 and #379 remain open independently.
+
+[Integrated manual validation](NOV22-INTEGRATION-MANUAL-VALIDATION.md) records the corrected pattern (first draft over-escaped and was fixed before merge), 34 isolated local Python tests, and exact missing gameplay/installer/Windows gates. GitHub compare shows 15 changed source/test paths and four documentation files against unchanged main. No workflow, VPS deployment, release or automation was initiated.
+
+
 ## Additional unmerged source work and evidence — 2026-11-22
 
 The combined candidate now contains fourteen unique source/test paths, including new `bbport_auth.run_thread` worker-start failure handling (#280), Discord root-only event decoding in `discord_status.cpp` (#119), finite Redis socket I/O waits (#376), and fail-closed exclusive save backups (#379). The local independently reconstructed Python validation suite passed 31 checks and the portable Discord fixture passed GCC/Clang plus sanitizer. Do not misstate these as the full repository's tests or installed game proof. New graphics research issue #380 records optional SSR shading-rate work without importing untested Vulkan code. [Manual integration document](NOV22-INTEGRATION-MANUAL-VALIDATION.md) holds the exact acceptance gates.
