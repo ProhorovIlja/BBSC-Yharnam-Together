@@ -210,6 +210,24 @@ class AnswersTests(unittest.TestCase):
         self.assertTrue(coop.valid_secret('pass_1'))
         self.assertFalse(coop.valid_secret(''))
 
+    def test_direct_host_does_not_accept_unroutable_ipv4(self):
+        for ip in ('0.0.0.0', '0.1.2.3', '127.0.0.1', '169.254.1.2',
+                   '224.0.0.1', '239.255.255.250', '240.1.1.1',
+                   '255.255.255.255'):
+            with self.subTest(ip=ip):
+                self.assertFalse(coop.valid_ip(ip))
+                self.assertFalse(coop.valid_host(ip))
+                self.assertFalse(coop.is_this_pc(ip))
+                self.assertFalse(coop.wants_router(ip))
+        for ip in ('10.0.0.1', '192.168.1.2', '26.12.34.56', '100.64.1.4',
+                   '203.0.113.7', '8.8.8.8'):
+            with self.subTest(ip=ip):
+                self.assertTrue(coop.valid_ip(ip), 'preserve LAN/VPN/test fixtures')
+        self.assertEqual(coop.resolve_host('play.example.com',
+                                          lookup=lambda _name: '0.0.0.0'), '')
+        self.assertEqual(coop.resolve_host('play.example.com',
+                                          lookup=lambda _name: '224.0.0.1'), '')
+
     def test_the_launcher_has_no_party_settings(self):
         """Kaniel 2026-11-11 ("fully remove it from launcher, since it's supposed to work in the party menu"):
         the enemies' strength and the team rules (Rot, travel together and its vote, Auto scaling, the boss
