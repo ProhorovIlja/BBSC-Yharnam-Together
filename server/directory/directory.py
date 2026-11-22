@@ -30,6 +30,11 @@ REVOKED_S = 31 * 24 * 3600
 REVOKED_MAX = 50000
 SIGNED_ID = re.compile(r'[du][0-9a-f]{14}')
 BODY_MAX = 8 << 20
+# Directory entries are used by launchers and ShadNet for region redirect.
+# Keep these consistent with Region::EndpointOf and launcher shard_address.
+SHARD_UNROUTABLE = tuple(ipaddress.IPv4Network(value) for value in (
+    '100.64.0.0/10', '192.0.2.0/24', '198.18.0.0/15',
+    '198.51.100.0/24', '203.0.113.0/24'))
 NAME = re.compile(r'[A-Za-z0-9_.-]{1,64}')
 KEY = re.compile(r'[0-9a-f]{64}')
 
@@ -61,14 +66,17 @@ def text(value, limit=256):
 
 
 def address_of(value):
-    """'a.b.c.d:port', or Refused."""
-    host, _, port = text(value).rpartition(':')
+    """An allowed unicast shard 'a.b.c.d:port'; refuse unusable routing hints."""
+    host, sep, port = text(value).rpartition(':')
     try:
-        ipaddress.IPv4Address(host)
-        if not 0 < int(port) < 65536:
+        addr = ipaddress.IPv4Address(host)
+        if not sep or not port.isascii() or not port.isdecimal() or not 0 < int(port) < 65536:
+            raise ValueError
+        if (addr.is_multicast or addr.is_unspecified or addr.is_reserved or addr.is_link_local or
+                addr.packed[0] == 0 or any(addr in network for network in SHARD_UNROUTABLE)):
             raise ValueError
     except ValueError:
-        raise Refused(400, 'address is not a.b.c.d:port') from None
+        raise Refused(400, 'invalid shard IPv4 address or port') from None
     return value
 
 
