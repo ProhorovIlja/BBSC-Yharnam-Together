@@ -1484,9 +1484,12 @@ def save_files(user):
 def save_backups(install):
     """The backups, newest first: dicts of name, path, when (a time.struct_time), note (what the
     launcher wrote in it; '' for the game's own) and size in bytes."""
-    folder = Path(install) / 'user' / SAVE_BACKUPS
+    user = Path(install) / 'user'
+    folder = user / SAVE_BACKUPS
     found = []
-    if _linked_backup_dir(folder):
+    # The metadata browser is also called outside the update preflight.
+    # Never enumerate an external profile via a linked user/backup root.
+    if _linked_backup_dir(user) or _linked_backup_dir(folder):
         raise OSError('save backup directory is a symbolic link or junction')
     if not folder.is_dir():
         return found
@@ -1505,13 +1508,27 @@ def save_backups(install):
             # Do not let it hide the valid backups or block the launcher UI.
             continue
         note_file = path / LAUNCHER_BACKUP_NOTE
-        try:
-            note = note_file.read_text(encoding='utf-8').strip() if note_file.is_file() else ''
-        except OSError:
-            note = ''
-        size = sum(f.stat().st_size for f in path.rglob('*') if f.is_file() and f.name != LAUNCHER_BACKUP_NOTE)
+        # Metadata must never follow a linked note into unrelated files.
+        # Do not read an unbounded note from a corrupted or hostile backup.
+        if _linked_backup_dir(note_file):
+            raise OSError('save backup note is a symbolic link or junction')
+        launcher = note_file.is_file()
+        note = ''
+        if launcher:
+            try:
+                if note_file.stat().st_size <= 4096:
+                    note = note_file.read_text(encoding='utf-8').strip()
+            except (OSError, UnicodeError):
+                # A malformed note does not invalidate an otherwise usable save.
+                note = ''
+        size = 0
+        for entry in path.rglob('*'):
+            if _linked_backup_dir(entry):
+                raise OSError('save backup contains a symbolic link or junction')
+            if entry.is_file() and entry != note_file:
+                size += entry.stat().st_size
         found.append({'name': path.name, 'path': path, 'when': when,
-                      'note': note, 'size': size, 'launcher': note_file.is_file()})
+                      'note': note, 'size': size, 'launcher': launcher})
     found.sort(key=lambda backup: backup['name'], reverse=True)
     return found
 
