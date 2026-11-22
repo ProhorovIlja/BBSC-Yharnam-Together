@@ -308,6 +308,11 @@ private:
     bool m_isSsl = true;
     SharedState* m_shared;
     bool m_authenticated = false;
+    // Set only when we reject a malformed wire packet. Remote EOF/half-close
+    // must not prevent the final already-buffered complete request from
+    // being processed, but we must not parse any further frames after our
+    // own protocol violation.
+    bool m_inbound_invalid = false;
     QByteArray m_readBuf;
     std::unique_ptr<Database> m_db;
     ClientInfo m_info;
