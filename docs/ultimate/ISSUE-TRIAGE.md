@@ -1,5 +1,12 @@
 # Playable edition — issue triage and closure rules
 
+## Verified current issue state — 2026-11-22
+
+The owner **closed [#22](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/22) on 2026-11-21 at 20:56:57 UTC**. Narrow [#349](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/349) is also closed. Do not reopen either automatically, even where older historical notes below say “keep #22 open.” Instead [new P0 #377](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/377) independently tracks the unverified cross-file crash/power-loss transaction and game-native save ACK. Existing [#35](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/35) and [#137](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/137) remain open for guest rewards. These are distinct acceptance gates, not evidence that the historical #22 fix failed. The older tables retain their contemporaneous historical wording.
+
+On-demand integration candidate [branch](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/tree/integration/nov22-playable-manual-hardening) contains manually staged HTTP updater, support ZIP, Discord JSON and regional directory concurrency tests. The directory cap now **defaults to 64 request workers**, can be configured with `DIRECTORY_MAX_HTTP_WORKERS` (1–256), and sends best-effort 503 on saturation without blocking the accept loop indefinitely. No automatic CI or VPS deployment was started by this branch; tests remain source-only.
+
+
 Snapshot date: **2026-11-22**. This is a non-exhaustive, actionable index of existing public issues and acceptance gates. The owner-authorized private register is larger and remains private; this file neither duplicates its raw reports nor claims to have reproduced every case.
 
 | Priority | Public issues | Current evidence and remaining action |
