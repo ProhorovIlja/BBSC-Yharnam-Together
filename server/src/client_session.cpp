@@ -86,6 +86,9 @@ void ClientSession::Take(const QByteArray& bytes) {
         m_readBuf.remove(0, pktSize);
 
         ProcessPacket(command, pktId, payload);
+        if (m_inbound_invalid) {
+            return; // reject queued frames after a malformed command too
+        }
     }
 }
 
