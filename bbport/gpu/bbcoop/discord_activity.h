@@ -6,9 +6,18 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace DiscordActivity {
+
+// Local Discord RPC packets are length-prefixed by an untrusted 32-bit field.
+// The app's join/activity messages are small; refuse unusually large frames
+// before allocation. This is OUR 1 MiB policy, not a claimed Discord limit.
+constexpr std::uint32_t MaxIpcPayloadBytes = 1u << 20;
+inline bool ValidIpcFrame(std::uint32_t opcode, std::uint32_t bytes) {
+    return opcode <= 4 && bytes <= MaxIpcPayloadBytes;
+}
 
 inline std::string Json(const std::string& text) {
     std::string out = "\"";
