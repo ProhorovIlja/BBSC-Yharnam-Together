@@ -3,7 +3,7 @@
 Status: **unmerged integration branch**. This is **not** a game release, production deployment, installed-game acceptance, or complete hybrid P2P implementation. No scheduled, recurring or event-triggered tests are enabled by this branch.
 
 Base: previously validated main `fdbdbc67a19edc2fc8015fdf710ad1905104935f` (documentation-only update of the previous main source).
-Integration combines the source and tests from ten focused source branches (including follow-up save, Discord, Redis and auth fixes). All fourteen unique modified source/test paths below are present together in this branch, with no changes to production server credentials, networking ports, user saves or retail game assets.
+Integration combines the source and tests from ten focused source branches (including follow-up save, Discord, Redis and auth fixes). All fifteen unique modified source/test paths below are present together in this branch, with no changes to production server credentials, networking ports, user saves or retail game assets.
 
 ## Contents and ownership
 
@@ -11,7 +11,7 @@ Integration combines the source and tests from ten focused source branches (incl
 | --- | --- | --- | --- |
 | Portable Windows updater | `bbport/launcher/bbport_update_zip.py`, `bbport/tests/test_portable_update_zip.py` | #283 | Reject duplicate/ambiguous/signed/Unicode/pathological Content-Length; accept only CPython-decodable plain chunked transfer, reject partial HTTP 206 and non-200 responses before download. |
 | Support ZIP | `bbport/launcher/bbport_support.py`, `bbport/tests/test_support_bundle.py` | #233 / #378 | Export only reviewed settings; reject symlinked logs, junctions and linked attachments; omit raw host overrides; exclusively stage a unique ZIP; include a privacy warning. Does not fully scrub raw logs/dumps or eliminate all path races. |
-| Game installer save preflight | `bbport/launcher/bbport_coop.py`, `bbport/launcher/bbport_launcher_win.py`, `bbport/tests/test_coop_update_preflight.py` | #379 | Download, verify a byte-identical save backup and recheck that the source stayed unchanged, then stop co-op servers and run setup. Refuse linked backup roots and conflicting timestamp names; abort on disk/HTTP errors and overlapping installation. No filesystem power-loss claim. |
+| Game installer save preflight | `bbport/launcher/bbport_coop.py`, `bbport/launcher/bbport_launcher_win.py`, `bbport/tests/test_coop_update_preflight.py`, `bbport/tests/test_coop_launcher.py` | #379 | Download, verify save backup and unchanged source, then stop server and run setup. Exclusively allocate dated backup dirs; preserve original and numbered personal-world archive sidecars through backup and restore; refuse linked co-op sidecars/backups and overlapping installs. No filesystem power-loss claim. |
 | Game client Discord | `bbport/gpu/bbcoop/discord_activity.h`, `bbport/gpu/bbcoop/discord_status.cpp`, `bbport/tests/test_discord_activity.cpp` | #119 | Decode legal JSON string escapes/Unicode and inspect the **root** event type separately: nested user/event fields cannot impersonate outer ACTIVITY_JOIN. Preserves existing nested data reads. |
 | ShadNet directory | `server/directory/directory.py`, `server/directory/test_directory.py` | #376 / umbrella #3 | Default 64 concurrent request workers (configurable 1–256), 100-ms overload 503 write budget, and finite 3-second Redis connection/read waits per socket operation. Release slots after worker failures. |
 
@@ -53,6 +53,12 @@ These are **explicit foreground checks**, not full-repository CI, scheduled jobs
 - **Save preflight:** `back_up_saves` allocates exclusive timestamp directories, rejects obvious linked/junction backup roots, rereads source files after backup and refuses an installer if the game changed them during backup. This is *not* a crash-atomic multi-file transaction or a guarantee against a malicious concurrent filesystem actor. Verified game's `SlotFileName` pattern `bloodborne_party_<list>_slot<N>.txt` matches the launcher's `bloodborne_party_*.txt` backup inclusion, including `home_world` and `personal_world` sidecars. No production player save was accessed.
 - **External 2026-11-22 GPU research:** [Supermedo SSR fragment shading rate #380](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/380) records an upstream reported high-resolution improvement; no graphics patch imported without safe feature/extension and real GPU validation. [droogie bbhost Matching2 identity commit daea6d0](https://github.com/droogie/bbhost/commit/daea6d09479b6) is a useful peer/transport identity invariant for #80 but is not API-compatible drop-in YT netcode.
 
+## Confirmed archive-sidecar follow-up in the same unmerged branch
+
+A subsequent candidate update adds `party_sidecars` selection for both `bloodborne_party_*_slotN.txt` and numbered `.txt.1` through `.txt.63` (which `RetireOwnWorld` uses to preserve prior personal-world states), while skipping partial files, unrelated logs, and symbolic links. `save_files` now includes the archives in a backup; `restore_saves` removes current stale archives before reinstating the selected snapshot; `test_coop_update_preflight.py` and `test_coop_launcher.py` contain added source cases. A follow-up regular-expression correction `f0afecc7cf6ea9a11399973ae9f11ff35ef96740` is necessary for actual names to match.
+
+Three additional independently reconstructed Python archive tests passed locally (normal/numbered selection, replacement/cleanup of stale .txt.2, linked sidecar rejection). **Aggregate isolated scratch validation is now 37 Python unittest methods PASS**, not an assertion that 37 original-repository tests ran. Unverified: installed save migration and rollback through crashes, NTFS ACL/reparse races, power failure, and game-native save acknowledgment. These remain covered by #379 and #377.
+
 ## On-demand validation only
 
 From the checkout of **this exact integration head** (never production):
@@ -61,6 +67,7 @@ From the checkout of **this exact integration head** (never production):
 python -m unittest discover -s bbport/tests -p test_portable_update_zip.py -v
 python -m unittest discover -s bbport/tests -p test_support_bundle.py -v
 python -m unittest discover -s bbport/tests -p test_coop_update_preflight.py -v
+python -m unittest discover -s bbport/tests -p test_coop_launcher.py -v
 python -m unittest discover -s bbport/tests -p test_launcher_auth.py -v
 g++ -std=c++20 -Wall -Wextra -Werror -Ibbport bbport/tests/test_discord_activity.cpp -o /tmp/test_discord_activity
 /tmp/test_discord_activity
