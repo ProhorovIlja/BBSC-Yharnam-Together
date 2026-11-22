@@ -4,6 +4,8 @@ Support bundle button, while the game runs too. It holds the logs (the game's, t
 launcher's, the co-op traces), the crash and freeze reports, the settings and a network check. It never
 holds a save, a game file or the player's secret: coop.json's password is left out, and in the
 launcher's own texts the user folder's path shows as %USERPROFILE%.
+Raw logs and crash dumps may still contain account data, addresses or secrets; the player must
+review the archive before sharing it.
 
 The game keeps writing its logs while the bundle copies them (their files are shared for reading), so a
 bundle made in the middle of a session has everything up to that moment. Zipping runs at background
@@ -36,6 +38,14 @@ SUPPORT_SETTINGS_KEYS = frozenset({
     'server_type', 'global_name', 'global_server',
 })
 LEFT_OUT = '(left out)'
+PRIVACY_NOTICE = (
+    'Yharnam Together support archive — review before sharing.\\n'
+    'This ZIP contains raw logs and possibly crash dumps. They may reveal account names,\\n'
+    'network addresses or sensitive text/memory despite redaction of coop.json settings.\\n'
+    'Inspect every included file before uploading to a public issue or sending to others.\\n'
+    'Personal game saves, game assets and host_overrides.custom.json are not automatically\\n'
+    'included. Avoid attaching them manually without reviewing the content.\\n'
+)
 
 
 def bundle_name(now=None):
@@ -437,6 +447,7 @@ def make_bundle(destination, user_dir, settings=None, extra_files=(), texts=None
     partial = Path(staged.name)
     try:
         with staged, zipfile.ZipFile(staged, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as bundle:
+            bundle.writestr('REVIEW-BEFORE-SHARING.txt', PRIVACY_NOTICE)
             for name, text in texts.items():
                 bundle.writestr(name, hide_home(text, home))
             for path, name in files:
