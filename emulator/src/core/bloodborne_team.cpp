@@ -836,10 +836,19 @@ std::optional<WorldFlags> ParseWorldFlags(std::string_view text) {
             line.remove_suffix(1);
         }
         if (line == "blocks") {
+            // A personal snapshot has one ordered blocks/on/end sequence.
+            // Reopening blocks after end or during on would merge two
+            // unrelated snapshots and could import another world's flags.
+            if (part != 0) {
+                return std::nullopt;
+            }
             part = 1;
             continue;
         }
         if (line == "on") {
+            if (part != 1) {
+                return std::nullopt;
+            }
             part = 2;
             continue;
         }
