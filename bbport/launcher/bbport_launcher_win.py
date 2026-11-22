@@ -7197,19 +7197,13 @@ class Launcher:
 
         def work():
             try:
-                setup = bbport_coop.download_update(release, Path(tempfile.gettempdir()) / 'bloodborne-coop-update',
-                                                    progress)
-                bbport_coop.stop_servers(PORT_DIR)
-            except (OSError, ValueError) as error:
+                setup = bbport_coop.prepare_coop_update(
+                    release, Path(tempfile.gettempdir()) / 'bloodborne-coop-update', PORT_DIR, progress)
+            except (OSError, ValueError, http.client.HTTPException) as error:
+                # Never start the installer or stop live services when the
+                # complete, byte-verified save backup cannot be made.
                 self.ui_calls.put(lambda failure=error: self.coop_update_failed(failure))
                 return
-            # the saves as they are, in the Restore saves list, before a setup writes over the install
-            # (red, 2026-11-06: "I updated with the installer and lost our save files"); a backup that
-            # cannot be written (a full disk) does not stop the update, which leaves the saves alone
-            try:
-                bbport_coop.back_up_saves(PORT_DIR, 'before an update', prune=False)
-            except OSError:
-                pass
             self.ui_calls.put(lambda: self.coop_run_setup(setup))
         threading.Thread(target=work, daemon=True).start()
 
