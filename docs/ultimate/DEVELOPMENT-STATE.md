@@ -1,5 +1,9 @@
 # Yharnam Together — development state
 
+## Later source-only safety continuation — 2026-11-22
+
+Manual unmerged branches [fix/support-bundle-path-safety-20261122](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/tree/fix/support-bundle-path-safety-20261122) and [fix/launcher-update-save-preflight-20261122](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/tree/fix/launcher-update-save-preflight-20261122) have been incorporated into the combined integration branch. They add symlink/junction/log-race/ZIP-staging guards and a fail-closed verified save backup before game setup, plus synthetic regression fixtures. New issues #378 and #379 remain open. No source-suite CI or Win10/11 packaged installer/real 1.09 savedata acceptance has run for these candidates. See [NOV22-INTEGRATION-MANUAL-VALIDATION.md](NOV22-INTEGRATION-MANUAL-VALIDATION.md) for exact paths and on-demand commands.
+
 ## Current owner status / integration gate — 2026-11-22
 
 Owner explicitly closed historical [world progression #22](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/22) on **2026-11-21 20:56:57 UTC**, and [archive subcase #349](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/349) is also closed. The archived development rows below sometimes say they were open **at the time**. Preserve that history; track **unverified** multi-file home/personal-world crash recovery and native save acknowledgement in [new P0 #377](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/377), with guest-item work in open #35 and #137. Do not construe the owner's closure as certification of installed five-client gameplay or power-loss resilience.
