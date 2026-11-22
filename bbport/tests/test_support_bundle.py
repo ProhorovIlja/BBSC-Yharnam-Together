@@ -73,6 +73,29 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(coop['password'], support.LEFT_OUT)
         self.assertEqual(coop['account'], 'p0123456789abcd', "the server's log names the player by it")
 
+    def test_saved_per_server_credentials_are_never_exported(self):
+        self.settings['server_ids'] = {
+            'private-host': ['hunter-a', 'private-secret-a'],
+            'other-host': ['hunter-b', 'private-secret-b'],
+            'unknown': {'password': 'unexpected-secret'}
+        }
+        self.settings['access_token'] = 'access-token-private'
+        self.settings['refresh_token'] = 'refresh-token-private'
+        _failed, files = self.make()
+        combined = ''.join(files.values())
+        for secret in ('the-secret', 'private-secret-a', 'private-secret-b',
+                       'unexpected-secret', 'access-token-private', 'refresh-token-private'):
+            self.assertNotIn(secret, combined)
+        copied = json.loads(files['coop.json'])
+        self.assertEqual(copied['account'], 'p0123456789abcd')
+        self.assertEqual(copied['server_ids']['private-host'], ['hunter-a', support.LEFT_OUT])
+        self.assertEqual(copied['server_ids']['other-host'], ['hunter-b', support.LEFT_OUT])
+        self.assertEqual(copied['server_ids']['unknown'], support.LEFT_OUT)
+        self.assertEqual(copied['access_token'], support.LEFT_OUT)
+        self.assertEqual(copied['refresh_token'], support.LEFT_OUT)
+        self.assertEqual(self.settings['server_ids']['private-host'][1], 'private-secret-a',
+                         'redaction must never mutate real credentials')
+
     def test_texts_and_extra_files(self):
         ini = write(self.root / 'install' / 'bbport.ini', 'upscaler=fsr3\n')
         home = str(self.root / 'home' / 'vitsh')
