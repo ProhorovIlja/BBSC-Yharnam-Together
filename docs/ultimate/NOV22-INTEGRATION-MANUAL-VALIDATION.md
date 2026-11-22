@@ -5,6 +5,16 @@ Status: **unmerged integration branch**. This is **not** a game release, product
 Base: previously validated main `fdbdbc67a19edc2fc8015fdf710ad1905104935f` (documentation-only update of the previous main source).
 Integration combines the source and tests from ten focused source branches (including follow-up save, Discord, Redis and auth fixes). All fifteen unique modified source/test paths below are present together in this branch, with no changes to production server credentials, networking ports, user saves or retail game assets.
 
+## New P0 save-backup archive gap — issue #381
+
+This audit cross-checked the actual game's `emulator/src/core/bloodborne_server_world.cpp::RetireOwnWorld` archive path against launcher `bbport/launcher/bbport_coop.py::save_files`. The game retains old personal-world snapshots at `SlotFileName("personal_world_before_home", slot) + ".1"`, `+".2"`, etc. Previous launcher backups read only `bloodborne_party_*.txt`, so these numbered recovery snapshots were omitted; `restore_saves` also left stale numbered archives behind.
+
+New shared `party_sidecars` selects the original `*.txt` and numbered `*.txt.N` paths, preserving original Unicode filenames and declining link/junction sidecars. Both backup and restore use it. Tests added to `test_coop_update_preflight.py` check ordinary + numbered snapshots, Unicode filenames, stale archive removal during restore and symlink refusal. The inherited `test_coop_launcher.py` source assertion was also updated to the new `prepare_coop_update` helper rather than demanding old direct GUI calls.
+
+**Important verification finding:** first staged regexp accidentally had over-escaped dots and failed to match ordinary filenames. It was fixed and re-read verbatim in both the standalone branch and integration branch; a direct local Python reproduction confirmed the incorrect expression failed and the corrected expression matches normal and numbered archives. The newest **34 on-demand, independently reconstructed Python unit checks** passed; this is **not** the full exact-repository source test suite or Windows/retail 1.09 validation. Keep [#381](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/381) and [#377](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/377) open for installed save, NG+, multi-slot, crash/power-loss and authentic game-native ACK acceptance.
+
+Source comparison confirmed 15 changed source/test paths and four docs against main; main stays unmodified. No CI workflow, production instance, or account data was touched.
+
 ## Contents and ownership
 
 | Area | Modified paths | Existing tracker | Candidate change |
