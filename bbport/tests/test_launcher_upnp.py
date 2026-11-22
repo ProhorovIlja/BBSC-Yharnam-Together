@@ -119,6 +119,44 @@ class UpnpTests(unittest.TestCase):
                 self.assertEqual(router.mappings, {})
                 self.assertFalse(any(action == 'AddPortMapping' for action, _ in router.calls))
 
+    def test_missing_gateway_wan_does_not_create_unreachable_mappings(self):
+        router, found = self.router(public='')
+        result = upnp.open_ports(found=found)
+        self.assertEqual(result['state'], 'refused')
+        self.assertEqual(result['public'], '')
+        self.assertEqual(router.mappings, {})
+        self.assertFalse(any(action == 'AddPortMapping' for action, _ in router.calls))
+
+    def test_unavailable_wan_lookup_does_not_modify_router(self):
+        router, found = self.router(public='8.8.8.8')
+        original = upnp.soap
+
+        def fail_wan(control, service, action, *args, **kwargs):
+            if action == 'GetExternalIPAddress':
+                raise upnp.UpnpError('missing WAN reply')
+            return original(control, service, action, *args, **kwargs)
+
+        with mock.patch.object(upnp, 'soap', side_effect=fail_wan):
+            result = upnp.open_ports(found=found)
+        self.assertEqual(result['state'], 'refused')
+        self.assertFalse(any(action == 'AddPortMapping' for action, _ in router.calls))
+        self.assertEqual(router.mappings, {})
+
+    def test_missing_local_route_refuses_forward_without_router_mutation(self):
+        router, found = self.router(public='8.8.8.8')
+        for unavailable in (OSError('WAN route unavailable'), ''):
+            with self.subTest(local=unavailable):
+                if isinstance(unavailable, OSError):
+                    patcher = mock.patch.object(upnp, 'local_address_towards', side_effect=unavailable)
+                else:
+                    patcher = mock.patch.object(upnp, 'local_address_towards', return_value=unavailable)
+                with patcher:
+                    result = upnp.open_ports(found=found)
+                self.assertEqual(result['state'], 'refused')
+                self.assertEqual(result['local'], '')
+                self.assertFalse(any(action == 'AddPortMapping' for action, _ in router.calls))
+                self.assertEqual(router.mappings, {})
+
     def test_a_refused_port_is_named(self):
         router, found = self.router(refuse={'UDP 31314'})
         result = upnp.open_ports(found=found)
