@@ -113,7 +113,7 @@ Before integrating: on disposable files, verify symlinked and Windows reparse/ju
 
 Also run direct-host/UPnP fixtures for 0/8, 127/8, 169.254/16, multicast, 240/4 and 255.255.255.255 rejection; verify correct operation of LAN, legacy VPN, and existing TEST-NET fixtures on Windows.
 
-Do not mislabel an idle socket timeout as an absolute request-header deadline: #382 remains unsolved until incomplete-line drip tests prove finite slot occupancy across repeated short receives. This header parser fix must preserve request body bytes and HTTP clients.
+Absolute header-deadline candidate for #382 is now in the newer isolated branch `fix/directory-header-absolute-deadline-20261122`: `_DeadlineHeaderReader` uses select() and monotonic time for total line/header budget, while keeping prefetched POST bytes and restoring normal idle timeout on blank header terminator. Three new exact-source regression methods are committed to `server/directory/test_directory.py`; four reconstructed local loopback tests pass. **Still unverified in exact full source, Windows, real Redis and staging load**. Keep #382 OPEN until real acceptance. No CI workflow was added or run.
 
 Manual only: `python -m unittest discover -s bbport/tests -p test_coop_update_preflight.py -v` and `python -m unittest discover -s bbport/tests -p test_coop_launcher.py -v` on exact branch source, both Windows and Linux. Do not enable event-triggered CI workflows or modify production endpoints.
 
