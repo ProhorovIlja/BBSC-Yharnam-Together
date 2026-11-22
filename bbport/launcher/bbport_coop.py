@@ -1441,16 +1441,38 @@ def save_files(user):
     user = Path(user)
     files = {}
 
+    def reject_link(path):
+        # is_file() and is_dir() follow native-save symlinks. Without this
+        # guard a backup can read a file outside the hunter's save tree.
+        # Like the sidecar checks below this is a preflight, not an atomic
+        # handle-level no-follow guarantee against concurrent replacement.
+        if _linked_backup_dir(path):
+            raise OSError('native save tree contains a symbolic link or junction')
+
+    reject_link(user)
     def add_tree(folder):
+        reject_link(folder)
         for path in sorted(folder.rglob('*')):
+            # Check both directories and files before is_file()/read_bytes().
+            # A directory junction on Windows can escape the save root.
+            reject_link(path)
             if path.is_file():
                 files[path.relative_to(user).as_posix()] = path.read_bytes()
-    if (user / 'savedata').is_dir():
-        add_tree(user / 'savedata')
-    if (user / 'home').is_dir():
-        for home in sorted((user / 'home').iterdir()):
-            if (home / 'savedata').is_dir():
-                add_tree(home / 'savedata')
+
+    native_saves = user / 'savedata'
+    reject_link(native_saves)
+    if native_saves.is_dir():
+        add_tree(native_saves)
+
+    homes = user / 'home'
+    reject_link(homes)
+    if homes.is_dir():
+        for home in sorted(homes.iterdir()):
+            reject_link(home)
+            native_home_saves = home / 'savedata'
+            reject_link(native_home_saves)
+            if native_home_saves.is_dir():
+                add_tree(native_home_saves)
     for path in party_sidecars(user):
         if path.is_symlink() or _linked_backup_dir(path):
             raise OSError('co-op save sidecar is a symbolic link or junction')
