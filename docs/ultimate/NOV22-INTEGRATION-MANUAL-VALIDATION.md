@@ -3,14 +3,15 @@
 Status: **unmerged integration branch**. This is **not** a game release, production deployment, installed-game acceptance, or complete hybrid P2P implementation. No scheduled, recurring or event-triggered tests are enabled by this branch.
 
 Base: previously validated main `fdbdbc67a19edc2fc8015fdf710ad1905104935f` (documentation-only update of the previous main source).
-Integration combines the source and tests from four independently staged branches. All eight paths below are present together in this branch, with no changes to production server credentials, networking ports, user saves or retail game assets.
+Integration combines the source and tests from six focused source branches (including two new safety extensions). All eleven modified source/test paths below are present together in this branch, with no changes to production server credentials, networking ports, user saves or retail game assets.
 
 ## Contents and ownership
 
 | Area | Modified paths | Existing tracker | Candidate change |
 | --- | --- | --- | --- |
 | Portable Windows updater | `bbport/launcher/bbport_update_zip.py`, `bbport/tests/test_portable_update_zip.py` | #283 | Reject duplicate/ambiguous/signed/Unicode/pathological Content-Length; accept only CPython-decodable plain chunked transfer, reject partial HTTP 206 and non-200 responses before download. |
-| Support ZIP | `bbport/launcher/bbport_support.py`, `bbport/tests/test_support_bundle.py` | #233 | Export only reviewed settings, redact credential-like keys, validate publicly pinned server keys. Does not scrub attached raw logs/dumps. |
+| Support ZIP | `bbport/launcher/bbport_support.py`, `bbport/tests/test_support_bundle.py` | #233 / #378 | Export only reviewed settings; reject symlinked logs, junctions and linked attachments; omit raw host overrides; exclusively stage a unique ZIP; include a privacy warning. Does not fully scrub raw logs/dumps or eliminate all path races. |
+| Game installer save preflight | `bbport/launcher/bbport_coop.py`, `bbport/launcher/bbport_launcher_win.py`, `bbport/tests/test_coop_update_preflight.py` | #379 | Download, verify a complete byte-identical save backup, then stop co-op servers and run setup. Abort on disk/HTTP error or overlapping installation. Backup readback does not establish power-loss durability. |
 | Game client Discord | `bbport/gpu/bbcoop/discord_activity.h`, `bbport/tests/test_discord_activity.cpp` | #119 | Decode JSON string fields with legal whitespace, escaped quotes, UTF-8/Unicode and UTF-16 surrogate pairs; ignore lookalike keys inside strings. |
 | ShadNet directory | `server/directory/directory.py`, `server/directory/test_directory.py` | #376 / umbrella #3 | Default to 64 concurrent HTTP request workers, configurable through DIRECTORY_MAX_HTTP_WORKERS in the range 1–256; best-effort 503 with a 100-ms socket write budget when saturated; always release a slot on completion or thread-start failure. |
 
@@ -25,7 +26,7 @@ These **isolated reproductions** used separately assembled copies of the modifie
 
 No full repository, Windows launcher, actual Win32 named pipe, complete fakeredis, Docker, load, or installed Bloodborne 1.09 run was performed for this **new integration head**.
 
-## Additional manual verification after the four-branch integration
+## Additional manual verification after the integrated source batches
 
 These are **explicit foreground checks**, not full-repository CI, scheduled jobs or production tests:
 
@@ -35,6 +36,12 @@ These are **explicit foreground checks**, not full-repository CI, scheduled jobs
 - **Support ZIP:** three local Python unit methods passed for nonmutating `without_secrets` against nested server credentials, unknown future session fields and malformed key pins. No complete installed support ZIP privacy audit or raw log/dump scrubbing was performed.
 - **Upstream duplicate prevention:** the latest Amanises 1.5.1 source includes targeted stuck-loading guest visibility, `KeepOwnWorldAside`, game sign-in URL handling, GPU PM4 and NPC/render crash fixes. Corresponding functions/patch names were verified **already present** in this fork's main; no blind duplicate or incompatible upstream merge was made. Actual five-player and installed client acceptance is still outstanding.
 
+## Additional 2026-11-22 safety fixes and source-only evidence
+
+- **Game installer backup gate, issue #379:** the main GUI previously ignored `OSError` on `back_up_saves` after stopping the co-op server and still launched the setup. New `bbport_coop.prepare_coop_update` enforces download → backup → stop; source backup writer immediately rereads copied synthetic saves and rejects mismatches, removing failed backup folders. New GUI catches `http.client.HTTPException` and refuses updates during another install or co-op preparation. Six cross-platform unittest methods committed in `test_coop_update_preflight.py`; five local independently reconstructed CPython smoke tests of ordering, corrupted copy, disk error, incomplete HTTP response and normal backup passed. **Exact full-repo, Win10/11 GUI and installed game saves remain untested.** This reuses the narrow idea in the still-open stacked draft #272, not the draft's unrelated UI/CI/release machinery.
+- **Support bundle filesystem/privacy gate, issue #378:** fail-closed preflight for symlinks and Windows reparse points, including directory junctions on Python 3.11; raw host_overrides.custom.json removed from automatic ZIP; random exclusively created staging replaces predictable `.part`, cleaned on error. Text notice `REVIEW-BEFORE-SHARING.txt` cautions about raw log/dump content. Newest-trace selection survives deleted log files during rotation. Five actual local symlink/ZIP filesystem tests plus one fault-injected stat test passed using an isolated reproduction. **Full exact-module Windows/Linux suites, race-free file-handle-based nofollow and installed ZIP sharing acceptance are not complete.**
+- These are manual-only code candidates, not claims that all game data is durably backed up or all report logs are free of secrets. Never apply these to a user's only copy of a save.
+
 ## On-demand validation only
 
 From the checkout of **this exact integration head** (never production):
@@ -42,6 +49,7 @@ From the checkout of **this exact integration head** (never production):
 ```sh
 python -m unittest discover -s bbport/tests -p test_portable_update_zip.py -v
 python -m unittest discover -s bbport/tests -p test_support_bundle.py -v
+python -m unittest discover -s bbport/tests -p test_coop_update_preflight.py -v
 g++ -std=c++20 -Wall -Wextra -Werror -Ibbport bbport/tests/test_discord_activity.cpp -o /tmp/test_discord_activity
 /tmp/test_discord_activity
 python -m pip install -r server/directory/requirements.txt 'fakeredis[lua]>=2.23,<3'
@@ -54,7 +62,7 @@ Manual failure gates: no successful private player save backup; no guarantee a f
 
 ## Release and issue rules
 
-- Do not close #283, #233, #119 or #376 based only on these new isolated checks.
+- Do not close #283, #233, #378, #379, #119 or #376 based only on these new isolated checks.
 - Owner-closed historic #22 and completed #349 remain closed. Track remaining *unverified* cross-file save durability/native ACK in new open P0 #377; keep #35/#137 guest rewards, #21/#23/#63 hunter/NPC divergence and #80 direct authenticated P2P/relay open until actual 1.09 multi-hunter acceptance.
 - Avoid source-workflow files, push/PR event CI launches, production deploys and automatic scheduled tasks without the owner's separate explicit authorization.
 - Source comparisons: HTTP framing rejection follows RFC 9110/9112's permitted error treatment; this is a conservative client policy, not an alleged live exploit. Private Nov 14 bug register is not mirrored into public GitHub.
