@@ -152,6 +152,25 @@ class DirectoryTests(unittest.TestCase):
             with self.assertRaises(d.Refused):
                 self.directory.heartbeat(bad)
 
+    def test_directory_refuses_unroutable_redirect_targets_before_publication(self):
+        for host in ('100.64.0.1', '100.127.255.254', '192.0.2.7',
+                     '198.18.1.1', '198.19.255.254', '198.51.100.3',
+                     '203.0.113.4', '224.0.0.1', '240.1.1.1',
+                     '169.254.0.10', '0.0.0.1', '255.255.255.255'):
+            with self.subTest(host=host):
+                with self.assertRaises(d.Refused):
+                    self.directory.heartbeat(dict(beat('bad', 31314),
+                                                  address=f'{host}:31314'))
+        for invalid_port in ('+31314', ' 31314', '0', '65536', '-1', 'abc'):
+            with self.subTest(port=invalid_port):
+                with self.assertRaises(d.Refused):
+                    d.address_of(f'10.10.0.1:{invalid_port}')
+        for host in ('127.0.0.1', '10.0.0.1', '172.20.0.5',
+                     '192.168.1.8', '8.8.8.8'):
+            with self.subTest(valid=host):
+                self.assertEqual(d.address_of(f'{host}:31314'), f'{host}:31314')
+        self.assertEqual(self.directory.shards(), [], 'rejected shards never enter Redis')
+
 
 @unittest.skipIf(MISSING, MISSING)
 class HttpTests(unittest.TestCase):
