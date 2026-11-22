@@ -11,6 +11,7 @@ python -m unittest discover -s bbport/tests -p test_coop_launcher.py -v
 python -m unittest discover -s bbport/tests -p test_launcher_upnp.py -v
 python -m unittest discover -s bbport/tests -p test_support_bundle.py -v
 python -m unittest discover -s bbport/tests -p test_portable_update_zip.py -v
+python -m unittest discover -s bbport/tests -p test_coop_update_preflight.py -v
 ```
 
 Cover actual Windows and Linux. The support-bundle tests use synthetic credentials and must never be given real accounts, game dumps or private server logs. For the unmerged 2026-11-22 updater branch, exercise duplicate, contradictory, oversized and Unicode Content-Length values using Python's actual HTTPMessage, then verify the interrupted-download and update-recovery tests on Windows. For the unmerged support-allowlist branch, verify that unknown settings, per-server credentials and malformed public-key pins cannot enter the generated coop.json while leaving the player's real settings unmodified.
