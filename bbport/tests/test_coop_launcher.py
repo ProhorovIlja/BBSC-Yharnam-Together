@@ -1495,9 +1495,17 @@ class UpdateTests(unittest.TestCase):
         # keeps the saves as they were in the Restore saves list before the setup runs
         source = (Path(__file__).resolve().parents[1] / 'launcher' / 'bbport_launcher_win.py').read_text(encoding='utf-8')
         update = source.split('def coop_update_failed', 1)[0].rsplit('def work():', 1)[1]
-        self.assertIn('bbport_coop.download_update(', update)
-        backup = update.index("bbport_coop.back_up_saves(PORT_DIR, 'before an update'")
-        self.assertLess(backup, update.index('self.coop_run_setup(setup)'))
+        self.assertIn('bbport_coop.prepare_coop_update(', update)
+        self.assertNotIn('bbport_coop.stop_servers(', update)
+        self.assertNotIn('bbport_coop.back_up_saves(', update)
+        self.assertLess(update.index('bbport_coop.prepare_coop_update('),
+                        update.index('self.coop_run_setup(setup)'))
+        preflight = (Path(__file__).resolve().parents[1] / 'launcher' /
+                     'bbport_coop.py').read_text(encoding='utf-8')
+        preflight = preflight.split('def prepare_coop_update(', 1)[1].split(
+            '\ndef prune_launcher_backups(', 1)[0]
+        self.assertLess(preflight.index('download_update('), preflight.index('back_up_saves('))
+        self.assertLess(preflight.index('back_up_saves('), preflight.index('stop_servers('))
         with tempfile.TemporaryDirectory() as folder:
             install = Path(folder)
             save = install / 'user' / 'savedata' / '1' / 'CUSA03173' / 'SPRJ0005' / 'userdata0000'
