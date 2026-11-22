@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'launcher'))
 
@@ -147,6 +148,74 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(failed, [('log/freeze-1792733895.txt', 'The process cannot access the file')])
         self.assertIn('freeze-1792733895.txt', files['missing.txt'])
         self.assertIn('log/shad_log.txt', files)
+
+    def test_support_bundle_never_auto_attaches_private_override_settings(self):
+        write(self.user / 'host_overrides.custom.json',
+              '{"password":"private-override","refresh_token":"also-private"}')
+        failed, contents = self.make()
+        self.assertEqual(failed, [])
+        self.assertNotIn('host_overrides.custom.json', contents)
+        self.assertNotIn('private-override', ''.join(contents.values()))
+        self.assertNotIn('also-private', ''.join(contents.values()))
+
+    def test_support_bundle_skips_linked_log_and_extra_file(self):
+        secret = write(self.root / 'private' / 'secret.txt', 'private-outside-install')
+        linked_log = self.user / 'log' / 'linked-private.txt'
+        linked_extra = self.root / 'linked.ini'
+        try:
+            linked_log.symlink_to(secret)
+            linked_extra.symlink_to(secret)
+        except (OSError, NotImplementedError):
+            self.skipTest('creating symlinks requires local privileges')
+        failed, contents = self.make(extra_files=[(linked_extra, 'config.ini')])
+        self.assertEqual(failed, [])
+        self.assertNotIn('log/linked-private.txt', contents)
+        self.assertNotIn('config.ini', contents)
+        self.assertNotIn('private-outside-install', ''.join(contents.values()))
+
+    def test_linked_old_logs_directory_is_not_recursed(self):
+        external = self.root / 'unrelated-folder'
+        write(external / 'private.txt', 'outside-private-data')
+        old = self.user / 'log' / 'older'
+        for child in old.iterdir():
+            child.unlink()
+        old.rmdir()
+        try:
+            old.symlink_to(external, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest('creating directory links requires local privileges')
+        _failed, contents = self.make()
+        self.assertFalse(any(name.startswith('log/older/') for name in contents))
+        self.assertNotIn('outside-private-data', ''.join(contents.values()))
+
+    def test_existing_part_symlink_cannot_redirect_archive_staging(self):
+        output = self.root / 'out'
+        output.mkdir()
+        stage = output / (support.bundle_name(1792900000) + '.part')
+        private = write(self.root / 'private' / 'target.txt', 'original-private')
+        try:
+            stage.symlink_to(private)
+        except (OSError, NotImplementedError):
+            self.skipTest('creating symlinks requires local privileges')
+        failed, contents = self.make()
+        self.assertEqual(failed, [])
+        self.assertIn('coop.json', contents)
+        self.assertEqual(private.read_text(encoding='utf-8'), 'original-private')
+        self.assertFalse(list(output.glob('*.part-*')), 'unique staging should be cleaned')
+
+    def test_staging_is_removed_if_zip_write_fails(self):
+        output = self.root / 'out'
+        real_write = zipfile.ZipFile.writestr
+
+        def fail_after_open(*_args, **_kwargs):
+            raise OSError('simulated disk write failure')
+
+        with mock.patch.object(zipfile.ZipFile, 'writestr', side_effect=fail_after_open):
+            with self.assertRaisesRegex(OSError, 'simulated disk write failure'):
+                support.make_bundle(output / support.bundle_name(1792900000),
+                                    self.user, settings=self.settings)
+        self.assertEqual(list(output.iterdir()), [], 'no partial private ZIP remains')
+        self.assertIsNotNone(real_write)  # existing ZipFile implementation remains intact
 
     def test_no_half_written_zip_is_left(self):
         self.make()
