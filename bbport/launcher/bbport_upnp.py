@@ -223,7 +223,12 @@ def open_ports(ports=HOST_PORTS, found=None):
     except (UpnpError, ElementTree.ParseError):
         public = ''
     local = local_address_towards(control)
-    if public and not is_public(public):
+    if not public:
+        # A gateway that did not answer its WAN-IP query cannot offer a
+        # reachable external endpoint. Preserve the earlier 'refused'
+        # diagnostic without creating useless/stale router mappings.
+        return {'state': 'refused', 'public': '', 'local': local, 'failed': []}
+    if not is_public(public):
         return {'state': 'cgnat', 'public': public, 'local': local, 'failed': []}
     failed = []
     for protocol, port in ports:
