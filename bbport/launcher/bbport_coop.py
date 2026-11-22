@@ -1462,31 +1462,74 @@ def save_backups(install):
     return found
 
 
+def _linked_backup_dir(path):
+    """Reject a linked/junction backup root or existing dated backup.
+
+    Python 3.11 has no Path.is_junction; on Windows its lstat still exposes
+    FILE_ATTRIBUTE_REPARSE_POINT. This is a preflight, not a race-free file
+    handle guarantee against a second process changing an ancestor.
+    """
+    path = Path(path)
+    try:
+        mode = path.lstat()
+    except FileNotFoundError:
+        return False
+    is_junction = getattr(path, 'is_junction', None)
+    return (path.is_symlink() or (is_junction is not None and is_junction()) or
+            (os.name == 'nt' and bool(getattr(mode, 'st_file_attributes', 0) & 0x400)))
+
+
 def back_up_saves(install, note, now=None, prune=True):
-    """A launcher backup of the saves as they are, with `note` in it: its path, or None when there are no
-    saves or they are the same as the newest backup's (that one already holds them)."""
+    """Copy this character's save and verify it has not changed while copying.
+
+    The dated backup directory is exclusively CREATED, never opened over a
+    pre-existing file/link. A backup must contain exactly the initial bytes,
+    and the source must still have those bytes after the copy. If either
+    readback fails, leave existing backups and original game saves untouched.
+    """
     user = Path(install) / 'user'
     files = save_files(user)
     if not files:
         return None
+    backups_dir = user / SAVE_BACKUPS
+    if _linked_backup_dir(backups_dir):
+        raise OSError('save backup directory is a symbolic link or junction')
     existing = save_backups(install)
-    if existing and save_files(existing[0]['path']) == files:
-        return None
+    if existing:
+        if _linked_backup_dir(existing[0]['path']):
+            raise OSError('most recent save backup is a symbolic link or junction')
+        if save_files(existing[0]['path']) == files:
+            # No new directory is needed: exact existing data is preserved.
+            return None
+
+    backups_dir.mkdir(parents=True, exist_ok=True)
+    if _linked_backup_dir(backups_dir):
+        raise OSError('save backup directory became a symbolic link or junction')
     name = time.strftime('%Y%m%d-%H%M%S', time.localtime(now))
-    while any(backup['name'] == name for backup in existing):  # two in one second: the next free second
-        name = time.strftime('%Y%m%d-%H%M%S', time.localtime(time.mktime(time.strptime(name, '%Y%m%d-%H%M%S')) + 1))
-    backup = user / SAVE_BACKUPS / name
+    for _attempt in range(3600):
+        backup = backups_dir / name
+        try:
+            backup.mkdir()  # exclusive: never write through a previously existing path
+            break
+        except FileExistsError:
+            # Two attempts in one second, or a separate process got this
+            # name. Never reuse or remove a pre-existing backup.
+            name = time.strftime('%Y%m%d-%H%M%S',
+                                 time.localtime(time.mktime(
+                                     time.strptime(name, '%Y%m%d-%H%M%S')) + 1))
+    else:
+        raise OSError('cannot allocate a unique save backup directory')
+
     try:
         for relative, data in files.items():
             target = backup / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         (backup / LAUNCHER_BACKUP_NOTE).write_text(note + '\n', encoding='utf-8')
-        # A file writer may return without throwing but leave truncated or
-        # altered bytes (antivirus, disk/filter driver, interrupted stream).
-        # Never proceed to an installer without a readable full save copy.
         if save_files(backup) != files:
             raise OSError('the save backup could not be verified')
+        if save_files(user) != files:
+            raise OSError('the save data changed during backup; update cancelled')
     except OSError:
         shutil.rmtree(backup, ignore_errors=True)
         raise
