@@ -331,5 +331,8 @@ def run_thread(call, done, *args, **options):
             done(account, None)
     try:
         threading.Thread(target=run, daemon=True).start()
-    except RuntimeError:
+    except Exception:
+        # Thread construction/start can also fail with OSError on exhausted
+        # OS resources. The form must get exactly one failure callback rather
+        # than remain disabled; never surface the exception's credentials.
         done(None, AuthError(BUSY_TEXT))
