@@ -48,6 +48,10 @@ Snapshot date: **2026-11-22**. This is a non-exhaustive, actionable index of exi
 - **Typed shard metrics:** [#374](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/374) **merged** as `34c7aee3f2666a96e3f8b09de84220b5508c8a5c` after exact-head four Windows/Linux Python directory suites and full Docker/Helm/Terraform CI passed. Directory now rejects noninteger counts/capacities, nonboolean draining and non-finite/negative load before Redis write. Source validation only, not multiplayer latency or live deployment proof.
 - **Tracking discipline:** source-tested guards do not resolve [#22](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/22) cross-file save durability, [#21](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/21) invisible hunters, [#23](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/23) NPC/world divergence, [#80](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/80) direct-P2P/relay and installed 1.09 acceptance. These broad issues remain open.
 
+## Manual test policy
+
+Run source regressions only on demand using [MANUAL-SOURCE-CHECKS.md](MANUAL-SOURCE-CHECKS.md). The newly added directory and Discord event-triggered CI workflow files were removed after the one-time PR checks, and the added support-ZIP step in the existing launcher CI was reverted. Earlier passing run links remain useful historical test evidence; they do not imply production or continuous coverage. Do not create recurring checks or event-driven jobs without the owner's explicit approval.
+
 ## Near-term verification checklist
 
 - Windows packaged launcher: PLAY versus OPEN LAUNCHER parity, Cyrillic/Greek/CJK paths, Unicode shortcut, update and rollback, offline mode.
