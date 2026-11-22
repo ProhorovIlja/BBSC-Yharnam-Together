@@ -1,5 +1,10 @@
 # Yharnam Together — development state
 
+## Latest on-demand launcher storage audit — 2026-11-22
+
+The staged branch [fix/launcher-backup-list-validation-20261122](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/tree/fix/launcher-backup-list-validation-20261122) was integrated without touching main. The backup index now ignores impossible timestamp strings and refuses linked/junction directory entries; `test_coop_update_preflight.py` adds two synthetic cases. Paired with numbered personal-world archive backup/restore issue #381 and fail-closed game installer issue #379, these reduce source-confirmed save-loss exposure but **do not** prove native save durability or safe Windows installs. Latest foreground reconstructed Python suite passed 39 tests; full exact repo, Windows/Qt/C++ and real Bloodborne 1.09 acceptance remain unverified. No scheduled work, CI or production operations.
+
+
 ## New verified source mismatch and acceptance — 2026-11-22
 
 The latest unmerged candidate includes new launcher save completeness work: `RetireOwnWorld` keeps older personal-world archives with a numeric .txt.N suffix, while previous `save_files` and `restore_saves` omitted those names. A shared `party_sidecars` helper now preserves both forms (including legacy Unicode names) for backup/restoration, with fail-closed link refusal and three synthetic filesystem scenarios. [Issue #381](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/381) is OPEN pending exact Windows/retail save tests and cross-file crash durability; #377 and #379 remain open independently.
