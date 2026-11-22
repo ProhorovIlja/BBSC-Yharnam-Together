@@ -13,6 +13,7 @@ import os
 import platform
 import socket
 import sys
+import tempfile
 import time
 import zipfile
 from pathlib import Path, PureWindowsPath
@@ -91,13 +92,31 @@ def newest(paths, kept):
     return sorted(paths, key=lambda path: path.stat().st_mtime)[-kept:] if kept else []
 
 
+def _unlinked_file(path):
+    """Only ordinary files: ZIP diagnostics must not follow user-dir links.
+
+    Python 3.12+ exposes Windows junctions through is_junction; older Windows
+    builds still check symbolic links. This is a best-effort preflight, not a
+    race-free Windows reparse-point open.
+    """
+    path = Path(path)
+    is_junction = getattr(path, 'is_junction', lambda: False)
+    return path.is_file() and not path.is_symlink() and not is_junction()
+
+
+def _unlinked_dir(path):
+    path = Path(path)
+    is_junction = getattr(path, 'is_junction', lambda: False)
+    return path.is_dir() and not path.is_symlink() and not is_junction()
+
+
 def log_files(log):
-    """user\\log's files for the bundle as (path, name in the zip): every log and report, the older runs'
-    logs, and only the newest KEPT_TRACES co-op traces and KEPT_DUMPS crash and freeze dumps."""
+    """user\\log's regular files, including a bounded sample of traces/dumps."""
     log = Path(log)
-    if not log.is_dir():
+    if not _unlinked_dir(log):
         return []
-    files = [path for path in log.iterdir() if path.is_file() and path.name not in SKIPPED_LOG_NAMES]
+    files = [path for path in log.iterdir()
+             if _unlinked_file(path) and path.name not in SKIPPED_LOG_NAMES]
     traces = [path for path in files if path.name.startswith('coop-trace-')]
     dumps = [path for path in files if path.suffix == '.dmp']
     chosen = [path for path in files if path not in traces and path not in dumps]
@@ -106,8 +125,9 @@ def log_files(log):
         chosen += newest([path for path in dumps if path.name.startswith(kind)], KEPT_DUMPS)
     found = [(path, f'log/{path.name}') for path in sorted(chosen)]
     older = log / 'older'
-    if older.is_dir():
-        found += [(path, f'log/older/{path.name}') for path in sorted(older.iterdir()) if path.is_file()]
+    if _unlinked_dir(older):
+        found += [(path, f'log/older/{path.name}') for path in sorted(older.iterdir())
+                  if _unlinked_file(path)]
     return found
 
 
@@ -373,27 +393,38 @@ def make_bundle(destination, user_dir, settings=None, extra_files=(), texts=None
     user_dir = Path(user_dir)
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    files = log_files(user_dir / 'log')
-    # The team rules and team settings the player last set on the game's team screen.
-    for name in ('last_run.log', 'host_overrides.custom.json', 'bloodborne_team_rules.txt',
-                 'bloodborne_team_choices.txt'):
-        if (user_dir / name).is_file():
+    files = log_files(user_dir / 'log') if _unlinked_dir(user_dir) else []
+    # Do not include host_overrides.custom.json blindly. It is an arbitrary
+    # account/network override file, not an allowlisted support settings view;
+    # users can review and attach it separately if it contains no secrets.
+    for name in ('last_run.log', 'bloodborne_team_rules.txt', 'bloodborne_team_choices.txt'):
+        if _unlinked_dir(user_dir) and _unlinked_file(user_dir / name):
             files.append((user_dir / name, name))
-    files += [(Path(path), name) for path, name in extra_files if Path(path).is_file()]
+    files += [(Path(path), name) for path, name in extra_files
+              if _unlinked_file(path)]
     texts = dict(texts or {})
     if settings is not None:
         texts['coop.json'] = json.dumps(without_secrets(settings), indent=2) + '\n'
     failed = []
-    partial = destination.with_name(destination.name + '.part')
-    with zipfile.ZipFile(partial, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as bundle:
-        for name, text in texts.items():
-            bundle.writestr(name, hide_home(text, home))
-        for path, name in files:
-            try:
-                bundle.write(path, name)
-            except OSError as error:  # a dump still being written, an antivirus holding the file
-                failed.append((name, error.strerror or str(error)))
-        if failed:
-            bundle.writestr('missing.txt', ''.join(f'{name}: {reason}\n' for name, reason in failed))
-    os.replace(partial, destination)
+    # A predictable .part path could be an existing symlink to somebody's
+    # private file; opening ZipFile(..., 'w') would truncate its target.
+    # NamedTemporaryFile uses exclusive creation within the destination dir.
+    staged = tempfile.NamedTemporaryFile(mode='w+b', prefix=destination.name + '.part-',
+                                         dir=destination.parent, delete=False)
+    partial = Path(staged.name)
+    try:
+        with staged, zipfile.ZipFile(staged, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as bundle:
+            for name, text in texts.items():
+                bundle.writestr(name, hide_home(text, home))
+            for path, name in files:
+                try:
+                    bundle.write(path, name)
+                except OSError as error:  # a dump still being written, an antivirus holding the file
+                    failed.append((name, error.strerror or str(error)))
+            if failed:
+                bundle.writestr('missing.txt', ''.join(f'{name}: {reason}\n' for name, reason in failed))
+        os.replace(partial, destination)
+    finally:
+        # On both successful replace and failure, no private half-ZIP lingers.
+        partial.unlink(missing_ok=True)
     return failed
