@@ -143,6 +143,41 @@ inline std::string Field(const std::string& json, const std::string& key, std::s
     return {};
 }
 
+// Discord's IPC event discriminator is an OUTER object member. Do not let a
+// field in nested data (such as an invite user's metadata) spoof ACTIVITY_JOIN.
+// Field() remains available for specifically requested nested payload values.
+inline std::string RootField(const std::string& json, const std::string& key) {
+    std::size_t at = 0;
+    while (at < json.size() && FieldDetail::Whitespace(json[at])) ++at;
+    if (at == json.size() || json[at] != '{') return {};
+    unsigned depth = 0;
+    while (at < json.size()) {
+        const char ch = json[at];
+        if (ch == '"') {
+            std::string name;
+            if (!FieldDetail::Quoted(json, at, name)) return {};
+            std::size_t separator = at;
+            while (separator < json.size() && FieldDetail::Whitespace(json[separator])) ++separator;
+            if (depth == 1 && name == key && separator < json.size() &&
+                json[separator] == ':') {
+                ++separator;
+                while (separator < json.size() &&
+                       FieldDetail::Whitespace(json[separator])) ++separator;
+                std::string value;
+                return FieldDetail::Quoted(json, separator, value) ? value : std::string{};
+            }
+            continue;
+        }
+        if (ch == '{' || ch == '[') {
+            ++depth;
+        } else if (ch == '}' || ch == ']') {
+            if (depth == 0 || --depth == 0) return {};
+        }
+        ++at;
+    }
+    return {};
+}
+
 // The secret to join a team with room: its code ("c:", the leader has it), else its id ("t:")
 // while it is listed; nothing for a full team or an invite-only one a member cannot hand out.
 inline std::string JoinSecret(const char* code, const char* team, int join, int invite_only,
