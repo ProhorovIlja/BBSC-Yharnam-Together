@@ -15,6 +15,7 @@ import json
 import math
 import os
 import re
+import select
 import sys
 import threading
 import time
@@ -34,6 +35,8 @@ SIGNED_ID = re.compile(r'[du][0-9a-f]{14}')
 BODY_MAX = 8 << 20
 # Bound unauthenticated HTTP body reads; an incomplete POST must not hold a worker forever.
 HTTP_IDLE_TIMEOUT_S = 10
+# Absolute request-line + header parse budget, including byte-by-byte drips.
+HTTP_HEADER_DEADLINE_S = 10
 POST_BODY_DEADLINE_S = 10
 POST_READ_CHUNK = 16 * 1024
 # A stalled Redis socket must not monopolize every bounded HTTP worker.
@@ -275,14 +278,81 @@ class Directory:
         return {'world': world, 'shard': holder, 'up': self.shard(holder) is not None}
 
 
+class _DeadlineHeaderReader:
+    """Bound header parsing even if bytes trickle within one unfinished line.
+
+    BaseHTTPRequestHandler's socket timeout is an *idle* timeout; it does not
+    bound total read time if a peer sends a byte before each expiration. Read
+    request headers via select() with a monotonic deadline, keeping any extra
+    bytes buffered for the existing bounded POST body reader. No timer thread.
+    """
+
+    def __init__(self, connection, deadline):
+        self.connection = connection
+        self.deadline = deadline
+        self.buffer = bytearray()
+        self.scanned = 0
+        self.closed = False
+
+    def _take(self, count):
+        data = bytes(self.buffer[:count])
+        del self.buffer[:count]
+        self.scanned = 0
+        return data
+
+    def readline(self, limit=-1):
+        if self.closed:
+            raise ValueError('reading closed HTTP stream')
+        if limit is None or limit < 0:
+            limit = 65537  # the BaseHTTPRequestHandler request-line cap
+        while True:
+            if time.monotonic() >= self.deadline:
+                raise TimeoutError('absolute HTTP header deadline expired')
+            newline = self.buffer.find(b'\n', self.scanned)
+            if newline >= 0:
+                return self._take(min(newline + 1, limit))
+            if len(self.buffer) >= limit:
+                return self._take(limit)
+            self.scanned = len(self.buffer)
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('absolute HTTP header deadline expired')
+            ready, _, _ = select.select([self.connection], [], [], remaining)
+            if not ready:
+                raise TimeoutError('absolute HTTP header deadline expired')
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('absolute HTTP header deadline expired')
+            self.connection.settimeout(remaining)
+            chunk = self.connection.recv(min(4096, limit - len(self.buffer)))
+            if not chunk:
+                return self._take(len(self.buffer))
+            self.buffer.extend(chunk)
+
+    def read1(self, length):
+        # read_post_body() sets its own independent total deadline/timeout.
+        # Crucially, a header recv may already have buffered body bytes.
+        if self.buffer:
+            return self._take(min(length, len(self.buffer)))
+        return self.connection.recv(length)
+
+    def close(self):
+        self.closed = True
+        self.buffer.clear()
+
+
 def make_handler(directory, token):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'shadnet-directory/1'
 
         def setup(self):
-            # Includes parsing the request line and headers, before authentication.
+            # The existing socket idle timeout alone cannot stop a slow
+            # request-line/header byte drip from occupying a worker indefinitely.
             self.request.settimeout(HTTP_IDLE_TIMEOUT_S)
             super().setup()
+            self.rfile.close()
+            self.rfile = _DeadlineHeaderReader(
+                self.connection, time.monotonic() + HTTP_HEADER_DEADLINE_S)
 
         def read_post_body(self, size):
             # read1() returns the available bytes rather than waiting for an entire
