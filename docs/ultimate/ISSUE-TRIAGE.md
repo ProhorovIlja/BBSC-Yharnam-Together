@@ -26,6 +26,11 @@ Snapshot date: **2026-11-22**. This is a non-exhaustive, actionable index of exi
 - **Tracker closure:** narrow legacy archive #349 was closed only after its idempotent source recovery #350; source-level closure does not fulfill full P0 #22. The owner's older private 2026-11-14 register lists B01–B56 and suggestions; newer public imported tickets (for example #162, #167, #225) already cover separately described symptoms. Do not create duplicates or publish private messages. Exact build and disposable-game acceptance are required before marking any of them fixed.
 - **Server TCP candidate:** [#355](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/355) bounds a Qt socket read to 16 KiB and includes an 8 MiB synthetic byte-order/abort test; pending latest-head Docker acceptance, **not** in main at this snapshot.
 
+## WAN and TCP-ingress source-gate update (2026-11-22)
+
+- **Local-host UPnP (#80/#3):** [#359](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/359) merged globally routable unicast WAN validation before mapping (Win/Ubuntu mock-router CI 44964296199 PASS); [#360](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/360) merged early refusal when WAN lookup or PC LAN route is missing, leaving router mappings untouched (Win/Ubuntu 44964577396 PASS). No real router/ISP/NAT traversal, direct encrypted P2P, relay-only fallback or five-hunter connectivity acceptance.
+- **ShadNet TCP ingress candidate:** [#355](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/355) replaces one coalesced TCP readAll() with at most 16 KiB chunks, drains valid buffered data after normal remote EOF and stops on malformed protocol input. An earlier QIODevice test passed; the revised head still requires full Docker CI and is **not yet merged**. This is memory-copy bounding, not a client rate limiter, direct P2P implementation or measured FPS improvement.
+
 ## Near-term verification checklist
 
 - Windows packaged launcher: PLAY versus OPEN LAUNCHER parity, Cyrillic/Greek/CJK paths, Unicode shortcut, update and rollback, offline mode.

@@ -37,6 +37,10 @@ As of 2026-11-22, [#342](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/p
 
 The already closed narrow #349 is a source archival-state repair; #22 remains open for cross-file crash durability and actual game saves. Keep all P0 rows UNVERIFIED until they are tested on disposable owned game files and exact pinned package SHAs.
 
+## Local-host UPnP and ShadNet ingress evidence update
+
+[#359](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/359) and [#360](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/360) merged Windows/Ubuntu fake-router tests: do not advertise non-globally-routable WAN IPs or create forwarding rules when WAN/local route info is absent. Their success does **not** validate a real public home router, NAT hole punching, direct encrypted P2P, authoritative relay or five-player connectivity. [#355](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/355) is still under exact-head server CI for 16 KiB bounded TCP socket draining and proper remote-EOF/malformed-packet distinction. Keep networking rows UNVERIFIED for installed Bloodborne 1.09 acceptance.
+
 ## Run record template
 
 For each acceptance run record: **timestamp and UTC offset; exact launcher/client/server commit SHAs, source and package SHA-256; Bloodborne version/CUSA; OS/GPU/driver; anonymized account IDs; mode; party size; host/guest/invader slots; server Hosted setting; P2P or relay path actually observed; network RTT/loss; save pre/post hashes; reproduction steps and expected/observed outcomes; relevant redacted logs and video; final PASS/FAIL/UNVERIFIED.** A failure's fix PR must be linked to both the failing run and successful rerun. Never publish raw keys or saves.
