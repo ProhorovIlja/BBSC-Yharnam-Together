@@ -103,3 +103,17 @@ Manual failure gates: no successful private player save backup; no guarantee a f
 - Source comparisons: HTTP framing rejection follows RFC 9110/9112's permitted error treatment; this is a conservative client policy, not an alleged live exploit. Private Nov 14 bug register is not mirrored into public GitHub.
 
 For earlier merged fixes and historical CI, see `docs/ultimate/ISSUE-TRIAGE.md`, `docs/ultimate/DEVELOPMENT-STATE.md`, and `docs/ultimate/MANUAL-SOURCE-CHECKS.md`.
+
+
+## Supplementary manual gates — native save metadata / direct IP / header drip (2026-11-22)
+
+The newer unmerged branch `fix/save-tree-nofollow-20261122` branches from `integration/nov22-playable-manual-hardening` and modifies `bbport/launcher/bbport_coop.py`, `bbport/tests/test_coop_update_preflight.py`, and `bbport/tests/test_coop_launcher.py`. Source regression cases are committed but not yet run against a complete checkout.
+
+Before integrating: on disposable files, verify symlinked and Windows reparse/junction native save roots, nested folders, save files, numbered world archives, backup note, arbitrary backup tree entry, invalid-UTF8 note, >4096-byte note, and valid nested ordinary saves. Fail before stopping the server or installer whenever a relevant save path is linked. Repeat with concurrent rename/replacement to document the limits of path-based preflight, and verify rollback with actual Windows 1.09 save format. The metadata browser must not read outside the user tree or become blocked by corrupt note bytes. Cross-file crash durability remains a separate P0 gate in #377.
+
+Also run direct-host/UPnP fixtures for 0/8, 127/8, 169.254/16, multicast, 240/4 and 255.255.255.255 rejection; verify correct operation of LAN, legacy VPN, and existing TEST-NET fixtures on Windows.
+
+Do not mislabel an idle socket timeout as an absolute request-header deadline: #382 remains unsolved until incomplete-line drip tests prove finite slot occupancy across repeated short receives. This header parser fix must preserve request body bytes and HTTP clients.
+
+Manual only: `python -m unittest discover -s bbport/tests -p test_coop_update_preflight.py -v` and `python -m unittest discover -s bbport/tests -p test_coop_launcher.py -v` on exact branch source, both Windows and Linux. Do not enable event-triggered CI workflows or modify production endpoints.
+
