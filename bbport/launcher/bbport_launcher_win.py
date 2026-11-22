@@ -7172,7 +7172,9 @@ class Launcher:
         """Downloads the release's setup, checks its SHA-256, stops this install's servers, runs the setup
         silently into this folder (it keeps user\\ and starts the launcher again) and closes the launcher."""
         release = getattr(self, 'update_release', None)
-        if not release or self.updating:
+        if not release or self.updating or self.coop_busy or self.installing:
+            # The co-op preparation worker and package installer own the
+            # installation too; never interleave another update with them.
             return
         if self.process:
             self.status.configure(text=_('Close the game first: the update replaces its files.',
