@@ -904,7 +904,10 @@ def find_game_folder(folder, depth=3):
     folder = Path(folder)
     if not folder.is_dir():
         return None
-    if is_game_folder(folder):
+    # An unrelated PS4 title may live beside Bloodborne (or even wrap a
+    # nested game directory). Do not let its first eboot.bin short-circuit
+    # the surrounding search and hide a valid CUSA sibling.
+    if is_game_folder(folder) and is_bloodborne(folder):
         return folder
     if depth <= 0:
         return None
