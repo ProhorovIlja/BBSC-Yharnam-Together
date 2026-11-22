@@ -201,6 +201,38 @@ class SafeCoopUpdateTests(unittest.TestCase):
                 coop.back_up_saves(install, 'before an update', now=1792900000, prune=False)
             self.assertEqual(external.read_bytes(), b'secret')
 
+    def test_bad_calendar_backups_do_not_hide_valid_snapshots(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            folder = install / 'user/save-backups'
+            fake = folder / '20269977-999999'
+            fake.mkdir(parents=True)
+            (fake / 'launcher.txt').write_text('invalid date', encoding='utf-8')
+            valid = folder / '20261024-231630'
+            valid.mkdir()
+            (valid / 'launcher.txt').write_text('previous working backup', encoding='utf-8')
+            actual = coop.save_backups(install)
+            self.assertEqual([item['name'] for item in actual], ['20261024-231630'])
+            self.assertEqual(actual[0]['note'], 'previous working backup')
+            self.assertTrue(fake.exists(), 'malformed folder is not destroyed')
+
+    def test_dated_symlink_backup_refused_before_listing(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            backup_root = install / 'user/save-backups'
+            backup_root.mkdir(parents=True)
+            external = install / 'private'
+            external.mkdir()
+            (external / 'secret').write_bytes(b'private')
+            try:
+                (backup_root / '20261024-231630').symlink_to(
+                    external, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest('creating symlinks requires privileges')
+            with self.assertRaisesRegex(OSError, 'symbolic link or junction'):
+                coop.save_backups(install)
+            self.assertEqual((external / 'secret').read_bytes(), b'private')
+
     def test_windows_frontend_calls_preflight_and_catches_http_errors(self):
         source = (Path(__file__).resolve().parents[1] / 'launcher' /
                   'bbport_launcher_win.py').read_text(encoding='utf-8')
