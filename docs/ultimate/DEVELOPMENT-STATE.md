@@ -1,5 +1,12 @@
 # Yharnam Together — development state
 
+## Current owner status / integration gate — 2026-11-22
+
+Owner explicitly closed historical [world progression #22](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/22) on **2026-11-21 20:56:57 UTC**, and [archive subcase #349](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/349) is also closed. The archived development rows below sometimes say they were open **at the time**. Preserve that history; track **unverified** multi-file home/personal-world crash recovery and native save acknowledgement in [new P0 #377](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/377), with guest-item work in open #35 and #137. Do not construe the owner's closure as certification of installed five-client gameplay or power-loss resilience.
+
+This integration branch additionally tightens portable-update HTTP framing (rejects partial status !=200 and unsupported Transfer-Encoding) and makes directory HTTP concurrency default 64 with bounded 1–256 worker setting, including a nonblocking-by-timeout best-effort 503. Combined branch remains **unmerged**, with manual-only targeted Python/Linux C++20 checks; no production or user saves touched.
+
+
 Last reviewed: **2026-11-22 UTC**. This file is a navigational snapshot of verified source changes, not a product-completion or live-deployment assertion. Update it when PRs land, tests change, or acceptance evidence is added. The authoritative record remains GitHub PRs/issues and their exact CI runs.
 
 ## Current mission
