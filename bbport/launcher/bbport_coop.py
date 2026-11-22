@@ -1417,9 +1417,27 @@ def save_backup_folder(install):
     return folder
 
 
+def party_sidecars(user):
+    """Per-character co-op text state and numbered crash-recovery archives.
+
+    RetireOwnWorld stores its snapshot in bloodborne_party_*_slotN.txt
+    and, if occupied, .txt.1 through .txt.63. The former save_files glob
+    silently excluded ALL numbered archives from launcher backups.
+    """
+    user = Path(user)
+    if not user.is_dir():
+        return []
+    safe_name = re.compile(r'bloodborne_party_[A-Za-z0-9_-]+\\.txt(?:\\.[1-9][0-9]*)?\\Z')
+    return sorted(path for path in user.glob('bloodborne_party_*.txt*')
+                  if safe_name.fullmatch(path.name))
+
+
 def save_files(user):
-    """Every save file under a user folder (or a backup of one), by its path relative to it, with its
-    bytes: savedata, home\\<id>\\savedata and the party's bloodborne_party_*.txt, as the game backs up."""
+    """Original game saves plus every co-op personal-world snapshot/archive.
+
+    A linked sidecar must fail backup before the update begins; never copy
+    arbitrary linked private files from another location into the archive.
+    """
     user = Path(user)
     files = {}
 
@@ -1433,10 +1451,11 @@ def save_files(user):
         for home in sorted((user / 'home').iterdir()):
             if (home / 'savedata').is_dir():
                 add_tree(home / 'savedata')
-    if user.is_dir():
-        for path in sorted(user.glob('bloodborne_party_*.txt')):
-            if path.is_file():
-                files[path.name] = path.read_bytes()
+    for path in party_sidecars(user):
+        if path.is_symlink() or _linked_backup_dir(path):
+            raise OSError('co-op save sidecar is a symbolic link or junction')
+        if path.is_file():
+            files[path.name] = path.read_bytes()
     return files
 
 
@@ -1573,8 +1592,8 @@ def restore_saves(install, name):
     safety = back_up_saves(install, f'before restoring {name}', prune=False)
     for folder in [user / 'savedata'] + sorted((user / 'home').glob('*/savedata')):
         shutil.rmtree(folder, ignore_errors=True)
-    for party in user.glob('bloodborne_party_*.txt'):
-        party.unlink(missing_ok=True)
+    for party in party_sidecars(user):
+        party.unlink(missing_ok=True)  # includes numbered personal-world archives
     for relative, data in files.items():
         target = user / relative
         target.parent.mkdir(parents=True, exist_ok=True)
