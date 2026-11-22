@@ -83,12 +83,20 @@ class PortableUpdateZipTests(unittest.TestCase):
                 message.add_header('Transfer-Encoding', transfer)
             return message
 
+        duplicate_encoding = headers(transfer='chunked')
+        duplicate_encoding.add_header('Transfer-Encoding', 'chunked')
         for case, head, accepted in (
                 ('no length', headers(), True),
                 ('ordinary', headers('3'), True),
                 ('outer whitespace', headers(' \t3 \t'), True),
                 ('leading zeroes', headers('0003'), True),
                 ('chunked without length', headers(transfer='chunked'), True),
+                ('chunked case insensitive', headers(transfer='CHUNKED'), True),
+                ('duplicate transfer encoding', duplicate_encoding, False),
+                ('unsupported gzip transfer', headers(transfer='gzip'), False),
+                ('unsupported gzip chunked list', headers(transfer='gzip, chunked'), False),
+                ('transfer whitespace incompatible with http.client',
+                 headers(transfer=' chunked '), False),
                 ('zero', headers('0'), False),
                 ('sign', headers('+3'), False),
                 ('negative', headers('-3'), False),
@@ -105,16 +113,32 @@ class PortableUpdateZipTests(unittest.TestCase):
                 body.headers = head
                 if accepted:
                     self.assertEqual(download_length(head), None if case in
-                                     ('no length', 'chunked without length') else 3)
+                                     ('no length', 'chunked without length', 'chunked case insensitive') else 3)
                     download_update(body, destination, progress.append)
                     self.assertEqual(destination.getvalue(), b'abc')
                     self.assertEqual(progress[-1], 0 if case in
-                                     ('no length', 'chunked without length') else 100)
+                                     ('no length', 'chunked without length', 'chunked case insensitive') else 100)
                 else:
                     with self.assertRaises(ValueError):
                         download_update(body, destination, progress.append)
                     self.assertEqual(destination.getvalue(), b'', 'fail before downloading')
                     self.assertEqual(progress, [], 'fail before emitting progress')
+
+    def test_portable_download_rejects_partial_or_unexpected_http_status(self):
+        import io
+        from bbport_update_zip import download_update
+
+        for status in (206, 204, 301, 302, 304, 416, 500):
+            with self.subTest(status=status):
+                body = io.BytesIO(b'abc')
+                body.headers = {'Content-Length': '3'}
+                body.status = status
+                destination, progress = io.BytesIO(), []
+                with self.assertRaisesRegex(ValueError, 'HTTP 200'):
+                    download_update(body, destination, progress.append)
+                self.assertEqual(body.tell(), 0)
+                self.assertEqual(destination.getvalue(), b'')
+                self.assertEqual(progress, [])
 
     def test_crc_failure_removes_partial_staging_but_preserves_install(self):
         import io
