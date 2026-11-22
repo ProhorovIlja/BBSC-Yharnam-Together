@@ -28,6 +28,28 @@ int main() {
     assert(Field(ask, "id") == "1");
     assert(Field(ask, "id", ask.find("\"user\"")) == "42");
 
+    // JSON encoders are allowed to put whitespace after the colon.
+    assert(Field(R"({"evt" : "ACTIVITY_JOIN","data" : { "secret" : "c:JOIN" }})", "evt") ==
+           "ACTIVITY_JOIN");
+    assert(Field(R"({"evt" : "ACTIVITY_JOIN","data" : { "secret" : "c:JOIN" }})", "secret") ==
+           "c:JOIN");
+
+    // Do not find keys inside a string value with escaped quotes.
+    assert(Field(R"({"message":"ignore \"evt\":\"BAD\"","evt":"ACTIVITY_JOIN"})", "evt") ==
+           "ACTIVITY_JOIN");
+    assert(Field(R"({"message":"only \"evt\":\"BAD\""})", "evt").empty());
+
+    // Unicode names survive JSON \u escapes, including emoji surrogate pairs.
+    assert(Field(R"({"username":"Caf\u00e9 \uD83D\uDC7B"})", "username") ==
+           "Caf\xc3\xa9 \xf0\x9f\x91\xbb");
+    assert(Field(R"({"username":"bad \uD83D"})", "username").empty());
+    assert(Field(R"({"username":"bad \uXYZ1"})", "username").empty());
+    assert(Field(R"({"username":"bad \q"})", "username").empty());
+
+    const std::string nested = R"({"id":"1","data": { "user" : {"id" : "42", "username": "Ada"} }})";
+    assert(Field(nested, "id") == "1");
+    assert(Field(nested, "id", nested.find("\"user\"")) == "42");
+
     constexpr int Invite = 0, Ask = 1, Open = 2;
     assert(JoinSecret("KTCDAB", "t1", Invite, Invite, 2, 5) == "c:KTCDAB"); // the leader
     assert(JoinSecret("", "t1", Open, Invite, 2, 5) == "t:t1");
