@@ -297,6 +297,71 @@ class SafeCoopUpdateTests(unittest.TestCase):
                 coop.save_backups(install)
             self.assertEqual((external / 'secret').read_bytes(), b'private')
 
+    def test_linked_backup_note_cannot_read_unrelated_data(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            backup = install / 'user/save-backups/20261024-231630'
+            backup.mkdir(parents=True)
+            external = install / 'private-note'
+            external.write_text('private secret', encoding='utf-8')
+            try:
+                (backup / coop.LAUNCHER_BACKUP_NOTE).symlink_to(external)
+            except (OSError, NotImplementedError):
+                self.skipTest('symlink creation requires privileges')
+            with self.assertRaisesRegex(OSError, 'symbolic link or junction'):
+                coop.save_backups(install)
+            self.assertEqual(external.read_text(encoding='utf-8'), 'private secret')
+
+    def test_linked_backup_content_cannot_inflate_or_escape_metadata(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            backup = install / 'user/save-backups/20261024-231630'
+            (backup / 'savedata').mkdir(parents=True)
+            external = install / 'unrelated-binary'
+            external.write_bytes(b'outside')
+            try:
+                (backup / 'savedata' / 'userdata0000').symlink_to(external)
+            except (OSError, NotImplementedError):
+                self.skipTest('symlink creation requires privileges')
+            with self.assertRaisesRegex(OSError, 'symbolic link or junction'):
+                coop.save_backups(install)
+            self.assertEqual(external.read_bytes(), b'outside')
+
+    def test_backup_note_is_bounded_without_hiding_valid_saves(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            backup = install / 'user/save-backups/20261024-231630'
+            backup.mkdir(parents=True)
+            (backup / 'userdata0000').write_bytes(b'hunter-save')
+            (backup / coop.LAUNCHER_BACKUP_NOTE).write_bytes(b'a' * 5000)
+            [entry] = coop.save_backups(install)
+            self.assertEqual(entry['size'], len(b'hunter-save'))
+            self.assertTrue(entry['launcher'])
+            self.assertEqual(entry['note'], '')
+
+    def test_invalid_utf8_backup_note_does_not_hide_snapshot(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            backup = install / 'user/save-backups/20261024-231630'
+            backup.mkdir(parents=True)
+            (backup / 'userdata0000').write_bytes(b'hunter')
+            (backup / coop.LAUNCHER_BACKUP_NOTE).write_bytes(b'\\xff\\xfe')
+            [entry] = coop.save_backups(install)
+            self.assertEqual(entry['note'], '')
+            self.assertEqual(entry['size'], len(b'hunter'))
+
+    def test_linked_user_root_is_rejected_by_backup_browser(self):
+        with tempfile.TemporaryDirectory() as root:
+            install = Path(root)
+            external = install / 'other-profile'
+            (external / 'save-backups').mkdir(parents=True)
+            try:
+                (install / 'user').symlink_to(external, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest('symlink creation requires privileges')
+            with self.assertRaisesRegex(OSError, 'symbolic link or junction'):
+                coop.save_backups(install)
+
     def test_windows_frontend_calls_preflight_and_catches_http_errors(self):
         source = (Path(__file__).resolve().parents[1] / 'launcher' /
                   'bbport_launcher_win.py').read_text(encoding='utf-8')
