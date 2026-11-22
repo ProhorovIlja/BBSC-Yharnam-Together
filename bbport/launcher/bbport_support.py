@@ -89,7 +89,17 @@ def default_folder(home=None, known_desktop=None):
 
 
 def newest(paths, kept):
-    return sorted(paths, key=lambda path: path.stat().st_mtime)[-kept:] if kept else []
+    """Choose available recent reports while the game rotates/deletes logs."""
+    if not kept:
+        return []
+    dated = []
+    for path in paths:
+        try:
+            dated.append((path.stat().st_mtime, path))
+        except OSError:
+            continue  # the game rotated a trace between listing and stat
+    dated.sort(key=lambda entry: entry[0])
+    return [path for _when, path in dated[-kept:]]
 
 
 def _unlinked_file(path):
