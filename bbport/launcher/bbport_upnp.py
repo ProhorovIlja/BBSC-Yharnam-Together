@@ -222,7 +222,14 @@ def open_ports(ports=HOST_PORTS, found=None):
         public = soap(control, service, 'GetExternalIPAddress').get('NewExternalIPAddress', '')
     except (UpnpError, ElementTree.ParseError):
         public = ''
-    local = local_address_towards(control)
+    try:
+        local = local_address_towards(control)
+    except (OSError, ValueError):
+        # If the route to this gateway has vanished, do not leave a
+        # forwarding rule to an unknown or wrong interface address.
+        return {'state': 'refused', 'public': public, 'local': '', 'failed': []}
+    if not local:
+        return {'state': 'refused', 'public': public, 'local': '', 'failed': []}
     if not public:
         # A gateway that did not answer its WAN-IP query cannot offer a
         # reachable external endpoint. Preserve the earlier 'refused'
