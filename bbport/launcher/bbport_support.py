@@ -102,22 +102,35 @@ def newest(paths, kept):
     return [path for _when, path in dated[-kept:]]
 
 
-def _unlinked_file(path):
-    """Only ordinary files: ZIP diagnostics must not follow user-dir links.
+def _linked_path(path):
+    """Detect local symbolic links, junctions and Windows reparse points.
 
-    Python 3.12+ exposes Windows junctions through is_junction; older Windows
-    builds still check symbolic links. This is a best-effort preflight, not a
-    race-free Windows reparse-point open.
+    Python 3.11 lacks Path.is_junction(), but st_file_attributes exists for
+    Windows lstat results. This remains a best-effort preflight, not an
+    atomic nofollow handle open across a concurrently modified path.
     """
     path = Path(path)
-    is_junction = getattr(path, 'is_junction', lambda: False)
-    return path.is_file() and not path.is_symlink() and not is_junction()
+    try:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, 'is_junction', None)
+        if is_junction is not None and is_junction():
+            return True
+        if os.name == 'nt' and (getattr(path.lstat(), 'st_file_attributes', 0) & 0x400):
+            return True  # FILE_ATTRIBUTE_REPARSE_POINT
+    except OSError:
+        return True  # a raced-away/unreadable entry must never be bundled
+    return False
+
+
+def _unlinked_file(path):
+    path = Path(path)
+    return path.is_file() and not _linked_path(path)
 
 
 def _unlinked_dir(path):
     path = Path(path)
-    is_junction = getattr(path, 'is_junction', lambda: False)
-    return path.is_dir() and not path.is_symlink() and not is_junction()
+    return path.is_dir() and not _linked_path(path)
 
 
 def log_files(log):
