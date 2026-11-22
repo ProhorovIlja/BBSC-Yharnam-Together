@@ -86,7 +86,7 @@ class PortableUpdateZipTests(unittest.TestCase):
         for case, head, accepted in (
                 ('no length', headers(), True),
                 ('ordinary', headers('3'), True),
-                ('outer whitespace', headers(' \\t3 \\t'), True),
+                ('outer whitespace', headers(' \t3 \t'), True),
                 ('leading zeroes', headers('0003'), True),
                 ('chunked without length', headers(transfer='chunked'), True),
                 ('zero', headers('0'), False),
