@@ -348,8 +348,9 @@ class RedisSocketTimeoutTests(unittest.TestCase):
                 return 'redis-client'
 
         class FakeModule:
-            Redis = Redis
+            pass
 
+        FakeModule.Redis = Redis
         result = module.redis_client(FakeModule, {'REDIS_URL': 'redis://example.invalid:1234/1'})
         self.assertEqual(result, 'redis-client')
         self.assertEqual(captured['url'], 'redis://example.invalid:1234/1')
