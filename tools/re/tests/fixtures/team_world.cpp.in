@@ -779,6 +779,25 @@ bool PendingLegacyArchiveIsIsolatedToCharacterSlot() {
     return true;
 }
 
+// Corrupt sidecars can contain two concatenated snapshots or misplaced
+// section markers after an interrupted write. Never merge those snapshots
+// into a new plausible personal progression state.
+bool WorldFlagsParserRequiresOneOrderedSectionSequence() {
+    CHECK(!ParseWorldFlags("on\n8\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n1\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n1\nblocks\n2\non\n8\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n1\non\n8\non\n9\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n1\non\n8\nend\nblocks\n2\non\n9\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n1\non\n8\nend\non\n9\nend\n"));
+    CHECK(!ParseWorldFlags("blocks\n1\non\n8\nend\nend\n"));
+    const auto empty = ParseWorldFlags("blocks\non\nend\n");
+    CHECK(empty && empty->blocks.empty() && empty->on.empty());
+    const auto proper = ParseWorldFlags("blocks\n2\n1\non\n17\n8\nend\n");
+    CHECK(proper && proper->blocks == (std::vector<u32>{1, 2}));
+    CHECK(proper->on == (std::vector<s32>{8, 17}));
+    return true;
+}
+
 int main() {
     test_root = std::filesystem::temp_directory_path() /
         ("ultimate-world-fixture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -814,8 +833,9 @@ int main() {
                       ArchivedBeforeMarkerClearResumesAfterRestart,
                       FailedArchiveCompletionMarkerKeepsRetrying,
                       WorldFlagsParserRejectsNarrowingAndKeepsValidBoundaries,
-                      PendingLegacyArchiveIsIsolatedToCharacterSlot}) if (!test()) ++failed;
+                      PendingLegacyArchiveIsIsolatedToCharacterSlot,
+                      WorldFlagsParserRequiresOneOrderedSectionSequence}) if (!test()) ++failed;
     std::filesystem::remove_all(test_root);
-    std::cout << "World preservation scenarios: " << (31 - failed) << "/31 passed\n";
+    std::cout << "World preservation scenarios: " << (32 - failed) << "/32 passed\n";
     return failed ? 1 : 0;
 }
