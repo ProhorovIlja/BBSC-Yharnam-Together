@@ -1427,7 +1427,7 @@ def party_sidecars(user):
     user = Path(user)
     if not user.is_dir():
         return []
-    safe_name = re.compile(r'bloodborne_party_[A-Za-z0-9_-]+\\.txt(?:\\.[1-9][0-9]*)?\\Z')
+    safe_name = re.compile(r'bloodborne_party_[A-Za-z0-9_-]+\.txt(?:\.[1-9][0-9]*)?\Z')
     return sorted(path for path in user.glob('bloodborne_party_*.txt*')
                   if safe_name.fullmatch(path.name))
 
