@@ -285,15 +285,15 @@ class HttpTests(unittest.TestCase):
                 first.settimeout(3)
                 # Incomplete body ties up exactly one worker (until this
                 # client supplies it or the existing absolute deadline fires).
-                first.sendall(b'POST /v1/heartbeat HTTP/1.1\\r\\nHost: x\\r\\n'
-                              b'Content-Length: 4\\r\\n\\r\\n{}')
+                first.sendall(b'POST /v1/heartbeat HTTP/1.1\r\nHost: x\r\n'
+                              b'Content-Length: 4\r\n\r\n{}')
                 deadline = time.monotonic() + 3
                 while server._worker_slots._value != 0 and time.monotonic() < deadline:
                     time.sleep(0.01)
                 self.assertEqual(server._worker_slots._value, 0)
                 with socket.create_connection(server.server_address, timeout=3) as excess:
                     excess.settimeout(3)
-                    excess.sendall(b'GET /healthz HTTP/1.1\\r\\nHost: x\\r\\n\\r\\n')
+                    excess.sendall(b'GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n')
                     denied = excess.recv(1024)
                     self.assertTrue(denied.startswith(b'HTTP/1.0 503 '), denied)
                     self.assertIn(b'Connection: close', denied)
@@ -305,7 +305,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(server._worker_slots._value, 1)
             with socket.create_connection(server.server_address, timeout=3) as fresh:
                 fresh.settimeout(3)
-                fresh.sendall(b'GET /v1/nothing HTTP/1.1\\r\\nHost: x\\r\\n\\r\\n')
+                fresh.sendall(b'GET /v1/nothing HTTP/1.1\r\nHost: x\r\n\r\n')
                 self.assertTrue(fresh.recv(1024).startswith(b'HTTP/1.0 404'))
         finally:
             server.shutdown()
