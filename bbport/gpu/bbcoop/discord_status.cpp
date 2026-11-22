@@ -164,7 +164,8 @@ public:
     }
 
     bool Send(std::uint32_t opcode, const std::string& json) {
-        if (pipe == INVALID_HANDLE_VALUE) {
+        if (pipe == INVALID_HANDLE_VALUE || json.size() > DiscordActivity::MaxIpcPayloadBytes ||
+            !DiscordActivity::ValidIpcFrame(opcode, static_cast<std::uint32_t>(json.size()))) {
             return false;
         }
         std::string frame(8, '\0');
@@ -188,14 +189,13 @@ public:
                 return true;
             }
             std::uint32_t header[2]{};
-            DWORD got = 0;
-            if (!ReadFile(pipe, header, 8, &got, nullptr) || got != 8) {
+            if (!ReadExactly(header, 8) ||
+                !DiscordActivity::ValidIpcFrame(header[0], header[1])) {
                 Close();
                 return false;
             }
             std::string body(header[1], '\0');
-            if (header[1] != 0 &&
-                (!ReadFile(pipe, body.data(), header[1], &got, nullptr) || got != header[1])) {
+            if (header[1] != 0 && !ReadExactly(body.data(), header[1])) {
                 Close();
                 return false;
             }
@@ -231,6 +231,26 @@ public:
     }
 
 private:
+    // Named pipes may return partial reads (or ERROR_MORE_DATA when the
+    // endpoint uses message mode). Never interpret a partial header as a
+    // complete length. Frame limits are checked before any body allocation.
+    bool ReadExactly(void* buffer, DWORD size) {
+        DWORD at = 0;
+        while (at < size) {
+            DWORD got = 0;
+            const BOOL ok = ReadFile(pipe, static_cast<char*>(buffer) + at,
+                                     size - at, &got, nullptr);
+            if (!ok && GetLastError() != ERROR_MORE_DATA) {
+                return false;
+            }
+            if (got == 0) {
+                return false;
+            }
+            at += got;
+        }
+        return true;
+    }
+
     HANDLE pipe = INVALID_HANDLE_VALUE;
 };
 
