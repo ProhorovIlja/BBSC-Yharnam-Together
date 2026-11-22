@@ -98,6 +98,9 @@ class SafeCoopUpdateTests(unittest.TestCase):
                      if isinstance(node, ast.Call) and
                      isinstance(node.func, ast.Attribute)]
         self.assertTrue(any(node.func.attr == 'prepare_coop_update' for node in callbacks))
+        names = {node.attr for node in ast.walk(coop_install) if isinstance(node, ast.Attribute)}
+        self.assertIn('coop_busy', names, 'never upgrade during co-op preparation')
+        self.assertIn('installing', names, 'never upgrade during another installation')
         self.assertFalse(any(node.func.attr == 'stop_servers' for node in callbacks))
         self.assertFalse(any(node.func.attr == 'back_up_saves' for node in callbacks))
         self.assertTrue(any(isinstance(node, ast.Attribute) and
