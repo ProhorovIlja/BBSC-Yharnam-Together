@@ -16,6 +16,7 @@ import math
 import os
 import re
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -35,6 +36,9 @@ BODY_MAX = 8 << 20
 HTTP_IDLE_TIMEOUT_S = 10
 POST_BODY_DEADLINE_S = 10
 POST_READ_CHUNK = 16 * 1024
+# Limit kernel-thread growth from unauthenticated connections with partial headers/bodies.
+# A full worker still gets its own POST deadline; excess clients receive HTTP 503.
+MAX_ACTIVE_HTTP_REQUESTS = 256
 # Directory entries are used by launchers and ShadNet for region redirect.
 # Keep these consistent with Region::EndpointOf and launcher shard_address.
 SHARD_UNROUTABLE = tuple(ipaddress.IPv4Network(value) for value in (
@@ -379,8 +383,50 @@ def make_handler(directory, token):
     return Handler
 
 
+class BoundedDirectoryHTTPServer(ThreadingHTTPServer):
+    """Bound concurrent request workers; the main accept loop remains responsive.
+
+    No polling thread, scheduled cleanup or background monitor is started by
+    this limit: it gates only requests accepted in the foreground server loop.
+    """
+    max_active_requests = MAX_ACTIVE_HTTP_REQUESTS
+
+    def server_bind(self):
+        # Created before ThreadingHTTPServer starts accepting connections.
+        self._worker_slots = threading.BoundedSemaphore(self.max_active_requests)
+        super().server_bind()
+
+    def process_request(self, request, client_address):
+        if not self._worker_slots.acquire(blocking=False):
+            try:
+                body = b'{"error":"directory busy"}'
+                response = (b'HTTP/1.0 503 Service Unavailable\r\n'
+                            b'Content-Type: application/json\r\n'
+                            b'Connection: close\r\n'
+                            b'Content-Length: ' + str(len(body)).encode('ascii') +
+                            b'\r\n\r\n' + body)
+                request.sendall(response)
+            except OSError:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            # Thread creation failed before the handler started.
+            self._worker_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._worker_slots.release()
+
+
 def serve(directory, token, port=8080, host='0.0.0.0'):
-    server = ThreadingHTTPServer((host, port), make_handler(directory, token))
+    server = BoundedDirectoryHTTPServer((host, port), make_handler(directory, token))
     server.daemon_threads = True
     return server
 
