@@ -156,7 +156,7 @@ class BundleTests(unittest.TestCase):
         self.assertIn('crash dumps', text)
         self.assertIn('account names', text)
         self.assertIn('host_overrides.custom.json', text)
-        self.assertIn('\\n', text.replace('\n', '\\n'))
+        self.assertIn('\n', text)
 
     def test_support_bundle_never_auto_attaches_private_override_settings(self):
         write(self.user / 'host_overrides.custom.json',
