@@ -39,12 +39,12 @@ SUPPORT_SETTINGS_KEYS = frozenset({
 })
 LEFT_OUT = '(left out)'
 PRIVACY_NOTICE = (
-    'Yharnam Together support archive — review before sharing.\\n'
-    'This ZIP contains raw logs and possibly crash dumps. They may reveal account names,\\n'
-    'network addresses or sensitive text/memory despite redaction of coop.json settings.\\n'
-    'Inspect every included file before uploading to a public issue or sending to others.\\n'
-    'Personal game saves, game assets and host_overrides.custom.json are not automatically\\n'
-    'included. Avoid attaching them manually without reviewing the content.\\n'
+    'Yharnam Together support archive — review before sharing.\n'
+    'This ZIP contains raw logs and possibly crash dumps. They may reveal account names,\n'
+    'network addresses or sensitive text/memory despite redaction of coop.json settings.\n'
+    'Inspect every included file before uploading to a public issue or sending to others.\n'
+    'Personal game saves, game assets and host_overrides.custom.json are not automatically\n'
+    'included. Avoid attaching them manually without reviewing the content.\n'
 )
 
 
