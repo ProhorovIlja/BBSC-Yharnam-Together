@@ -152,6 +152,26 @@ class DirectoryTests(unittest.TestCase):
             with self.assertRaises(d.Refused):
                 self.directory.heartbeat(bad)
 
+    def test_shard_metrics_are_typed_bounded_and_finite(self):
+        for field, values in (
+                ('capacity', (0, -1, True, '800', 0.5, 1_000_001, None)),
+                ('count', (-1, False, '0', 0.5, 1_000_001, None)),
+                ('draining', ('false', 0, 1, None, [])),
+                ('load', ('0.4', True, -0.1, float('nan'), float('inf'),
+                          float('-inf'), None))):
+            for value in values:
+                with self.subTest(field=field, value=value):
+                    with self.assertRaises(d.Refused):
+                        self.directory.heartbeat(dict(beat('bad', 31314), **{field: value}))
+        # Bad metrics must not publish even a short-lived heartbeat or roster.
+        self.assertEqual(self.directory.shards(), [])
+        self.assertEqual(self.redis.smembers('shards'), set())
+        healthy = dict(beat('valid', 31314), count=2, draining=False, load=0.5)
+        self.directory.heartbeat(healthy)
+        self.assertEqual(self.directory.shards()[0]['players'], 2)
+        self.assertEqual(self.directory.shards()[0]['load'], 0.5)
+        self.assertIs(self.directory.shards()[0]['draining'], False)
+
     def test_directory_refuses_unroutable_redirect_targets_before_publication(self):
         for host in ('100.64.0.1', '100.127.255.254', '192.0.2.7',
                      '198.18.1.1', '198.19.255.254', '198.51.100.3',
