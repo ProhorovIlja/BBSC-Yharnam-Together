@@ -383,5 +383,108 @@ class RedisSocketTimeoutTests(unittest.TestCase):
             thread.join(timeout=3)
 
 
+
+class AbsoluteHeaderDeadlineTests(unittest.TestCase):
+    """No fakeredis is necessary: exercise the actual listening HTTP handler."""
+
+    def setUp(self):
+        import directory as module
+
+        class ReadyRedis:
+            def ping(self):
+                return True
+
+        class ReadyDirectory:
+            redis = ReadyRedis()
+
+            def heartbeat(self, body):
+                return {'received': body}
+
+        self.module = module
+        self.server = module.serve(ReadyDirectory(), 'token', host='127.0.0.1',
+                                   port=0, max_workers=1)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=3)
+
+    def connect(self):
+        peer = socket.create_connection(self.server.server_address, timeout=2)
+        peer.settimeout(2)
+        return peer
+
+    def response(self, payload):
+        with self.connect() as peer:
+            peer.sendall(payload)
+            parts = []
+            while data := peer.recv(4096):
+                parts.append(data)
+            return b''.join(parts)
+
+    def test_valid_headers_and_body_bytes_buffered_with_the_headers(self):
+        # A single recv can contain the whole request line, headers and body.
+        self.assertTrue(self.response(
+            b'GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n').startswith(b'HTTP/1.0 200'))
+        body = b'{"shard":"ok"}'
+        reply = self.response(
+            b'POST /v1/heartbeat HTTP/1.1\r\nHost: x\r\n'
+            b'Authorization: Bearer token\r\nContent-Length: %d\r\n\r\n' % len(body) + body)
+        self.assertTrue(reply.startswith(b'HTTP/1.0 200'), reply[:80])
+        self.assertIn(b'ok', reply)
+
+    def test_byte_drip_inside_a_single_line_releases_the_worker(self):
+        from unittest.mock import patch
+
+        # An idle timeout alone does not stop successive bytes in one line.
+        with patch.object(self.module, 'HTTP_HEADER_DEADLINE_S', 0.25):
+            for prefix in (b'G',
+                           b'GET /healthz HTTP/1.1\r\nHost: x\r\nX-Slow: '):
+                with self.subTest(prefix=prefix):
+                    with self.connect() as peer:
+                        peer.sendall(prefix)
+                        for _ in range(10):
+                            time.sleep(0.045)
+                            try:
+                                peer.sendall(b'z')
+                            except (BrokenPipeError, ConnectionResetError):
+                                break
+                        try:
+                            reply = peer.recv(1024)
+                        except ConnectionResetError:
+                            reply = b''
+                        self.assertNotIn(b'HTTP/1.0 200', reply)
+                    deadline = time.monotonic() + 2
+                    while self.server._worker_slots._value != 1 and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertEqual(self.server._worker_slots._value, 1)
+                    self.assertTrue(self.response(
+                        b'GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n'
+                    ).startswith(b'HTTP/1.0 200'))
+
+    def test_header_timeout_frees_capacity_after_503(self):
+        from unittest.mock import patch
+
+        with patch.object(self.module, 'HTTP_HEADER_DEADLINE_S', 0.35):
+            with self.connect() as slow:
+                slow.sendall(b'GET /healthz HTTP/1.1\r\nHost: x\r\nX-Slow: ')
+                deadline = time.monotonic() + 2
+                while self.server._worker_slots._value != 0 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(self.server._worker_slots._value, 0)
+                with self.connect() as rejected:
+                    rejected.sendall(b'GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n')
+                    self.assertTrue(rejected.recv(1024).startswith(b'HTTP/1.0 503'))
+                deadline = time.monotonic() + 2
+                while self.server._worker_slots._value != 1 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(self.server._worker_slots._value, 1)
+            self.assertTrue(self.response(
+                b'GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n'
+            ).startswith(b'HTTP/1.0 200'))
+
+
 if __name__ == '__main__':
     unittest.main()
