@@ -498,11 +498,11 @@ class AnswersTests(unittest.TestCase):
 
     def test_the_launcher_starts_on_the_players_shard_or_the_least_loaded(self):
         key = 'ab' * 32
-        shards = [{'name': 'eu-1', 'address': '203.0.113.1:31314', 'key': key, 'players': 700, 'capacity': 800,
+        shards = [{'name': 'eu-1', 'address': '10.9.0.1:31314', 'key': key, 'players': 700, 'capacity': 800,
                    'draining': False},
-                  {'name': 'eu-2', 'address': '203.0.113.2:31314', 'key': key, 'players': 100, 'capacity': 800,
+                  {'name': 'eu-2', 'address': '10.9.0.2:31314', 'key': key, 'players': 100, 'capacity': 800,
                    'draining': False},
-                  {'name': 'eu-3', 'address': '203.0.113.3:40000', 'key': key, 'players': 0, 'capacity': 800,
+                  {'name': 'eu-3', 'address': '10.9.0.3:40000', 'key': key, 'players': 0, 'capacity': 800,
                    'draining': True},
                   {'name': 'bad', 'address': 'nowhere', 'key': key, 'players': 0, 'capacity': 800}]
         self.assertEqual(coop.pick_shard(shards)['name'], 'eu-2')
@@ -520,9 +520,9 @@ class AnswersTests(unittest.TestCase):
                 return None  # 404: nowhere yet
             return {'shards': shards}
         self.assertEqual(coop.resolve_region('https://eu.example.com', 'Ada', fetch=fetch),
-                         ('203.0.113.1', 31314, key, 'eu-1'))
+                         ('10.9.0.1', 31314, key, 'eu-1'))
         self.assertEqual(asked, ['https://eu.example.com/v1/where?player=Ada', 'https://eu.example.com/v1/shards'])
-        self.assertEqual(coop.resolve_region('https://eu.example.com', 'Bob', fetch=fetch)[:2], ('203.0.113.2', 31314))
+        self.assertEqual(coop.resolve_region('https://eu.example.com', 'Bob', fetch=fetch)[:2], ('10.9.0.2', 31314))
         with self.assertRaises(RuntimeError):
             coop.resolve_region('https://eu.example.com', 'Bob', fetch=lambda url: {'shards': [shards[2]]})
 
@@ -536,14 +536,14 @@ class AnswersTests(unittest.TestCase):
         other = 'cd' * 32
         made = coop.region_settings(settings, fetch=fetch)
         self.assertEqual((made['host_ip'], made['link_port'], made['link_key'], made['server']),
-                         ('203.0.113.1', '31314', key, 'https://eu.example.com'))
+                         ('10.9.0.1', '31314', key, 'https://eu.example.com'))
         with mock.patch.dict(coop.KNOWN_SERVER_KEYS, {'https://eu.example.com': other}):
             self.assertEqual(coop.region_settings(settings, fetch=fetch)['link_key'], other)
         env = coop.game_environment({}, dict(made, link_key=key), Path('.'), Path('.'))
-        self.assertEqual(env['BB_SHADNET_SERVER'], '203.0.113.1:31314')
-        self.assertEqual(env['BB_SHADNET_WEBAPI'], 'http://203.0.113.1:31315')
+        self.assertEqual(env['BB_SHADNET_SERVER'], '10.9.0.1:31314')
+        self.assertEqual(env['BB_SHADNET_WEBAPI'], 'http://10.9.0.1:31315')
         env = coop.game_environment({}, dict(made, link_port='40000'), Path('.'), Path('.'))
-        self.assertEqual(env['BB_SHADNET_SERVER'], '203.0.113.1:40000')
+        self.assertEqual(env['BB_SHADNET_SERVER'], '10.9.0.1:40000')
         env = coop.game_environment({}, dict(coop.DEFAULTS, host_ip='26.1.2.3', account='a', password='b'), Path('.'),
                                     Path('.'))
         self.assertEqual(env['BB_SHADNET_SERVER'], f'26.1.2.3:{coop.MATCHING_PORT}', 'a home host as before')
@@ -579,10 +579,10 @@ class AnswersTests(unittest.TestCase):
                 coop.fetch_json(url)
 
         key = 'ab' * 32
-        good = {'address': '203.0.113.1:31314', 'key': key, 'players': 0,
+        good = {'address': '10.8.0.1:31314', 'key': key, 'players': 0,
                 'capacity': 5, 'name': 'eu-1'}
         self.assertEqual(coop.pick_shard([None, 'text', {'address': 'x'}, good]), good)
-        for host in ('10.0.0.5', '26.1.2.3', '100.64.0.2', '203.0.113.1'):
+        for host in ('10.0.0.5', '26.1.2.3', '192.168.1.8'):
             self.assertEqual(coop.shard_address({'address': host + ':31314'}), (host, 31314))
         for invalid in (
             dict(good, address='999.999.999.999:31314'),
@@ -591,6 +591,12 @@ class AnswersTests(unittest.TestCase):
             dict(good, address='224.1.2.3:31314'),
             dict(good, address='255.255.255.255:31314'),
             dict(good, address='169.254.22.8:31314'),
+            dict(good, address='100.64.0.2:31314'),
+            dict(good, address='100.127.255.254:31314'),
+            dict(good, address='192.0.2.1:31314'),
+            dict(good, address='198.18.10.1:31314'),
+            dict(good, address='198.51.100.2:31314'),
+            dict(good, address='203.0.113.1:31314'),
             dict(good, address='127.0.0.1:31314'),
             dict(good, players='0'),
             dict(good, players=True),
@@ -614,19 +620,19 @@ class AnswersTests(unittest.TestCase):
                                 [] if '/v1/where' in endpoint else {'shards': [good]})
         self.assertEqual(coop.resolve_region(url, 'Hunter', fetch=lambda endpoint:
                          None if '/v1/where' in endpoint else {'shards': [good]})[:2],
-                         ('203.0.113.1', 31314))
+                         ('10.8.0.1', 31314))
 
     def test_where_preference_must_match_a_live_directory_shard(self):
         key = 'ab' * 32
-        primary = {'name': 'a', 'address': '203.0.113.1:31314', 'key': key,
+        primary = {'name': 'a', 'address': '10.9.0.1:31314', 'key': key,
                    'players': 3, 'capacity': 5, 'draining': False}
-        secondary = dict(primary, name='b', address='203.0.113.2:31314',
+        secondary = dict(primary, name='b', address='10.9.0.2:31314',
                          players=0)
         shards = [primary, secondary]
         self.assertEqual(coop.pick_shard(shards, dict(primary))['name'], 'a')
         self.assertIs(coop.pick_shard(shards, dict(primary)), primary,
                       'use the authoritative fresh shard row')
-        self.assertEqual(coop.pick_shard(shards, dict(primary, address='203.0.113.99:31314'))['name'], 'b')
+        self.assertEqual(coop.pick_shard(shards, dict(primary, address='10.9.0.99:31314'))['name'], 'b')
         self.assertEqual(coop.pick_shard(shards, dict(primary, key='cd' * 32))['name'], 'b')
         self.assertEqual(coop.pick_shard(shards, dict(primary, name='forged'))['name'], 'b')
         self.assertEqual(coop.pick_shard(shards, dict(primary, draining=True))['name'], 'b')
@@ -635,10 +641,10 @@ class AnswersTests(unittest.TestCase):
         self.assertEqual(coop.pick_shard(shards)['name'], 'b')
         def fetch(url):
             if '/v1/where' in url:
-                return {'shard': dict(primary, address='203.0.113.99:31314')}
+                return {'shard': dict(primary, address='10.9.0.99:31314')}
             return {'shards': shards}
         self.assertEqual(coop.resolve_region('https://eu.example.com', 'Hunter', fetch=fetch)[:2],
-                         ('203.0.113.2', 31314))
+                         ('10.9.0.2', 31314))
 
     def test_a_copied_install_makes_its_own_player_id(self):
         # Player report 2026-10-24: a friend's install copied with its user\\coop.json gave two PCs one
