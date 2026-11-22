@@ -38,7 +38,8 @@ POST_BODY_DEADLINE_S = 10
 POST_READ_CHUNK = 16 * 1024
 # Limit kernel-thread growth from unauthenticated connections with partial headers/bodies.
 # A full worker still gets its own POST deadline; excess clients receive HTTP 503.
-MAX_ACTIVE_HTTP_REQUESTS = 256
+MAX_ACTIVE_HTTP_REQUESTS = 64
+MAX_CONFIGURED_HTTP_REQUESTS = 256
 # Directory entries are used by launchers and ShadNet for region redirect.
 # Keep these consistent with Region::EndpointOf and launcher shard_address.
 SHARD_UNROUTABLE = tuple(ipaddress.IPv4Network(value) for value in (
@@ -391,6 +392,13 @@ class BoundedDirectoryHTTPServer(ThreadingHTTPServer):
     """
     max_active_requests = MAX_ACTIVE_HTTP_REQUESTS
 
+    def __init__(self, *args, max_workers=None, **kwargs):
+        workers = self.max_active_requests if max_workers is None else max_workers
+        if type(workers) is not int or not 1 <= workers <= MAX_CONFIGURED_HTTP_REQUESTS:
+            raise ValueError('directory HTTP worker budget must be between 1 and 256')
+        self.max_active_requests = workers
+        super().__init__(*args, **kwargs)
+
     def server_bind(self):
         # Created before ThreadingHTTPServer starts accepting connections.
         self._worker_slots = threading.BoundedSemaphore(self.max_active_requests)
@@ -405,6 +413,8 @@ class BoundedDirectoryHTTPServer(ThreadingHTTPServer):
                             b'Connection: close\r\n'
                             b'Content-Length: ' + str(len(body)).encode('ascii') +
                             b'\r\n\r\n' + body)
+                # Never hold the accept loop indefinitely to explain overload.
+                request.settimeout(0.1)
                 request.sendall(response)
             except OSError:
                 pass
@@ -425,8 +435,9 @@ class BoundedDirectoryHTTPServer(ThreadingHTTPServer):
             self._worker_slots.release()
 
 
-def serve(directory, token, port=8080, host='0.0.0.0'):
-    server = BoundedDirectoryHTTPServer((host, port), make_handler(directory, token))
+def serve(directory, token, port=8080, host='0.0.0.0', max_workers=None):
+    server = BoundedDirectoryHTTPServer((host, port), make_handler(directory, token),
+                                        max_workers=max_workers)
     server.daemon_threads = True
     return server
 
@@ -438,8 +449,15 @@ def main():
         sys.exit('DIRECTORY_TOKEN is needed')
     client = redis.Redis.from_url(os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0'))
     port = int(os.environ.get('PORT', '8080'))
-    server = serve(Directory(client), token, port)
-    print(f'directory: on port {port}', flush=True)
+    try:
+        max_workers = int(os.environ.get('DIRECTORY_MAX_HTTP_WORKERS', str(MAX_ACTIVE_HTTP_REQUESTS)))
+    except ValueError:
+        sys.exit('DIRECTORY_MAX_HTTP_WORKERS must be an integer from 1 to 256')
+    try:
+        server = serve(Directory(client), token, port, max_workers=max_workers)
+    except ValueError as error:
+        sys.exit(str(error))
+    print(f'directory: on port {port}, HTTP workers <= {max_workers}', flush=True)
     server.serve_forever()
 
 
