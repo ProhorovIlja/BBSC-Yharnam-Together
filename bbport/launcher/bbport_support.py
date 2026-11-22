@@ -24,7 +24,7 @@ KEPT_TRACES = 3
 KEPT_DUMPS = 3
 # What the zip leaves out of user\log: what we sent already is noted, not news.
 SKIPPED_LOG_NAMES = {bbport_coop.REPORTS_SENT}
-SECRET_KEYS = ('password',)
+SECRET_KEYS = frozenset({'password', 'secret', 'token', 'access_token', 'refresh_token', 'global_token'})
 LEFT_OUT = '(left out)'
 
 
@@ -103,8 +103,25 @@ def log_files(log):
 
 
 def without_secrets(settings):
-    """coop.json's settings with the password replaced: the player id stays (the server's log names it)."""
-    return {key: (LEFT_OUT if key in SECRET_KEYS and value else value) for key, value in settings.items()}
+    """Scrub credentials from support settings; keep nonsecret IDs for diagnostics.
+
+    coop.json can carry per-server credentials in server_ids: {host: [account, secret]}.
+    Mask the nested secret too, and fail closed on unknown nested formats.
+    Never mutate the real launcher's in-memory settings.
+    """
+    safe = {key: (LEFT_OUT if key in SECRET_KEYS and value else value)
+            for key, value in settings.items()}
+    per_server = settings.get('server_ids')
+    if isinstance(per_server, dict):
+        safe['server_ids'] = {
+            host: ([pair[0], LEFT_OUT]
+                   if isinstance(pair, (list, tuple)) and len(pair) == 2 and
+                   isinstance(pair[0], str) else LEFT_OUT)
+            for host, pair in per_server.items()
+        }
+    elif per_server:
+        safe['server_ids'] = LEFT_OUT
+    return safe
 
 
 def hide_home(text, home=None):
