@@ -149,6 +149,15 @@ class BundleTests(unittest.TestCase):
         self.assertIn('freeze-1792733895.txt', files['missing.txt'])
         self.assertIn('log/shad_log.txt', files)
 
+    def test_raw_logs_are_explicitly_marked_as_sensitive(self):
+        _failed, contents = self.make()
+        text = contents['REVIEW-BEFORE-SHARING.txt']
+        self.assertIn('review before sharing', text)
+        self.assertIn('crash dumps', text)
+        self.assertIn('account names', text)
+        self.assertIn('host_overrides.custom.json', text)
+        self.assertIn('\n', text)
+
     def test_support_bundle_never_auto_attaches_private_override_settings(self):
         write(self.user / 'host_overrides.custom.json',
               '{"password":"private-override","refresh_token":"also-private"}')
@@ -249,7 +258,7 @@ class BundleTests(unittest.TestCase):
         target = self.root / 'fresh.zip'
         self.assertEqual(support.make_bundle(target, empty, texts={'system.txt': 'x'}), [])
         with zipfile.ZipFile(target) as bundle:
-            self.assertEqual(bundle.namelist(), ['system.txt'])
+            self.assertEqual(bundle.namelist(), ['REVIEW-BEFORE-SHARING.txt', 'system.txt'])
 
 
 class ReportTests(unittest.TestCase):
