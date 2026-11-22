@@ -30,6 +30,10 @@ REVOKED_S = 31 * 24 * 3600
 REVOKED_MAX = 50000
 SIGNED_ID = re.compile(r'[du][0-9a-f]{14}')
 BODY_MAX = 8 << 20
+# Bound unauthenticated HTTP body reads; an incomplete POST must not hold a worker forever.
+HTTP_IDLE_TIMEOUT_S = 10
+POST_BODY_DEADLINE_S = 10
+POST_READ_CHUNK = 16 * 1024
 # Directory entries are used by launchers and ShadNet for region redirect.
 # Keep these consistent with Region::EndpointOf and launcher shard_address.
 SHARD_UNROUTABLE = tuple(ipaddress.IPv4Network(value) for value in (
@@ -252,6 +256,28 @@ def make_handler(directory, token):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'shadnet-directory/1'
 
+        def setup(self):
+            # Includes parsing the request line and headers, before authentication.
+            self.request.settimeout(HTTP_IDLE_TIMEOUT_S)
+            super().setup()
+
+        def read_post_body(self, size):
+            # read1() returns the available bytes rather than waiting for an entire
+            # large read, so the absolute deadline is checked even for slow drips.
+            deadline = time.monotonic() + POST_BODY_DEADLINE_S
+            chunks = []
+            while size:
+                remaining_s = deadline - time.monotonic()
+                if remaining_s <= 0:
+                    raise TimeoutError('request body deadline')
+                self.connection.settimeout(remaining_s)
+                part = self.rfile.read1(min(size, POST_READ_CHUNK))
+                if not part:
+                    raise EOFError('truncated request body')
+                chunks.append(part)
+                size -= len(part)
+            return b''.join(chunks)
+
         def log_message(self, fmt, *args):  # one line a request is too many at 1000s a second
             pass
 
@@ -295,12 +321,35 @@ def make_handler(directory, token):
             call = routes.get(urlparse(self.path).path)
             if call is None:
                 return self.answer(404, {'error': 'no such call'})
-            size = int(self.headers.get('Content-Length') or 0)
+            lengths = self.headers.get_all('Content-Length', [])
+            # Duplicate lengths, even identical values, are ambiguous between
+            # parsers/proxies. Reject rather than risking request desync.
+            if len(lengths) != 1 or self.headers.get_all('Transfer-Encoding'):
+                self.close_connection = True
+                return self.answer(400, {'error': 'invalid content length'})
+            raw_length = lengths[0]
+            if not raw_length.isascii() or not raw_length.isdecimal():
+                self.close_connection = True
+                return self.answer(400, {'error': 'invalid content length'})
+            # Avoid Python's integer-conversion digit limit (a long decimal
+            # Content-Length would otherwise throw out of the handler).
+            significant = raw_length.lstrip('0') or '0'
+            if len(significant) > len(str(BODY_MAX)):
+                return self.answer(413, {'error': 'too large'})
+            size = int(significant)
             if size > BODY_MAX:
                 return self.answer(413, {'error': 'too large'})
-            # Read the body before any answer: closing with unread data sends a reset,
-            # and the caller then loses the answer (WinError 10053 on Windows).
-            data = self.rfile.read(size)
+            # Preserve the successful full-body-before-refusal behavior for
+            # clients sending valid POST bodies, but cap the time spent reading.
+            try:
+                data = self.read_post_body(size)
+            except (OSError, EOFError, TimeoutError):
+                self.close_connection = True
+                try:
+                    self.answer(408, {'error': 'incomplete request body'})
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
             said = self.headers.get('Authorization', '')
             if not token or not hmac.compare_digest(said.encode(), f'Bearer {token}'.encode()):
                 return self.answer(401, {'error': 'token'})

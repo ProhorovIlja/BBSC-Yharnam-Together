@@ -219,6 +219,40 @@ class HttpTests(unittest.TestCase):
                 answer += chunk
         self.assertTrue(answer.startswith(b'HTTP/1.0 401'), answer[:40])
 
+    def test_invalid_post_lengths_do_not_block_an_http_worker(self):
+        # The directory reads before bearer authentication to avoid resetting
+        # ordinary clients. Invalid size must fail *before* a blocking read.
+        for header, expected in (
+                (b'Content-Length: -1', b'400'),
+                (b'Content-Length: NaN', b'400'),
+                (b'Content-Length: 999999999999999999999', b'413'),
+                (b'Content-Length: ' + b'9' * 5000, b'413'),
+                (b'Content-Length: 8388609', b'413'),
+                (b'Transfer-Encoding: chunked', b'400'),
+                (b'Transfer-Encoding:', b'400'),
+                (b'Content-Length: 2\r\nContent-Length: 2', b'400'),
+                (b'Content-Length: 2\r\nContent-Length: 3', b'400')):
+            with self.subTest(header=header):
+                with socket.create_connection(self.server.server_address, timeout=2) as caller:
+                    caller.settimeout(2)
+                    caller.sendall(b'POST /v1/heartbeat HTTP/1.1\r\nHost: x\r\n' +
+                                   header + b'\r\n\r\n')
+                    response = caller.recv(512)
+                    self.assertTrue(response.startswith(b'HTTP/1.0 ' + expected),
+                                    response[:100])
+
+    def test_truncated_post_body_has_absolute_deadline(self):
+        from unittest.mock import patch
+        # Two bytes of a four-byte body are supplied and the caller holds the
+        # connection open. The handler must answer rather than wait forever.
+        with patch.object(d, 'POST_BODY_DEADLINE_S', 0.25):
+            with socket.create_connection(self.server.server_address, timeout=2) as caller:
+                caller.settimeout(2)
+                caller.sendall(b'POST /v1/heartbeat HTTP/1.1\r\nHost: x\r\n'
+                               b'Content-Length: 4\r\n\r\n{}')
+                response = caller.recv(512)
+                self.assertTrue(response.startswith(b'HTTP/1.0 408'), response[:100])
+
     def test_a_launcher_reads_the_shards_and_where_its_player_is(self):
         self.call('/v1/heartbeat', beat('eu-1', 1, players=['Ada']))
         status, answer = self.call('/v1/shards', token='')
