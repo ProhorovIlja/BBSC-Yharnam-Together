@@ -383,6 +383,19 @@ class OfflineTests(unittest.TestCase):
         done.assert_called_once()
         self.assertEqual(done.call_args.args[1].text(), auth.BUSY_TEXT)
         done.reset_mock()
+        with mock.patch.object(auth.threading, 'Thread', side_effect=OSError(PASSWORD)):
+            auth.run_thread(mock.Mock(), done)
+        done.assert_called_once()
+        self.assertEqual(done.call_args.args[1].text(), auth.BUSY_TEXT)
+        self.assertNotIn(PASSWORD, repr(done.call_args))
+        done.reset_mock()
+        with mock.patch.object(auth.threading, 'Thread') as thread:
+            thread.return_value.start.side_effect = OSError(PASSWORD)
+            auth.run_thread(mock.Mock(), done)
+        done.assert_called_once()
+        self.assertEqual(done.call_args.args[1].text(), auth.BUSY_TEXT)
+        self.assertNotIn(PASSWORD, repr(done.call_args))
+        done.reset_mock()
         with mock.patch.object(auth.threading, 'Thread') as thread:
             auth.run_thread(mock.Mock(side_effect=ValueError(PASSWORD)), done)
             thread.call_args.kwargs['target']()
