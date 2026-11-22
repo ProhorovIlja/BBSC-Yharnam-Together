@@ -203,6 +203,21 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(private.read_text(encoding='utf-8'), 'original-private')
         self.assertFalse(list(output.glob('*.part-*')), 'unique staging should be cleaned')
 
+    def test_log_rotation_disappearance_does_not_abort_newest_sort(self):
+        first = self.user / 'log' / 'coop-trace-20261020-120000-1.txt'
+        second = self.user / 'log' / 'coop-trace-20261021-120000-1.txt'
+        write(first, 'older', when=1792700001)
+        write(second, 'newer', when=1792700002)
+        actual_stat = Path.stat
+
+        def log_disappeared(path, *args, **kwargs):
+            if Path(path) == first:
+                raise FileNotFoundError('rotated before metadata read')
+            return actual_stat(path, *args, **kwargs)
+
+        with mock.patch.object(Path, 'stat', log_disappeared):
+            self.assertEqual(support.newest([first, second], 2), [second])
+
     def test_staging_is_removed_if_zip_write_fails(self):
         output = self.root / 'out'
         real_write = zipfile.ZipFile.writestr
