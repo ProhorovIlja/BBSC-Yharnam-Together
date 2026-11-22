@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include "client_session.h"
+#include "bounded_socket_drain.h"
 #include "proto_utils.h"
 #include "protocol.h"
 #include "shadnet.pb.h"
@@ -39,10 +40,15 @@ void ClientSession::Start() {
 }
 
 void ClientSession::OnReadyRead() {
-    Take(m_socket->readAll());
+    ShadNet::DrainClientSocket(*m_socket,
+                              [this](const QByteArray& chunk) { Take(chunk); },
+                              [this] { return !m_inbound_invalid; });
 }
 
 void ClientSession::Take(const QByteArray& bytes) {
+    if (m_inbound_invalid) {
+        return;
+    }
     m_readBuf.append(bytes);
 
     while (m_readBuf.size() >= static_cast<int>(HEADER_SIZE)) {
@@ -53,6 +59,7 @@ void ClientSession::Take(const QByteArray& bytes) {
             // Only Request packets (type 0) come from the client.
             // Anything else is a protocol violation — drop the connection.
             qWarning() << "Unexpected packet type" << hdr[0] << "— disconnecting";
+            m_inbound_invalid = true;
             m_socket->disconnectFromHost();
             return;
         }
@@ -68,6 +75,7 @@ void ClientSession::Take(const QByteArray& bytes) {
         // A size under the header's would leave the bytes where they are and loop on them for ever.
         if (pktSize > MAX_PACKET_SIZE || pktSize < HEADER_SIZE) {
             qWarning() << "Bad packet size" << pktSize;
+            m_inbound_invalid = true;
             m_socket->disconnectFromHost();
             return;
         }
@@ -78,6 +86,9 @@ void ClientSession::Take(const QByteArray& bytes) {
         m_readBuf.remove(0, pktSize);
 
         ProcessPacket(command, pktId, payload);
+        if (m_inbound_invalid) {
+            return; // reject queued frames after a malformed command too
+        }
     }
 }
 
@@ -107,6 +118,7 @@ void ClientSession::ProcessPacket(uint16_t command, uint64_t packetId, const QBy
 
     if (result == ErrorType::Malformed) {
         qWarning() << "Malformed command" << command << "- disconnecting";
+        m_inbound_invalid = true;
         m_socket->disconnectFromHost();
     }
 }
