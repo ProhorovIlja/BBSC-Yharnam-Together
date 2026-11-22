@@ -1,5 +1,10 @@
 # Playable edition — issue triage and closure rules
 
+## New manually staged source-only acceptance blockers — 2026-11-22
+
+- [#378 — support ZIP filesystem privacy](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/378): unmerged candidate refuses obvious symlinks, Python 3.11 Windows reparse points/junctions and automatic raw host overrides, uses an exclusive random ZIP scratch file, cleans partials and warns the player before sharing. **Open** until full Windows/Linux archive, antivirus/rotation and race-free file-handle checks; isolated local filesystem smoke is not full client acceptance.
+- [#379 — fail-closed installed game updater](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/379): unmerged candidate makes the game installer wait for a byte-verified backup, aborts cleanly if disk/network fails and declines overlapping installs. Similar narrow direction exists in draft [#272](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/pull/272). **Open** pending complete game-installer and Windows savedata trials. Separate from portable ZIP updater #283 and cross-file save durability #377.
+
 ## Verified current issue state — 2026-11-22
 
 The owner **closed [#22](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/22) on 2026-11-21 at 20:56:57 UTC**. Narrow [#349](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/349) is also closed. Do not reopen either automatically, even where older historical notes below say “keep #22 open.” Instead [new P0 #377](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/377) independently tracks the unverified cross-file crash/power-loss transaction and game-native save ACK. Existing [#35](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/35) and [#137](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/137) remain open for guest rewards. These are distinct acceptance gates, not evidence that the historical #22 fix failed. The older tables retain their contemporaneous historical wording.
