@@ -536,6 +536,9 @@ int MalformedDirectoryShardCannotRedirect() {
           shard("linklocal", "169.254.20.30:31314", 0, 100, false),
           shard("zero-net", "0.1.2.3:31314", 0, 100, false),
           shard("reserved", "240.2.3.4:31314", 0, 100, false),
+          shard("cgnat", "100.64.30.1:31314", 0, 100, false),
+          shard("documentation", "198.51.100.13:31314", 0, 100, false),
+          shard("benchmark", "198.18.0.1:31314", 0, 100, false),
           shard("empty", "10.2.0.7:31314", 0, 100, false)}}};
   QJsonObject legacy = shard("legacy", "10.2.0.8:31314", 60, 100, false);
   legacy.remove("draining"); // older compatible directory omitted false
@@ -550,10 +553,21 @@ int MalformedDirectoryShardCannotRedirect() {
         !view.Find("fraction") && !view.Find("zero-cap") &&
         !view.Find("wrong-drain") && !view.Find("multicast") &&
         !view.Find("linklocal") && !view.Find("zero-net") &&
-        !view.Find("reserved"));
+        !view.Find("reserved") && !view.Find("cgnat") &&
+        !view.Find("documentation") && !view.Find("benchmark"));
   CHECK(Region::PlaceHello(view, "full", 100, 100, false)->name == "empty");
   CHECK(Region::EndpointOf("127.0.0.1:31314").has_value()); // local integration test
   CHECK(Region::EndpointOf("192.168.4.1:31314").has_value());
+  CHECK(Region::EndpointOf("172.20.4.1:31314").has_value());
+  CHECK(Region::EndpointOf("100.63.255.254:31314").has_value());
+  // Shared addressing and RFC 5737 test networks must not be redirect targets.
+  CHECK(!Region::EndpointOf("100.64.0.1:31314") &&
+        !Region::EndpointOf("100.127.255.254:31314") &&
+        !Region::EndpointOf("192.0.2.1:31314") &&
+        !Region::EndpointOf("198.18.1.1:31314") &&
+        !Region::EndpointOf("198.19.255.254:31314") &&
+        !Region::EndpointOf("198.51.100.1:31314") &&
+        !Region::EndpointOf("203.0.113.1:31314"));
   CHECK(!Region::EndpointOf("224.0.0.1:31314") &&
         !Region::EndpointOf("169.254.1.1:31314") &&
         !Region::EndpointOf("0.0.0.1:31314") &&
