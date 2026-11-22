@@ -1,5 +1,12 @@
 # Playable edition — issue triage and closure rules
 
+## Latest source-confirmed P0 gap — 2026-11-22
+
+New [#381](https://github.com/ProhorovIlja/BBSC-Yharnam-Together/issues/381) covers a real launcher backup/restore coverage mismatch: the game archives old personal worlds as a slot .txt file plus .txt.N suffix, but the launcher only copied/restored .txt. Unmerged integration now includes both normal co-op sidecars and numbered recovery archives, preserves Unicode-named legacy files, rejects linked sidecars, and removes stale numbered files before restore. New `test_coop_update_preflight.py` regressions and updated inherited `test_coop_launcher.py` static assertion are staged. The original regexp escaping mistake was caught and corrected **before merge**. Thirty-four local independently reconstructed Python tests passed, **not full repository/Windows/game CI**. #381 and related crash durability #377 and game updater #379 remain OPEN; do not change the owner's prior #22/#349 closures.
+
+Source files differ on 15 paths and docs on four paths from `main`; no release or automatic CI test was launched for this branch.
+
+
 ## Latest manually staged source additions — 2026-11-22
 
 The unmerged integration branch has additional source-only gates: #379 now includes exclusive backup-directory allocation, linked-root refusal and source data recheck after copying; #376 now caps redis-py connection/read socket waits at 3 seconds per operation (not a full-request deadline); #119 now uses a root-scoped Discord IPC `evt` discriminator instead of accepting nested fields; #280 returns generic busy error after any account-worker construction/start exception. The local synthetic source-faithful Python harness passes **31 tests**; the reconstructed C++20 Discord fixture passes g++, clang++ and ASan/UBSan. **No actual integrated full-repository run, installed game or production acceptance.** Do not close these tickets.
