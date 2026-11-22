@@ -189,7 +189,6 @@ public:
                 return true;
             }
             std::uint32_t header[2]{};
-            DWORD got = 0;
             if (!ReadExactly(header, 8) ||
                 !DiscordActivity::ValidIpcFrame(header[0], header[1])) {
                 Close();
