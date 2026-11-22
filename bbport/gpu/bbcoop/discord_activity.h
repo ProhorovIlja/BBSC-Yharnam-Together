@@ -34,21 +34,113 @@ inline std::string Json(const std::string& text) {
     return out + '"';
 }
 
-// The text value of `"key":"..."` after `from` in a Discord message, "" if none.
-inline std::string Field(const std::string& json, const std::string& key, std::size_t from = 0) {
-    const std::string tag = "\"" + key + "\":\"";
-    const std::size_t at = json.find(tag, from);
-    if (at == std::string::npos) {
-        return {};
+// Decode JSON string values fully, including Unicode-escaped hunter names.
+// This local IPC reader is not a generic JSON protocol parser.
+namespace FieldDetail {
+
+inline bool Hex4(const std::string& json, std::size_t& at, std::uint32_t& value) {
+    value = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (at == json.size()) return false;
+        const char c = json[at++];
+        const int digit = c >= '0' && c <= '9' ? c - '0' :
+                          c >= 'a' && c <= 'f' ? c - 'a' + 10 :
+                          c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+        if (digit < 0) return false;
+        value = (value << 4) | static_cast<std::uint32_t>(digit);
     }
-    std::string out;
-    for (std::size_t i = at + tag.size(); i < json.size() && json[i] != '"'; ++i) {
-        if (json[i] == '\\' && i + 1 < json.size()) {
-            ++i;
+    return true;
+}
+
+inline void Utf8(std::string& out, std::uint32_t cp) {
+    if (cp <= 0x7F) {
+        out.push_back(static_cast<char>(cp));
+    } else if (cp <= 0x7FF) {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else if (cp <= 0xFFFF) {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+}
+
+inline bool Quoted(const std::string& json, std::size_t& at, std::string& out) {
+    if (at == json.size() || json[at++] != '"') return false;
+    while (at < json.size()) {
+        const char c = json[at++];
+        if (c == '"') return true;
+        if (static_cast<unsigned char>(c) < 0x20) return false;
+        if (c != '\\') {
+            out.push_back(c);
+            continue;
         }
-        out += json[i];
+        if (at == json.size()) return false;
+        const char escaped = json[at++];
+        switch (escaped) {
+        case '"': case '\\': case '/': out.push_back(escaped); break;
+        case 'b': out.push_back('\b'); break;
+        case 'f': out.push_back('\f'); break;
+        case 'n': out.push_back('\n'); break;
+        case 'r': out.push_back('\r'); break;
+        case 't': out.push_back('\t'); break;
+        case 'u': {
+            std::uint32_t cp = 0;
+            if (!Hex4(json, at, cp)) return false;
+            if (cp >= 0xD800 && cp <= 0xDBFF) {
+                if (at + 2 > json.size() || json[at] != '\\' || json[at + 1] != 'u') {
+                    return false;
+                }
+                at += 2;
+                std::uint32_t low = 0;
+                if (!Hex4(json, at, low) || low < 0xDC00 || low > 0xDFFF) return false;
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+            } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+                return false;
+            }
+            Utf8(out, cp);
+            break;
+        }
+        default: return false;
+        }
     }
-    return out;
+    return false;
+}
+
+inline bool Whitespace(char c) {
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+} // namespace FieldDetail
+
+// Reads a string-valued JSON object field after the from offset.
+// Unlike substring matching, it handles legal spacing and never treats an
+// escaped field-looking sequence inside a string as a real key.
+inline std::string Field(const std::string& json, const std::string& key, std::size_t from = 0) {
+    std::size_t at = 0;
+    while (at < json.size()) {
+        if (json[at] != '"') {
+            ++at;
+            continue;
+        }
+        const std::size_t start = at;
+        std::string name;
+        if (!FieldDetail::Quoted(json, at, name)) return {};
+        std::size_t separator = at;
+        while (separator < json.size() && FieldDetail::Whitespace(json[separator])) ++separator;
+        if (start < from || separator == json.size() || json[separator] != ':' || name != key) {
+            continue;
+        }
+        ++separator;
+        while (separator < json.size() && FieldDetail::Whitespace(json[separator])) ++separator;
+        std::string value;
+        return FieldDetail::Quoted(json, separator, value) ? value : std::string{};
+    }
+    return {};
 }
 
 // The secret to join a team with room: its code ("c:", the leader has it), else its id ("t:")
